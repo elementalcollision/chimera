@@ -1,8 +1,14 @@
 /**
  * Mirror of chimera/providers/tiers.py MODEL_TIERS pricing.
- * Hand-kept; future v4.12 can autogenerate this from a JSON export
- * via `chimera tiers --json` so the two never drift.
+ *
+ * v4.14: when state/tiers.json exists (written by
+ * `chimera tiers --json`), it overrides the hand-kept MODEL_PRICES
+ * below. The hand-kept map remains as the fresh-install fallback.
  */
+import fs from "node:fs";
+import path from "node:path";
+import { stateDir } from "./paths";
+
 export interface ModelPrice {
   /** $ per million input tokens */
   inputCostPerMtok: number;
@@ -28,6 +34,44 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   "anthropic/claude-opus-4-7": { inputCostPerMtok: 15.0, outputCostPerMtok: 75.0 },
 };
 
+interface TiersSnapshot {
+  generated_at: string;
+  tiers: Record<string, Array<{
+    model_id: string;
+    openrouter_model_id?: string;
+    input_cost_per_mtok: number;
+    output_cost_per_mtok: number;
+  }>>;
+}
+
+function loadSnapshotPrices(): Record<string, ModelPrice> | null {
+  const p = path.join(stateDir(), "tiers.json");
+  if (!fs.existsSync(p)) return null;
+  try {
+    const snap = JSON.parse(fs.readFileSync(p, "utf-8")) as TiersSnapshot;
+    const out: Record<string, ModelPrice> = {};
+    for (const rungs of Object.values(snap.tiers)) {
+      for (const r of rungs) {
+        const price: ModelPrice = {
+          inputCostPerMtok: r.input_cost_per_mtok,
+          outputCostPerMtok: r.output_cost_per_mtok,
+        };
+        out[r.model_id] = price;
+        if (r.openrouter_model_id && r.openrouter_model_id !== r.model_id) {
+          out[r.openrouter_model_id] = price;
+        }
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+export function effectivePrices(): Record<string, ModelPrice> {
+  return loadSnapshotPrices() ?? MODEL_PRICES;
+}
+
 export interface CostBucket {
   modelId: string;
   calls: number;
@@ -41,10 +85,11 @@ export interface CostBucket {
 export function costByModel(
   rows: Array<{ model_id: string; input_tokens: number | null; output_tokens: number | null }>,
 ): CostBucket[] {
+  const prices = effectivePrices();
   const buckets = new Map<string, CostBucket>();
   for (const r of rows) {
     const model = r.model_id;
-    const price = MODEL_PRICES[model];
+    const price = prices[model];
     if (!buckets.has(model)) {
       buckets.set(model, {
         modelId: model,

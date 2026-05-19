@@ -28,9 +28,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "fragmentation",
         help="Show the v4.5 fragmentation log (compound-task failures).",
     )
-    sub.add_parser(
+    tiers = sub.add_parser(
         "tiers",
         help="Show every model rung in every tier ladder (v4.8+).",
+    )
+    tiers.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a JSON ladder snapshot AND mirror to state/tiers.json.",
     )
 
     run = sub.add_parser("run", help="Run one cycle of the agent loop (stub).")
@@ -307,6 +312,37 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.command == "tiers":
         from .providers.tiers import TIER_LADDERS
+        if args.json:
+            import json as _json
+            from .core import LoopConfig
+            from datetime import datetime, timezone
+
+            payload = {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "tiers": {
+                    tier: [
+                        {
+                            "model_id": r.config.model_id,
+                            "openrouter_model_id": r.config.openrouter_model_id,
+                            "provider": r.config.provider.value,
+                            "input_cost_per_mtok": r.config.input_cost_per_mtok,
+                            "output_cost_per_mtok": r.config.output_cost_per_mtok,
+                            "context_tokens": r.capabilities.context_tokens,
+                            "supports_tools": r.capabilities.supports_tools,
+                        }
+                        for r in rungs
+                    ]
+                    for tier, rungs in TIER_LADDERS.items()
+                },
+            }
+            blob = _json.dumps(payload, indent=2)
+            print(blob)
+            cfg = LoopConfig.from_env()
+            try:
+                (cfg.state_dir / "tiers.json").write_text(blob, encoding="utf-8")
+            except Exception:
+                pass  # best-effort snapshot
+            return 0
         for tier, rungs in TIER_LADDERS.items():
             print(f"chimera tiers: {tier} ({len(rungs)} rung(s))")
             for i, r in enumerate(rungs):
