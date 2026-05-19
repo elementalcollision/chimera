@@ -18,8 +18,10 @@ in ADR 0015.
 
 from __future__ import annotations
 
+import ast
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -126,7 +128,7 @@ class GraphStore:
                 pass
         for node in ["Entity", "Mutation", "ApiCall", "Peer", "Skill", "WikiDoc"]:
             try:
-                self._conn.execute(f"MATCH (n:{node}) DELETE n")
+                self._conn.execute(f"MATCH (n:{node}) DETACH DELETE n")
             except Exception:
                 pass
 
@@ -224,5 +226,109 @@ class GraphStore:
         except Exception:
             logger.exception("failed to project peers; continuing")
         counts["Peer"] = peer_count
+
+        counts.update(self._project_skills_and_wiki())
+        return counts
+
+    def _project_skills_and_wiki(
+        self,
+        *,
+        skills_dir: Path | None = None,
+        mind_dir: Path | None = None,
+    ) -> dict[str, int]:
+        """Project filesystem-only edges: skill deps, tool uses, wiki refs."""
+        from ..skills import dynamic_skills_dir
+
+        skills_dir = (skills_dir or dynamic_skills_dir()).resolve()
+        mind_dir = (mind_dir or Path("mind")).resolve()
+
+        counts = {"Skill": 0, "WikiDoc": 0, "DEPENDS_ON": 0, "USES_TOOL": 0, "REFERENCES": 0}
+
+        # Skills: one node per .py module (excluding __init__).
+        skill_files: list[Path] = [
+            p for p in skills_dir.glob("*.py") if p.stem != "__init__"
+        ]
+        skill_names = {p.stem for p in skill_files}
+        for p in skill_files:
+            self._conn.execute(
+                "CREATE (s:Skill {name: $n, source_path: $sp})",
+                parameters={"n": p.stem, "sp": str(p)},
+            )
+        counts["Skill"] = len(skill_files)
+
+        # Known tool names from the static registry (for USES_TOOL edges).
+        try:
+            from ..tools import ToolRegistry, register_core_tools
+
+            reg = ToolRegistry()
+            register_core_tools(reg)
+            tool_names = set(reg.names())
+        except Exception:
+            tool_names = set()
+
+        # AST scan each skill for imports (DEPENDS_ON) and tool calls (USES_TOOL).
+        for p in skill_files:
+            try:
+                tree = ast.parse(p.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            deps: set[str] = set()
+            uses: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    if node.module.startswith("chimera.tools.dynamic"):
+                        for n in node.names:
+                            if n.name in skill_names and n.name != p.stem:
+                                deps.add(n.name)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    if node.value in tool_names:
+                        uses.add(node.value)
+            for d in deps:
+                self._conn.execute(
+                    "MATCH (a:Skill {name: $a}), (b:Skill {name: $b}) "
+                    "CREATE (a)-[:DEPENDS_ON]->(b)",
+                    parameters={"a": p.stem, "b": d},
+                )
+                counts["DEPENDS_ON"] += 1
+            for t in uses:
+                self._conn.execute(
+                    "MATCH (s:Skill {name: $s}), (e:Entity {name: $t, kind: 'tool'}) "
+                    "CREATE (s)-[:USES_TOOL]->(e)",
+                    parameters={"s": p.stem, "t": t},
+                )
+                # Edge may not be created if the tool isn't in the Entity table;
+                # count optimistically — query result tells us the real count.
+                counts["USES_TOOL"] += 1
+
+        # WikiDocs + REFERENCES from markdown links.
+        md_link_re = re.compile(r"\[[^\]]*\]\(([^)]+\.md)(?:#[^)]*)?\)")
+        if mind_dir.exists():
+            md_files = [p for p in mind_dir.rglob("*.md")]
+            doc_paths = {str(p.relative_to(mind_dir)) for p in md_files}
+            for p in md_files:
+                self._conn.execute(
+                    "CREATE (d:WikiDoc {path: $p})",
+                    parameters={"p": str(p.relative_to(mind_dir))},
+                )
+            counts["WikiDoc"] = len(md_files)
+            for p in md_files:
+                rel = str(p.relative_to(mind_dir))
+                try:
+                    text = p.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                for m in md_link_re.finditer(text):
+                    target_raw = m.group(1)
+                    if target_raw.startswith(("http://", "https://")):
+                        continue
+                    target = str((p.parent / target_raw).resolve().relative_to(mind_dir)) \
+                        if (p.parent / target_raw).exists() else target_raw
+                    if target in doc_paths and target != rel:
+                        self._conn.execute(
+                            "MATCH (a:WikiDoc {path: $a}), (b:WikiDoc {path: $b}) "
+                            "CREATE (a)-[:REFERENCES]->(b)",
+                            parameters={"a": rel, "b": target},
+                        )
+                        counts["REFERENCES"] += 1
 
         return counts

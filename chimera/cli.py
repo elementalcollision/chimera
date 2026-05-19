@@ -160,6 +160,16 @@ def _build_parser() -> argparse.ArgumentParser:
     graph_sub.add_parser("rebuild", help="Re-project SQLite + registry into the graph.")
     g_query = graph_sub.add_parser("query", help="Run a Cypher query and print rows.")
     g_query.add_argument("cypher", help="Cypher statement.")
+    g_hist = graph_sub.add_parser(
+        "entity-history", help="KFM transition chain for one entity (by id or name)."
+    )
+    g_hist.add_argument("ident", help="Entity id (full or 8-char prefix) or name.")
+    graph_sub.add_parser(
+        "skill-deps", help="List dynamic skills and their DEPENDS_ON / USES_TOOL edges."
+    )
+    graph_sub.add_parser(
+        "orphans", help="Entities with no transitions; skills with no edges."
+    )
 
     return parser
 
@@ -626,6 +636,75 @@ def main(argv: list[str] | None = None) -> int:
             for row in result.rows:
                 print("  " + " | ".join(str(c) for c in row))
             print(f"({len(result.rows)} row(s))")
+            return 0
+        if sub_cmd == "entity-history":
+            store.init_schema()
+            ident = args.ident
+            res = store.query(
+                "MATCH (e:Entity) WHERE e.id = $i OR e.id STARTS WITH $i "
+                "OR e.name = $i RETURN e.id, e.kind, e.name LIMIT 1",
+                params={"i": ident},
+            )
+            if not res.rows:
+                print(f"chimera graph: no entity matches {ident!r}")
+                return 1
+            eid, kind, name = res.rows[0]
+            print(f"chimera graph entity-history: [{kind}] {name} ({eid[:8]}…)")
+            hist = store.query(
+                "MATCH (e:Entity {id: $i})-[t:TRANSITIONED_TO]->(e) "
+                "RETURN t.cycle, t.from_state, t.to_state, t.operator_type, t.reason "
+                "ORDER BY t.cycle",
+                params={"i": eid},
+            )
+            if not hist.rows:
+                print("  (no transitions)")
+                return 0
+            for cyc, fs, ts, op, reason in hist.rows:
+                print(f"  cycle {cyc}: {fs} → {ts} by {op!r}  {reason}")
+            return 0
+        if sub_cmd == "skill-deps":
+            store.init_schema()
+            skills = store.query("MATCH (s:Skill) RETURN s.name ORDER BY s.name").rows
+            if not skills:
+                print("chimera graph skill-deps: (no dynamic skills)")
+                return 0
+            print(f"chimera graph skill-deps: {len(skills)} skill(s)")
+            for (sn,) in skills:
+                deps = store.query(
+                    "MATCH (:Skill {name: $n})-[:DEPENDS_ON]->(d:Skill) RETURN d.name",
+                    params={"n": sn},
+                ).rows
+                tools = store.query(
+                    "MATCH (:Skill {name: $n})-[:USES_TOOL]->(t:Entity) RETURN t.name",
+                    params={"n": sn},
+                ).rows
+                print(f"  {sn}")
+                if deps:
+                    print(f"    depends_on: {', '.join(d[0] for d in deps)}")
+                if tools:
+                    print(f"    uses_tool:  {', '.join(t[0] for t in tools)}")
+                if not deps and not tools:
+                    print("    (no edges)")
+            return 0
+        if sub_cmd == "orphans":
+            store.init_schema()
+            orphan_ents = store.query(
+                "MATCH (e:Entity) WHERE NOT EXISTS { "
+                "MATCH (e)-[:TRANSITIONED_TO]->(e) } "
+                "RETURN e.kind, e.name ORDER BY e.kind, e.name"
+            ).rows
+            orphan_skills = store.query(
+                "MATCH (s:Skill) WHERE NOT EXISTS { MATCH (s)-[:DEPENDS_ON]->() } "
+                "AND NOT EXISTS { MATCH (s)-[:USES_TOOL]->() } "
+                "RETURN s.name ORDER BY s.name"
+            ).rows
+            print(f"chimera graph orphans:")
+            print(f"  entities with no transitions: {len(orphan_ents)}")
+            for kind, name in orphan_ents:
+                print(f"    [{kind}] {name}")
+            print(f"  skills with no edges: {len(orphan_skills)}")
+            for (n,) in orphan_skills:
+                print(f"    {n}")
             return 0
         parser.error(f"unknown graph subcommand: {sub_cmd}")
         return 2
