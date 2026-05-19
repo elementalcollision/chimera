@@ -34,34 +34,59 @@ _TOKEN_ENV = "CHIMERA_PEER_TOKEN"
 
 
 class _BearerAuthMiddleware(BaseHTTPMiddleware):
-    """Reject any non-/health request without the expected bearer token.
+    """Reject any non-/health request without a valid bearer token.
 
-    If ``expected_token`` is empty, the middleware is permissive (anonymous
-    allowed). The constructor logs a warning in that case.
+    Accepts a single shared token (``expected_token``) AND/OR a per-peer
+    token map (``token_map``) keyed by token → peer-name. If a request's
+    token matches a peer in the map, :data:`current_peer` (contextvar)
+    is set for the duration of the handler so the MCP dispatch layer
+    can build a trust-typed :class:`DispatchContext` (v2.7).
+
+    Empty ``expected_token`` AND empty ``token_map`` → permissive
+    anonymous + warning (local dev only).
     """
 
-    def __init__(self, app, expected_token: str | None) -> None:
+    def __init__(
+        self,
+        app,
+        expected_token: str | None,
+        token_map: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(app)
         self._expected = expected_token or ""
-        if not self._expected:
+        self._token_map = dict(token_map or {})
+        if not self._expected and not self._token_map:
             logger.warning(
-                "%s is empty; HTTP server is accepting anonymous peers. "
-                "Set the env var in production.",
+                "%s and CHIMERA_PEER_TOKENS are both empty; HTTP server is "
+                "accepting anonymous peers. Set one in production.",
                 _TOKEN_ENV,
             )
 
     async def dispatch(self, request: Request, call_next):
+        from .peer_auth import current_peer
+
         if request.url.path == "/health":
             return await call_next(request)
-        if not self._expected:
+        if not self._expected and not self._token_map:
             return await call_next(request)
         auth = request.headers.get("authorization", "")
         scheme, _, token = auth.partition(" ")
-        if scheme.lower() != "bearer" or token != self._expected:
-            return JSONResponse(
-                {"error": "unauthorized"}, status_code=401
-            )
-        return await call_next(request)
+        if scheme.lower() != "bearer" or not token:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        peer_name: str | None = None
+        if token in self._token_map:
+            peer_name = self._token_map[token]
+        elif self._expected and token == self._expected:
+            peer_name = None  # anonymous-but-authenticated
+        else:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        token_ctx = current_peer.set(peer_name)
+        try:
+            return await call_next(request)
+        finally:
+            current_peer.reset(token_ctx)
 
 
 async def _health(_: Request) -> PlainTextResponse:
@@ -87,7 +112,13 @@ def build_http_app(cms: ChimeraMCPServer) -> Starlette:
 
     app = Starlette(routes=routes, lifespan=_lifespan)
     expected = os.environ.get(_TOKEN_ENV, "")
-    app.add_middleware(_BearerAuthMiddleware, expected_token=expected)
+    from .peer_auth import load_token_map
+    token_map = load_token_map()
+    app.add_middleware(
+        _BearerAuthMiddleware,
+        expected_token=expected,
+        token_map=token_map,
+    )
     return app
 
 

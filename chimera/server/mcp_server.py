@@ -131,10 +131,28 @@ def build_server(
                     text=f"tool {tool_name!r} is not exposed to peers",
                 )
             ]
-        ctx = DispatchContext(
-            trust_tier="T1",          # peer calls start at T1 (supervised)
-            session_id="peer",
-        )
+        # v2.7: build the dispatch context from the attested peer (if any).
+        from ..a2a import PeerTrustPolicy, PolicyDecision
+        from .peer_auth import current_peer, lookup_peer_state
+
+        peer_name = current_peer.get()
+        trust_tier = "T1"  # v2.0 baseline for unidentified / anonymous peers
+        session_id = "peer"
+        if peer_name is not None:
+            session_id = f"peer:{peer_name}"
+            peer_state = lookup_peer_state(peer_name)
+            decision = PeerTrustPolicy().evaluate(peer_state)
+            if decision.decision is PolicyDecision.REFUSE:
+                return [
+                    mt.TextContent(
+                        type="text",
+                        text=f"refused: peer {peer_name!r}: {decision.reason}",
+                    )
+                ]
+            if decision.decision is PolicyDecision.ALLOW:
+                trust_tier = "T2"
+            # DEGRADE / fallthrough → keep T1.
+        ctx = DispatchContext(trust_tier=trust_tier, session_id=session_id)
         try:
             result = await dispatcher.dispatch(tool_name, arguments or {}, ctx)
         except Exception as exc:
