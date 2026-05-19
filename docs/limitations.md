@@ -6,22 +6,7 @@ remediation ADR / version once shipped.
 
 ## Open
 
-### L-4 — `CHIMERA_ENGINES_ENABLED=0` leaks on first cycle after fresh process
-
-**Surfaced:** v4.5 live-spin. With the env var set, cycle 8 still ran
-a PLAN engine for 50s ("3 proposal(s) added"); cycle 9 honored the
-flag (`plan=0ms`). Likely an env-var read timing or scheduler
-construction-caching issue.
-
-**Impact:** Operator running `chimera run` with engines explicitly
-disabled may pay the engine cost once before subsequent cycles
-respect the flag. Recoverable; not data-corrupting.
-
-**Path to fix:** Audit `EngineScheduler.__init__` and `pick_due` for
-env reads cached at construction time. Likely the fix is to re-check
-`os.environ.get("CHIMERA_ENGINES_ENABLED", "1") == "0"` inside
-`pick_due` (we already do — verify the env actually propagated to
-the subprocess in the `chimera run` path).
+_None._
 
 ---
 
@@ -58,6 +43,19 @@ Option 1 is cheapest; (2) is more invasive but more reliable. Try
 ---
 
 ## Closed
+
+### L-4 — `CHIMERA_ENGINES_ENABLED=0` leaked on planner cycles *(closed in v4.12)*
+
+**Surfaced:** v4.5 live-spin. With the env var set, an Nth-cycle PLAN
+phase still fired the Opus planner. Daily-engine path honored the
+flag; the planner path didn't.
+
+**Closed in:** v4.12 via [ADR 0034](adr/0034-engines-kill-switch.md).
+`_phase_plan` now early-returns when `CHIMERA_ENGINES_ENABLED=0`
+gating BOTH the daily engines AND the Opus planner under a single
+flag.
+
+---
 
 ### L-3 — Compound synthesis tasks fragment and hit `max_rounds` *(closed in v4.5)*
 

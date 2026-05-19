@@ -139,6 +139,23 @@ async def test_one_cycle_with_fresh_mind_dir(mind_dir: Path, config: LoopConfig)
 
 
 @pytest.mark.asyncio
+async def test_engines_kill_switch_gates_plan_phase(
+    config: LoopConfig, monkeypatch,
+):
+    """v4.12 / L-4: CHIMERA_ENGINES_ENABLED=0 must skip both the daily
+    engines AND the Opus planner. Prior to v4.12 the planner leaked
+    through on every-Nth-cycle ticks."""
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "0")
+    # Force every-Nth alignment so the planner would normally fire.
+    config.opus_plan_every_n_cycles = 1
+    report = await ChimeraLoop(config).run_one_cycle()
+    log_text = "\n".join(report.phase_log)
+    assert "PLAN: skipped (engines disabled)" in log_text
+    assert report.phase_times_ms.get("plan", 0) < 100  # no model calls
+    assert report.proposals_added == 0
+
+
+@pytest.mark.asyncio
 async def test_cycle_counter_survives_restart(config: LoopConfig):
     """ADR 0003 requires the cycle counter is restored from HEARTBEAT.md frontmatter."""
     loop = ChimeraLoop(config)

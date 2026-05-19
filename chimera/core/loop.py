@@ -311,8 +311,17 @@ class ChimeraLoop:
 
         On non-plan cycles, ask the engine scheduler whether a daily engine
         (Discovery / Curiosity / Reflection) is due to fire.
+
+        v4.12 / L-4: ``CHIMERA_ENGINES_ENABLED=0`` gates BOTH the Opus
+        planner and the daily engines. Prior to v4.12 only the daily
+        engines honored the flag — every-Nth-cycle proposals leaked
+        through.
         """
         assert self._report is not None
+        if os.environ.get("CHIMERA_ENGINES_ENABLED", "1") == "0":
+            self._record_phase_activity("plan", details={"skipped": "engines_disabled"})
+            self._log_phase("PLAN: skipped (engines disabled)")
+            return
         if self._planner is None:
             self._record_phase_activity("plan", details={"skipped": "no_providers"})
             self._log_phase("PLAN (no providers; skipped)")
