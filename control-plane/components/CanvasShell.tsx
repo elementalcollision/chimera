@@ -30,8 +30,8 @@ export interface WidgetDef {
 type ThemePref = "system" | "light" | "slate";
 type Density = "compact" | "cozy" | "spacious";
 
-const STORAGE_LAYOUT = "chimera-canvas-layout-v3";
-const STORAGE_PINS = "chimera-canvas-pinned-v3";
+const STORAGE_LAYOUT = "chimera-canvas-layout-v4";
+const STORAGE_PINS = "chimera-canvas-pinned-v4";
 const STORAGE_THEME = "chimera-canvas-theme-v1";
 const STORAGE_DENSITY = "chimera-canvas-density-v1";
 const STORAGE_CATALOGUE = "chimera-canvas-catalogue-v1";
@@ -286,7 +286,7 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
             layouts={renderLayouts}
             breakpoints={{ lg: 1200, md: 960, sm: 720, xs: 480 }}
             cols={{ lg: 12, md: 12, sm: 6, xs: 4 }}
-            rowHeight={48}
+            rowHeight={56}
             draggableHandle=".tile__header"
             onLayoutChange={onLayoutChange}
             margin={[12, 12]}
