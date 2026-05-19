@@ -42,12 +42,27 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class MCPServerConfig:
-    """One configured MCP server."""
+    """One configured MCP server.
+
+    Two transports:
+
+    - **stdio** (default): the parent spawns ``command [args...]`` as a
+      subprocess and communicates over its stdin/stdout.
+    - **http**: the parent dials ``url`` (a Chimera HTTP MCP server, v2.6+)
+      and authenticates with ``Authorization: Bearer <token>``.
+
+    Fields not relevant to the chosen transport are ignored.
+    """
 
     name: str
-    command: str
+    transport: str = "stdio"           # "stdio" | "http"
+    # stdio
+    command: str = ""
     args: tuple[str, ...] = ()
     env: dict[str, str] = field(default_factory=dict)
+    # http
+    url: str = ""
+    token: str = ""
 
 
 def parse_mcp_config(raw: str | None) -> dict[str, MCPServerConfig]:
@@ -67,32 +82,70 @@ def parse_mcp_config(raw: str | None) -> dict[str, MCPServerConfig]:
         return {}
     out: dict[str, MCPServerConfig] = {}
     for name, body in parsed.items():
-        if not isinstance(body, dict) or not body.get("command"):
-            logger.warning("CHIMERA_MCP_SERVERS[%s]: missing 'command'", name)
+        if not isinstance(body, dict):
+            logger.warning("CHIMERA_MCP_SERVERS[%s]: not a JSON object", name)
             continue
-        out[name] = MCPServerConfig(
-            name=name,
-            command=str(body["command"]),
-            args=tuple(str(a) for a in body.get("args") or ()),
-            env={str(k): str(v) for k, v in (body.get("env") or {}).items()},
-        )
+        transport = str(body.get("transport") or "stdio").lower()
+        if transport == "http":
+            url = body.get("url")
+            if not url:
+                logger.warning(
+                    "CHIMERA_MCP_SERVERS[%s]: transport='http' requires 'url'", name
+                )
+                continue
+            out[name] = MCPServerConfig(
+                name=name,
+                transport="http",
+                url=str(url),
+                token=str(body.get("token") or ""),
+            )
+        elif transport == "stdio":
+            if not body.get("command"):
+                logger.warning(
+                    "CHIMERA_MCP_SERVERS[%s]: transport='stdio' requires 'command'", name
+                )
+                continue
+            out[name] = MCPServerConfig(
+                name=name,
+                transport="stdio",
+                command=str(body["command"]),
+                args=tuple(str(a) for a in body.get("args") or ()),
+                env={str(k): str(v) for k, v in (body.get("env") or {}).items()},
+            )
+        else:
+            logger.warning(
+                "CHIMERA_MCP_SERVERS[%s]: unknown transport %r", name, transport
+            )
     return out
 
 
 async def _open_session(config: MCPServerConfig):
-    """Open an MCP stdio session and return (cm, session) — caller must aclose."""
-    # Imports kept lazy so the module loads even when the MCP SDK is missing.
-    from mcp import ClientSession, StdioServerParameters  # type: ignore
-    from mcp.client.stdio import stdio_client  # type: ignore
+    """Open an MCP session and return (cm, session_cm, session). Caller aclose's."""
+    from mcp import ClientSession  # type: ignore
 
-    env = {**os.environ, **config.env}
-    params = StdioServerParameters(
-        command=config.command,
-        args=list(config.args),
-        env=env,
-    )
-    cm = stdio_client(params)
-    read, write = await cm.__aenter__()
+    if config.transport == "http":
+        from mcp.client.streamable_http import streamablehttp_client  # type: ignore
+
+        headers = {}
+        if config.token:
+            headers["Authorization"] = f"Bearer {config.token}"
+        cm = streamablehttp_client(url=config.url, headers=headers or None)
+        # streamablehttp_client yields (read, write, get_session_id_fn).
+        opened = await cm.__aenter__()
+        read, write = opened[0], opened[1]
+    else:
+        from mcp import StdioServerParameters  # type: ignore
+        from mcp.client.stdio import stdio_client  # type: ignore
+
+        env = {**os.environ, **config.env}
+        params = StdioServerParameters(
+            command=config.command,
+            args=list(config.args),
+            env=env,
+        )
+        cm = stdio_client(params)
+        read, write = await cm.__aenter__()
+
     session_cm = ClientSession(read, write)
     session = await session_cm.__aenter__()
     await session.initialize()

@@ -127,12 +127,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     serve = sub.add_parser(
         "serve",
-        help="Start Chimera's MCP server on stdio (peers call this).",
+        help="Start Chimera's MCP server (stdio by default; --http for HTTP).",
     )
     serve.add_argument(
         "--name",
         default="chimera",
         help="MCP server name advertised to peers (default: chimera).",
+    )
+    serve.add_argument(
+        "--http",
+        action="store_true",
+        help="Use HTTP/SSE transport instead of stdio (v2.6+).",
+    )
+    serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="HTTP bind host (default 127.0.0.1; use 0.0.0.0 to expose).",
+    )
+    serve.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="HTTP port (default 8765).",
     )
 
     return parser
@@ -211,7 +227,11 @@ def main(argv: list[str] | None = None) -> int:
             rc |= asyncio.run(_ping_provider(t))
         return rc
     if args.command == "serve":
-        from .server import serve_stdio
+        from .server import serve_http, serve_stdio
+        if args.http:
+            return asyncio.run(
+                serve_http(host=args.host, port=args.port, name=args.name)
+            )
         return asyncio.run(serve_stdio(name=args.name))
     if args.command == "peers":
         from .a2a import forget as _forget_peer
