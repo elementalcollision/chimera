@@ -2,7 +2,7 @@
 
 A multi-LLM tools-capable agent — a "best-of-breed chimera orchestrator" built on a thin Python core that selectively pulls patterns from Hermes, OpenClaw, Reggio (claude-daemon), Leonardo, village (KFM), and autoresearch.
 
-**Status:** Phase 1 (skeleton). See [PLAN.md](PLAN.md), [docs/research/best-of-breed.md](docs/research/best-of-breed.md), and the ADRs under [docs/adr/](docs/adr/).
+**Status:** v4.0 — first stable line. Persistent schemas, mind layout, env vars, HTTP endpoints, and CLI verbs are documented in [ADR 0025](docs/adr/0025-v4-stability.md). See [PLAN.md](PLAN.md), [docs/research/best-of-breed.md](docs/research/best-of-breed.md), and all ADRs under [docs/adr/](docs/adr/).
 
 ## Quick start
 

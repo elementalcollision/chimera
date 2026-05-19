@@ -31,7 +31,14 @@ from .mutations import (
     reject_mutation,
     sweep_stale,
 )
-from .store import connect, default_db_path, init_schema, open_and_init
+from .store import (
+    SQLITE_SCHEMA_VERSION,
+    connect,
+    default_db_path,
+    init_schema,
+    open_and_init,
+    schema_version,
+)
 
 __all__ = [
     "EntityRecord",
@@ -68,4 +75,6 @@ __all__ = [
     "GraphQueryResult",
     "GraphStore",
     "default_graph_dir",
+    "SQLITE_SCHEMA_VERSION",
+    "schema_version",
 ]

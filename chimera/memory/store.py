@@ -19,6 +19,13 @@ import sqlite3
 from pathlib import Path
 
 
+# Stamped on the SQLite ``user_version`` PRAGMA. Bump only when the
+# on-disk shape of an existing table changes incompatibly (added
+# tables / added nullable columns are NOT bumps). Per ADR 0025, this
+# is the durable contract for v4.
+SQLITE_SCHEMA_VERSION = 4
+
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS entities (
     id                    TEXT PRIMARY KEY,
@@ -123,6 +130,13 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
 def init_schema(conn: sqlite3.Connection) -> None:
     """Idempotent schema bootstrap. Safe to call on every startup."""
     conn.executescript(SCHEMA_SQL)
+    conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
+
+
+def schema_version(conn: sqlite3.Connection) -> int:
+    """Return the on-disk schema version. 0 means uninitialised."""
+    row = conn.execute("PRAGMA user_version").fetchone()
+    return int(row[0]) if row else 0
 
 
 def open_and_init(path: Path | str | None = None) -> sqlite3.Connection:
