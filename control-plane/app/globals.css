@@ -1,11 +1,16 @@
+/* tokens.css + canvas-styles.css own the look now (per ADR 0038).
+   Tailwind kept for any incidental utility classes still in widgets. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light dark;
+/* react-grid-layout chrome — keep cells transparent so .tile chrome shows. */
+.react-grid-item.react-grid-placeholder {
+  background: rgba(204, 235, 212, 0.25);
+  border: 1.5px dashed var(--mlc-teal);
+  border-radius: var(--radius-lg);
+  opacity: 1;
 }
-
-body {
-  @apply font-mono text-sm;
+.react-grid-item > .react-resizable-handle {
+  display: none; /* we use our own .tile__resize */
 }

@@ -1,37 +1,106 @@
-import { Heartbeat, TrustState, tierLabel } from "@/lib/mind";
+import { Heartbeat, TrustState } from "@/lib/mind";
+import { DriftLogRecord } from "@/lib/graph";
+import Sparkline from "@/components/viz/Sparkline";
+import TierLadder from "@/components/viz/TierLadder";
 
 interface Props {
   hb: Heartbeat | null;
   trust: TrustState | null;
+  driftHistory: DriftLogRecord[];
 }
 
-function Card({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-zinc-200 dark:border-zinc-800 rounded p-2">
-      <div className="text-zinc-500">{label}</div>
-      <div className="mt-1 font-semibold">{value}</div>
-    </div>
-  );
-}
+const TIER_NAMES = ["isolate", "seed", "probe", "steward", "autonomous", "trusted"];
 
-export default function StatusWidget({ hb, trust }: Props) {
-  if (!hb) return <p className="text-zinc-500 italic">HEARTBEAT.md not found.</p>;
+export default function StatusWidget({ hb, trust, driftHistory }: Props) {
+  if (!hb) return <p className="muted">HEARTBEAT.md not found.</p>;
+  const t = trust?.current_tier ?? 0;
+  const driftValues = driftHistory.map((r) => r.composite_score);
+  const latestDrift =
+    driftValues.length > 0
+      ? driftValues[driftValues.length - 1]
+      : hb.last_drift_score ?? 0;
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <Card label="Cycle" value={String(hb.cycle)} />
-      <Card label="Status" value={hb.status} />
-      <Card
-        label="Trust tier"
-        value={trust ? `${trust.current_tier} (${tierLabel(trust.current_tier)})` : hb.trust_tier}
-      />
-      <Card
-        label="Readiness"
-        value={trust ? trust.last_readiness.toFixed(2) : "—"}
-      />
-      <Card label="Anthropic calls" value={String(hb.model_usage.anthropic_calls ?? 0)} />
-      <Card label="OpenRouter calls" value={String(hb.model_usage.openrouter_calls ?? 0)} />
-      <Card label="Last drift" value={hb.last_drift_score == null ? "—" : String(hb.last_drift_score)} />
-      <Card label="Session started" value={hb.session_started_at?.slice(0, 16) ?? "—"} />
+    <div style={{ display: "grid", gap: 14 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "auto 1fr",
+          gap: 16,
+          alignItems: "center",
+        }}
+      >
+        <div>
+          <div className="label">Readiness</div>
+          <div className="serif-num" style={{ fontSize: 44, marginTop: 4 }}>
+            {(trust?.last_readiness ?? 0).toFixed(2)}
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div className="label">
+            Trust tier · T{t} {TIER_NAMES[t] ?? "?"}
+          </div>
+          <TierLadder current={t} recent={null} />
+          {trust?.tier_entered_at && (
+            <div className="muted" style={{ fontSize: 11 }}>
+              entered T{t} · {trust.tier_entered_at.slice(0, 16)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="kv-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+        <div className="kv">
+          <div className="kv__label">Cycle</div>
+          <div className="kv__value">{hb.cycle}</div>
+        </div>
+        <div className="kv">
+          <div className="kv__label">Status</div>
+          <div
+            className="kv__value"
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "var(--mlc-green-800)",
+              }}
+            />
+            {hb.status}
+          </div>
+        </div>
+        <div className="kv">
+          <div className="kv__label">Drift</div>
+          <div className="kv__value">{(latestDrift ?? 0).toFixed(2)}</div>
+        </div>
+      </div>
+
+      {driftValues.length > 0 && (
+        <div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              marginBottom: 4,
+            }}
+          >
+            <span className="label">
+              Drift score · last {driftValues.length} readings
+            </span>
+            <span className="muted" style={{ fontSize: 11 }}>
+              lockdown ≥ 0.30
+            </span>
+          </div>
+          <Sparkline
+            values={driftValues}
+            color="var(--mlc-teal)"
+            height={44}
+            baseline={0.3}
+          />
+        </div>
+      )}
     </div>
   );
 }

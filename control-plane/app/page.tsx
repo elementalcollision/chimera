@@ -15,18 +15,21 @@ import {
   readPhaseTimings,
   readTrustJournal,
 } from "@/lib/graph";
+import { readFragmentation } from "@/lib/fragmentation";
 import { readHeartbeat, readMindFile, readTrustState } from "@/lib/mind";
 
 import CanvasShell, { WidgetDef } from "@/components/CanvasShell";
-import DriftSparklineWidget from "@/components/widgets/DriftSparklineWidget";
 import StatusWidget from "@/components/widgets/StatusWidget";
 import TokenCostWidget from "@/components/widgets/TokenCostWidget";
 import {
   ApiCallsWidget,
   AssemblyJournalWidget,
+  ChronicleWidget,
+  DriftSparklineWidget,
   EmergenceWidget,
+  FragmentationWidget,
   GraphWidget,
-  MindFileWidget,
+  InboxWidget,
   MutationsWidget,
   OntologyWidget,
   PeersWidget,
@@ -37,7 +40,6 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  // SSR-fetch every datum once; widgets are pure render-from-props.
   const hb = readHeartbeat();
   const trust = readTrustState();
   const inbox = readMindFile("INBOX.md") ?? "";
@@ -56,92 +58,88 @@ export default async function HomePage() {
   const buckets = costByModel(costRows);
   const cost = totalCost(buckets);
   const driftLog = readDriftLog(60);
+  const fragmentation = readFragmentation(20);
+  const pendingCount = muts.filter((m) => m.status === "pending").length;
 
   const widgets: WidgetDef[] = [
     {
-      id: "status",
-      title: "Status",
-      layout: { x: 0, y: 0, w: 5, h: 5 },
-      defaultStatic: true,
-      body:<StatusWidget hb={hb} trust={trust} />,
+      id: "status", title: "Status", eyebrow: "agent", icon: "activity",
+      chip: hb?.status === "running" ? { tone: "ok", text: hb.status } : undefined,
+      group: "agent", layout: { x: 0, y: 0, w: 5, h: 5 }, defaultStatic: true,
+      body: <StatusWidget hb={hb} trust={trust} driftHistory={driftLog} />,
     },
     {
-      id: "token-cost",
-      title: "Token cost",
-      layout: { x: 5, y: 0, w: 7, h: 5 },
-      body:<TokenCostWidget buckets={buckets} total={cost} />,
+      id: "cost", title: "Token cost", eyebrow: "spend", icon: "coins",
+      group: "cost", layout: { x: 5, y: 0, w: 7, h: 5 },
+      body: <TokenCostWidget buckets={buckets} total={cost} />,
     },
     {
-      id: "drift-sparkline",
-      title: "Drift composite (last 60)",
-      layout: { x: 0, y: 5, w: 6, h: 4 },
-      body:<DriftSparklineWidget records={driftLog} />,
+      id: "drift", title: "Drift composite", eyebrow: "trend", icon: "activity",
+      group: "agent", layout: { x: 0, y: 5, w: 6, h: 4 },
+      body: <DriftSparklineWidget records={driftLog} />,
     },
     {
-      id: "phase-timings",
-      title: "Phase timings",
-      layout: { x: 6, y: 5, w: 6, h: 4 },
-      body:<PhaseTimingsWidget timings={timings} />,
+      id: "phases", title: "Phase timings",
+      eyebrow: timings ? `cycle ${timings.cycle}` : "cycle", icon: "timer",
+      group: "agent", layout: { x: 6, y: 5, w: 6, h: 4 },
+      body: <PhaseTimingsWidget timings={timings} />,
     },
     {
-      id: "ontology",
-      title: "Ontology",
-      layout: { x: 0, y: 9, w: 12, h: 4 },
-      body:<OntologyWidget entities={entities} />,
+      id: "ontology", title: "Ontology", eyebrow: "entities", icon: "list",
+      group: "skills", layout: { x: 0, y: 9, w: 12, h: 4 },
+      body: <OntologyWidget entities={entities} />,
     },
     {
-      id: "api-calls",
-      title: "Recent API calls",
-      layout: { x: 0, y: 9, w: 6, h: 6 },
-      body:<ApiCallsWidget calls={calls} />,
+      id: "api_calls", title: "Recent API calls", eyebrow: "live", icon: "git",
+      group: "cost", layout: { x: 0, y: 13, w: 6, h: 6 },
+      body: <ApiCallsWidget calls={calls} />,
     },
     {
-      id: "mutations",
-      title: "Mutations",
-      layout: { x: 6, y: 9, w: 6, h: 6 },
-      body:<MutationsWidget mutations={muts} />,
+      id: "mutations", title: "Mutations", eyebrow: "queue", icon: "workflow",
+      chip: pendingCount > 0 ? { tone: "warn", text: `${pendingCount} pending` } : undefined,
+      group: "skills", layout: { x: 6, y: 13, w: 6, h: 6 },
+      body: <MutationsWidget mutations={muts} />,
     },
     {
-      id: "assembly",
-      title: "Skill assembly attempts",
-      layout: { x: 0, y: 15, w: 12, h: 6 },
-      body:<AssemblyJournalWidget entries={assemblies} />,
+      id: "assembly", title: "Skill assembly", eyebrow: "ladder", icon: "sparkles",
+      group: "skills", layout: { x: 0, y: 19, w: 12, h: 6 },
+      body: <AssemblyJournalWidget entries={assemblies} />,
     },
     {
-      id: "graph",
-      title: "Graph (snapshot)",
-      layout: { x: 0, y: 21, w: 6, h: 6 },
-      body:<GraphWidget graph={graph} />,
+      id: "graph", title: "Skill graph", eyebrow: "dag", icon: "git",
+      group: "skills", layout: { x: 0, y: 25, w: 6, h: 6 },
+      body: <GraphWidget graph={graph} />,
     },
     {
-      id: "peers",
-      title: "Peers",
-      layout: { x: 6, y: 21, w: 6, h: 6 },
-      body:<PeersWidget peers={peers} />,
+      id: "fragmentation", title: "Fragmentation log", eyebrow: "v4.5", icon: "fragment",
+      chip: fragmentation.length > 0 ? { tone: "danger", text: `${fragmentation.length} failure(s)` } : undefined,
+      group: "agent", layout: { x: 6, y: 25, w: 6, h: 6 },
+      body: <FragmentationWidget rows={fragmentation} />,
     },
     {
-      id: "trust",
-      title: "Peer trust journal",
-      layout: { x: 0, y: 27, w: 6, h: 5 },
-      body:<TrustJournalWidget groups={trustGroups} />,
+      id: "peers", title: "Peers", eyebrow: "federation", icon: "network",
+      group: "federation", layout: { x: 0, y: 31, w: 6, h: 5 },
+      body: <PeersWidget peers={peers} />,
     },
     {
-      id: "emergence",
-      title: "Emergence journal",
-      layout: { x: 6, y: 27, w: 6, h: 5 },
-      body:<EmergenceWidget counts={emergence} />,
+      id: "trust", title: "Peer trust journal", eyebrow: "trust", icon: "shield",
+      group: "federation", layout: { x: 6, y: 31, w: 6, h: 5 },
+      body: <TrustJournalWidget groups={trustGroups} />,
     },
     {
-      id: "inbox",
-      title: "INBOX",
-      layout: { x: 0, y: 32, w: 6, h: 6 },
-      body:<MindFileWidget content={inbox} />,
+      id: "emergence", title: "Emergence journal", eyebrow: "observations", icon: "sparkles",
+      group: "federation", layout: { x: 0, y: 36, w: 12, h: 5 },
+      body: <EmergenceWidget counts={emergence} />,
     },
     {
-      id: "chronicle",
-      title: "Chronicle",
-      layout: { x: 6, y: 32, w: 6, h: 6 },
-      body:<MindFileWidget content={chronicle.slice(-4000)} />,
+      id: "inbox", title: "Inbox", eyebrow: "tasks", icon: "inbox",
+      group: "mind", layout: { x: 0, y: 41, w: 6, h: 6 },
+      body: <InboxWidget content={inbox} />,
+    },
+    {
+      id: "chronicle", title: "Chronicle", eyebrow: "today", icon: "book",
+      group: "mind", layout: { x: 6, y: 41, w: 6, h: 6 },
+      body: <ChronicleWidget content={chronicle} />,
     },
   ];
 

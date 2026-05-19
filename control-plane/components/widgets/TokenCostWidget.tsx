@@ -1,46 +1,90 @@
 import { CostBucket } from "@/lib/cost";
+import BarRow from "@/components/viz/BarRow";
+import Donut from "@/components/viz/Donut";
 
 interface Props {
   buckets: CostBucket[];
   total: number;
 }
 
-/**
- * "Quantized" view of the api_calls table: per-model token count
- * multiplied by MODEL_PRICES to produce a $ figure. This is the
- * concrete example from the v4.11 spec — every widget should be
- * computable from data the agent already records.
- */
+const PALETTE = [
+  "var(--mlc-teal)",
+  "var(--mlc-slate-500)",
+  "var(--mlc-indigo-700)",
+  "var(--mlc-sand-500)",
+  "var(--mlc-peach-500)",
+];
+const BAR_TONES = ["mint", "slate", "peach", "sand", "mint"] as const;
+
 export default function TokenCostWidget({ buckets, total }: Props) {
   if (buckets.length === 0)
-    return <p className="text-zinc-500 italic">No api_calls rows yet.</p>;
+    return <p className="muted">No api_calls rows yet.</p>;
+  const segments = buckets.map((b, i) => ({
+    value: b.totalCost,
+    color: PALETTE[i % PALETTE.length],
+  }));
+  const maxCalls = Math.max(...buckets.map((b) => b.calls));
   return (
-    <div>
-      <div className="mb-2 text-sm">
-        Total spend: <span className="font-mono font-semibold">${total.toFixed(4)}</span>
+    <div style={{ display: "grid", gap: 14 }}>
+      <div className="donut-row">
+        <Donut
+          segments={segments}
+          size={120}
+          thickness={20}
+          label={`$${total.toFixed(2)}`}
+          sub="TOTAL"
+        />
+        <div>
+          <div className="label">Spend by model</div>
+          <div style={{ marginTop: 8, display: "grid", gap: 5 }}>
+            {buckets.map((b, i) => (
+              <div
+                key={b.modelId}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "10px 1fr auto",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 2,
+                    background: PALETTE[i % PALETTE.length],
+                  }}
+                />
+                <span
+                  className="mono muted"
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {b.modelId.split("/").pop()}
+                </span>
+                <span className="mono">${b.totalCost.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-      <table className="w-full">
-        <thead className="text-left text-zinc-500">
-          <tr>
-            <th>model</th>
-            <th className="text-right">calls</th>
-            <th className="text-right">in tok</th>
-            <th className="text-right">out tok</th>
-            <th className="text-right">$</th>
-          </tr>
-        </thead>
-        <tbody>
-          {buckets.map((b) => (
-            <tr key={b.modelId} className="border-t border-zinc-200 dark:border-zinc-800">
-              <td className="py-1 pr-2 font-mono truncate max-w-[16rem]">{b.modelId}</td>
-              <td className="text-right pr-2">{b.calls}</td>
-              <td className="text-right pr-2">{b.inputTokens.toLocaleString()}</td>
-              <td className="text-right pr-2">{b.outputTokens.toLocaleString()}</td>
-              <td className="text-right font-mono">${b.totalCost.toFixed(4)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div>
+        <div className="label" style={{ marginBottom: 6 }}>
+          Calls
+        </div>
+        {buckets.map((b, i) => (
+          <BarRow
+            key={b.modelId}
+            name={b.modelId.split("/").pop() ?? b.modelId}
+            value={b.calls}
+            max={maxCalls}
+            tone={BAR_TONES[i % BAR_TONES.length]}
+          />
+        ))}
+      </div>
     </div>
   );
 }

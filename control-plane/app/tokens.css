@@ -1,0 +1,305 @@
+/* =============================================================================
+   MLCommons Design System — Colors & Typography
+   Source: MLC Brand Guidelines 2025
+   ============================================================================= */
+
+/* Self-hosted Instrument Sans (variable, wdth + wght axes) */
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('/fonts/InstrumentSans-VariableFont_wdth_wght.ttf') format('truetype-variations');
+  font-weight: 400 700;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('/fonts/InstrumentSans-Italic-VariableFont_wdth_wght.ttf') format('truetype-variations');
+  font-weight: 400 700;
+  font-stretch: 75% 100%;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Instrument Serif — loaded via <link> in layout.tsx
+   (Turbopack rejects @import after @font-face rules). */
+
+:root {
+  /* ---------------------------------------------------------------------------
+     COLORS — Primary
+     --------------------------------------------------------------------------- */
+
+  /* PRIMARY BRAND COLORS — confirmed by MLCommons */
+  --mlc-teal:          #355B65;   /* primary 1 — deep teal */
+  --mlc-slate:         #343C52;   /* primary 2 — deep slate */
+
+  /* Signature mint — the logo dot accent (secondary/accent role) */
+  --mlc-mint:          #CCEBD4;   /* from brand palette */
+  --mlc-mint-ink:      #173D47;   /* text on mint */
+
+  /* Core neutrals from the guidelines */
+  --mlc-ink:           #11141F;   /* primary text / logo black */
+  --mlc-paper:         #F7F8FA;   /* paper / off-white background */
+
+  /* Primary blues (from guidelines page 14 row 1) */
+  --mlc-blue-900:      #11141F;
+  --mlc-blue-700:      #4E6BA1;
+  --mlc-blue-300:      #BED3FB;
+  --mlc-blue-100:      #EBEEF4;
+
+  /* ---------------------------------------------------------------------------
+     COLORS — Secondary palette
+     --------------------------------------------------------------------------- */
+
+  /* Warm tones */
+  --mlc-sand-400:      #F7CB84;
+  --mlc-sand-500:      #E8B460;
+  --mlc-peach-400:     #F4B6A1;
+  --mlc-peach-500:     #D49681;
+
+  /* Greens (brand family around MLC mint) */
+  --mlc-green-100:     #CCEBD4;
+  --mlc-green-200:     #B3CEBA;
+  --mlc-green-600:     #62826C;
+  --mlc-green-800:     #44644E;
+  --mlc-green-900:     #173D47;
+  --mlc-teal-800:      #355B65;
+
+  /* Cool deep tones */
+  --mlc-slate-400:     #535869;
+  --mlc-slate-500:     #3D455A;
+  --mlc-slate-600:     #343C52;
+  --mlc-indigo-400:    #A0B5DD;
+  --mlc-indigo-700:    #37548A;
+
+  /* ---------------------------------------------------------------------------
+     SEMANTIC TOKENS
+     --------------------------------------------------------------------------- */
+
+  /* Foreground (text / icons) */
+  --fg-1:              var(--mlc-ink);         /* primary text */
+  --fg-2:              #3D455A;                /* secondary text */
+  --fg-3:              #535869;                /* tertiary / muted */
+  --fg-inverse:        #F7F8FA;                /* text on dark */
+
+  /* Background */
+  --bg-1:              #FFFFFF;                /* base canvas */
+  --bg-2:              var(--mlc-paper);       /* surface / section bg */
+  --bg-3:              var(--mlc-blue-100);    /* subtle accent surface */
+  --bg-inverse:        var(--mlc-ink);         /* dark mode / reverse */
+
+  /* Borders */
+  --border-1:          #E4E8EF;                /* hairline */
+  --border-2:          #CFD5E0;                /* default */
+  --border-strong:     var(--mlc-ink);
+
+  /* Accent / Brand */
+  --brand-primary:     var(--mlc-teal);
+  --brand-secondary:   var(--mlc-slate);
+  --accent:            var(--mlc-mint);
+  --accent-ink:        var(--mlc-mint-ink);
+  --link:              var(--mlc-teal);
+  --link-hover:        var(--mlc-slate);
+
+  /* Status (derived from brand palette — no separate system) */
+  --success:           var(--mlc-green-800);
+  --warning:           var(--mlc-sand-500);
+  --danger:            var(--mlc-peach-500);
+  --info:              var(--mlc-blue-700);
+
+  /* ---------------------------------------------------------------------------
+     TYPOGRAPHY — Families
+     --------------------------------------------------------------------------- */
+
+  --font-sans:   'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-serif:  'Instrument Serif', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-mono:   ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+
+  /* Weights — Instrument Sans supports 400–700 variable */
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  /* Type scale (px base = 16) */
+  --fs-xs:   12px;
+  --fs-sm:   14px;
+  --fs-md:   16px;
+  --fs-lg:   18px;
+  --fs-xl:   20px;
+  --fs-2xl:  24px;
+  --fs-3xl:  32px;
+  --fs-4xl:  40px;
+  --fs-5xl:  56px;
+  --fs-6xl:  72px;
+  --fs-display: 96px;
+
+  /* Leading */
+  --lh-tight:  1.05;
+  --lh-snug:   1.2;
+  --lh-normal: 1.45;
+  --lh-relaxed: 1.6;
+
+  /* Tracking (Instrument Sans is slightly wide; small caps use more tracking) */
+  --ls-tight:   -0.02em;
+  --ls-normal:   0;
+  --ls-wide:     0.06em;   /* for section eyebrows like "B R A N D  O V E R V I E W" */
+  --ls-wider:    0.14em;
+
+  /* ---------------------------------------------------------------------------
+     SPACING — 4pt base, consistent with dense informational surfaces
+     --------------------------------------------------------------------------- */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+
+  /* ---------------------------------------------------------------------------
+     RADIUS — mostly flat, medium on cards, pill on tags
+     --------------------------------------------------------------------------- */
+  --radius-none: 0;
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:  12px;
+  --radius-xl:  16px;
+  --radius-pill: 999px;
+
+  /* ---------------------------------------------------------------------------
+     ELEVATION — restrained, editorial feel
+     --------------------------------------------------------------------------- */
+  --shadow-1: 0 1px 2px rgba(17, 20, 31, 0.04), 0 1px 1px rgba(17, 20, 31, 0.03);
+  --shadow-2: 0 2px 8px rgba(17, 20, 31, 0.06), 0 1px 2px rgba(17, 20, 31, 0.04);
+  --shadow-3: 0 8px 24px rgba(17, 20, 31, 0.08), 0 2px 4px rgba(17, 20, 31, 0.04);
+  --shadow-focus: 0 0 0 3px rgba(53, 91, 101, 0.35);  /* teal focus ring */
+
+  /* ---------------------------------------------------------------------------
+     MOTION
+     --------------------------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0.1, 1);
+  --dur-fast:   120ms;
+  --dur-base:   200ms;
+  --dur-slow:   320ms;
+}
+
+/* =============================================================================
+   BASE RESETS & SEMANTIC TYPE STYLES
+   ============================================================================= */
+
+html {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  color: var(--fg-1);
+  background: var(--bg-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  line-height: var(--lh-normal);
+}
+
+/* Headings — mostly sans for UI; serif reserved for data/call-outs */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--ls-tight);
+  line-height: var(--lh-tight);
+  color: var(--fg-1);
+  margin: 0;
+}
+
+h1 { font-size: var(--fs-5xl); font-weight: var(--fw-medium); }
+h2 { font-size: var(--fs-4xl); font-weight: var(--fw-medium); }
+h3 { font-size: var(--fs-3xl); font-weight: var(--fw-medium); }
+h4 { font-size: var(--fs-2xl); font-weight: var(--fw-semibold); letter-spacing: var(--ls-normal); }
+h5 { font-size: var(--fs-xl);  font-weight: var(--fw-semibold); letter-spacing: var(--ls-normal); }
+h6 { font-size: var(--fs-lg);  font-weight: var(--fw-semibold); letter-spacing: var(--ls-normal); }
+
+/* Display — big editorial serifs for numbers and pull quotes */
+.display-serif {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-style: normal;
+  font-size: var(--fs-display);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.015em;
+  color: var(--fg-1);
+}
+
+.data-serif {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: var(--fs-5xl);
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+/* Body */
+p, .body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: var(--lh-normal);
+  color: var(--fg-1);
+  margin: 0 0 1em 0;
+  text-wrap: pretty;
+}
+
+.body-sm  { font-size: var(--fs-sm); line-height: var(--lh-normal); }
+.body-lg  { font-size: var(--fs-lg); line-height: var(--lh-relaxed); }
+
+/* Eyebrow — the tracked all-caps labels used throughout guidelines pages
+   (e.g. "B R A N D   O V E R V I E W") */
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wider);
+  color: var(--fg-2);
+}
+
+/* Inline / code */
+code, kbd, samp, pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+code {
+  background: var(--mlc-blue-100);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+  color: var(--fg-1);
+}
+
+/* Links */
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 1px;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+a:hover { color: var(--link-hover); text-decoration-thickness: 2px; }
+
+/* Strong / em */
+strong { font-weight: var(--fw-semibold); }
+em     { font-style: italic; }
+
+/* hr / divider */
+hr {
+  border: 0;
+  border-top: 1px solid var(--border-1);
+  margin: var(--space-8) 0;
+}
