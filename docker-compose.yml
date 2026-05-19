@@ -1,0 +1,27 @@
+# Chimera development compose.
+#
+# Volumes:
+#   ./state  → /state   (SQLite, drift JSON; gitignored)
+#   ./mind   → /mind    (HEARTBEAT.md, INBOX.md, SESSION_LOG.md, wiki/)
+#
+# Env:
+#   .env at the repo root provides ANTHROPIC_API_KEY, OPENROUTER_API_KEY, etc.
+#   Loaded automatically by docker compose.
+
+services:
+  chimera:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chimera:dev
+    container_name: chimera
+    env_file:
+      - .env
+    environment:
+      CHIMERA_STATE_DIR: /state
+      CHIMERA_MIND_DIR: /mind
+    volumes:
+      - ./state:/state
+      - ./mind:/mind
+    restart: unless-stopped
+    # Override CMD via `docker compose run chimera <args>`

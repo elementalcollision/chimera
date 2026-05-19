@@ -1,0 +1,309 @@
+"""Tests for the tool registry, dispatch pipeline, and shell tool."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from chimera.tools import (
+    DispatchContext,
+    Dispatcher,
+    SAFE_COMMANDS,
+    ToolDenied,
+    ToolRegistry,
+    register_shell_tool,
+)
+from chimera.tools.dispatch import PolicyDecision, add_global_deny, clear_global_deny
+from chimera.tools.shell import shell_handler
+
+
+# ── Registry ────────────────────────────────────────────────
+
+
+async def _trivial_handler(args, context):
+    return "ok"
+
+
+def _make_schema(name: str) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": "test",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+
+
+def test_register_and_retrieve():
+    reg = ToolRegistry()
+    reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+    entry = reg.get("t")
+    assert entry is not None
+    assert entry.toolset == "core"
+    assert "t" in reg.names()
+
+
+def test_double_register_without_override_raises():
+    reg = ToolRegistry()
+    reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+    with pytest.raises(ValueError):
+        reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+
+
+def test_override_allows_re_register():
+    reg = ToolRegistry()
+    reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+    reg.register(
+        name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler, override=True
+    )
+    assert reg.get("t") is not None
+
+
+def test_check_fn_cached_uses_ttl():
+    calls = {"n": 0}
+
+    def probe() -> bool:
+        calls["n"] += 1
+        return True
+
+    reg = ToolRegistry(check_ttl_seconds=10.0)
+    reg.register(
+        name="t",
+        toolset="core",
+        schema=_make_schema("t"),
+        handler=_trivial_handler,
+        check_fn=probe,
+    )
+    # First call probes; subsequent calls within TTL hit the cache.
+    assert reg.is_available("t")
+    assert reg.is_available("t")
+    assert reg.is_available("t")
+    assert calls["n"] == 1
+
+
+def test_check_fn_exception_treated_as_unavailable():
+    def bad_probe() -> bool:
+        raise RuntimeError("boom")
+
+    reg = ToolRegistry()
+    reg.register(
+        name="t",
+        toolset="core",
+        schema=_make_schema("t"),
+        handler=_trivial_handler,
+        check_fn=bad_probe,
+    )
+    assert reg.is_available("t") is False
+
+
+def test_schemas_excludes_unavailable_by_default():
+    reg = ToolRegistry()
+    reg.register(
+        name="t_off",
+        toolset="core",
+        schema=_make_schema("t_off"),
+        handler=_trivial_handler,
+        check_fn=lambda: False,
+    )
+    reg.register(name="t_on", toolset="core", schema=_make_schema("t_on"), handler=_trivial_handler)
+    visible = [s["function"]["name"] for s in reg.schemas()]
+    assert visible == ["t_on"]
+    visible_all = [s["function"]["name"] for s in reg.schemas(include_unavailable=True)]
+    assert set(visible_all) == {"t_off", "t_on"}
+
+
+# ── Dispatch policy pipeline ────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _clear_global_deny():
+    clear_global_deny()
+    yield
+    clear_global_deny()
+
+
+def test_policy_unknown_tool_denied():
+    reg = ToolRegistry()
+    d = Dispatcher(reg)
+    r = d.check_policy("nope", DispatchContext())
+    assert r.decision is PolicyDecision.DENY
+    assert r.layer == "registry"
+
+
+def test_policy_global_deny():
+    reg = ToolRegistry()
+    reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+    add_global_deny("t")
+    r = Dispatcher(reg).check_policy("t", DispatchContext())
+    assert not r.allowed and r.layer == "global_deny"
+
+
+def test_policy_context_deny():
+    reg = ToolRegistry()
+    reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+    r = Dispatcher(reg).check_policy("t", DispatchContext(deny=frozenset({"t"})))
+    assert not r.allowed and r.layer == "context_deny"
+
+
+def test_policy_context_allow_list_excludes_others():
+    reg = ToolRegistry()
+    reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+    reg.register(name="u", toolset="core", schema=_make_schema("u"), handler=_trivial_handler)
+    d = Dispatcher(reg)
+    ctx = DispatchContext(allow=frozenset({"u"}))
+    assert d.check_policy("t", ctx).layer == "context_allow"
+    assert d.check_policy("u", ctx).allowed
+
+
+def test_policy_requires_env(monkeypatch):
+    monkeypatch.delenv("CHIMERA_TEST_REQUIRED", raising=False)
+    reg = ToolRegistry()
+    reg.register(
+        name="t",
+        toolset="core",
+        schema=_make_schema("t"),
+        handler=_trivial_handler,
+        requires_env=("CHIMERA_TEST_REQUIRED",),
+    )
+    assert Dispatcher(reg).check_policy("t", DispatchContext()).layer == "requires_env"
+    monkeypatch.setenv("CHIMERA_TEST_REQUIRED", "1")
+    assert Dispatcher(reg).check_policy("t", DispatchContext()).allowed
+
+
+def test_policy_availability_via_check_fn():
+    reg = ToolRegistry()
+    reg.register(
+        name="t",
+        toolset="core",
+        schema=_make_schema("t"),
+        handler=_trivial_handler,
+        check_fn=lambda: False,
+    )
+    assert Dispatcher(reg).check_policy("t", DispatchContext()).layer == "availability"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_truncates_long_results():
+    async def big_handler(args, ctx):
+        return "A" * 50_000
+
+    reg = ToolRegistry()
+    reg.register(
+        name="big",
+        toolset="core",
+        schema=_make_schema("big"),
+        handler=big_handler,
+        max_result_size_chars=1000,
+    )
+    out = await Dispatcher(reg).dispatch("big", {}, DispatchContext())
+    assert len(out) <= 1000 + len("\n[truncated]")
+    assert out.endswith("[truncated]")
+
+
+@pytest.mark.asyncio
+async def test_dispatch_raises_tool_denied_on_deny():
+    reg = ToolRegistry()
+    reg.register(name="t", toolset="core", schema=_make_schema("t"), handler=_trivial_handler)
+    add_global_deny("t")
+    with pytest.raises(ToolDenied):
+        await Dispatcher(reg).dispatch("t", {}, DispatchContext())
+
+
+# ── Shell tool ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def shell_env(tmp_path: Path, monkeypatch):
+    """Point CHIMERA_MIND_DIR + CHIMERA_STATE_DIR at temp paths."""
+    mind = tmp_path / "mind"
+    state = tmp_path / "state"
+    mind.mkdir()
+    state.mkdir()
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state))
+    return mind, state
+
+
+def test_shell_safe_commands_is_nonempty():
+    assert "ls" in SAFE_COMMANDS
+    assert "cat" in SAFE_COMMANDS
+    assert len(SAFE_COMMANDS) >= 10
+
+
+@pytest.mark.asyncio
+async def test_shell_runs_safe_command(shell_env):
+    mind, _ = shell_env
+    (mind / "hello.txt").write_text("howdy\n")
+    out = await shell_handler({"argv": ["ls", "."]}, DispatchContext())
+    assert "hello.txt" in out
+    assert "[exit=0]" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_rejects_unlisted_command_without_elevation(shell_env):
+    with pytest.raises(PermissionError):
+        await shell_handler({"argv": ["bash", "-c", "echo nope"]}, DispatchContext())
+
+
+@pytest.mark.asyncio
+async def test_shell_allows_unlisted_with_elevation(shell_env):
+    out = await shell_handler(
+        {"argv": ["bash", "-c", "echo elevated"]}, DispatchContext(elevated=True)
+    )
+    assert "elevated" in out
+    assert "[exit=0]" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_rejects_cwd_outside_roots(shell_env, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    with pytest.raises(ValueError, match="outside allowed roots"):
+        await shell_handler(
+            {"argv": ["ls", "."], "cwd": str(outside)}, DispatchContext()
+        )
+
+
+@pytest.mark.asyncio
+async def test_shell_rejects_empty_argv():
+    with pytest.raises(ValueError):
+        await shell_handler({"argv": []}, DispatchContext())
+
+
+@pytest.mark.asyncio
+async def test_shell_rejects_non_string_argv_items():
+    with pytest.raises(ValueError):
+        await shell_handler({"argv": ["ls", 42]}, DispatchContext())
+
+
+@pytest.mark.asyncio
+async def test_shell_handles_missing_program(shell_env):
+    with pytest.raises(FileNotFoundError):
+        await shell_handler(
+            {"argv": ["definitely_not_a_real_program_xyz"]},
+            DispatchContext(elevated=True),
+        )
+
+
+@pytest.mark.asyncio
+async def test_shell_timeout(shell_env):
+    out = await shell_handler(
+        {"argv": ["sleep", "5"], "timeout_s": 0.2},
+        DispatchContext(elevated=True),
+    )
+    assert "[timeout" in out
+
+
+# ── End-to-end via dispatcher ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_register_shell_tool_then_dispatch(shell_env):
+    reg = ToolRegistry()
+    register_shell_tool(reg)
+    (shell_env[0] / "marker.txt").write_text("ok\n")
+    out = await Dispatcher(reg).dispatch("shell", {"argv": ["ls", "."]}, DispatchContext())
+    assert "marker.txt" in out

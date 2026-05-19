@@ -1,0 +1,41 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Research clones (vendored upstream repos, not part of Chimera)
+research/_clones/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.uv-cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / TS (future control plane)
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Build / logs
+build/
+*.log
+
+# Runtime state (keep directory via .gitkeep, ignore contents)
+state/*
+!state/.gitkeep

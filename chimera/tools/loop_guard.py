@@ -1,0 +1,102 @@
+"""ACT-phase loop guards.
+
+Per ADR 0003 §"ACT-phase guards (all adopted at MVP)". Two non-
+negotiable mechanisms from Reggio:
+
+  1. ``detect_degenerate_loop`` — count consecutive identical tool calls
+     and surface a warn/abort signal before the loop runs away.
+  2. ``normalize_tool_input`` — handle OpenRouter's quirky
+     ``{"_raw": "..."}`` envelope (model emitted malformed JSON; provider
+     dumped it raw) plus the bare-JSON-string case.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+
+class LoopVerdict(str, Enum):
+    OK = "ok"
+    WARN = "warn"
+    ABORT = "abort"
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """Minimal tool-call record for loop detection."""
+
+    name: str
+    args: dict[str, Any]
+
+    def signature(self) -> tuple[str, str]:
+        """Canonical comparable form."""
+        return (self.name, json.dumps(self.args, sort_keys=True, default=str))
+
+
+def detect_degenerate_loop(
+    history: list[ToolCall],
+    *,
+    warn_at: int = 3,
+    abort_at: int = 5,
+) -> LoopVerdict:
+    """Inspect the tail of ``history`` for consecutive identical calls.
+
+    ``warn_at``  consecutive matches → :attr:`LoopVerdict.WARN`
+    ``abort_at`` consecutive matches → :attr:`LoopVerdict.ABORT`
+
+    Reggio's defaults (3/5) are a good starting point; tune as data accumulates.
+    """
+    if not history:
+        return LoopVerdict.OK
+    if warn_at < 2 or abort_at < warn_at:
+        raise ValueError("warn_at must be ≥ 2 and abort_at ≥ warn_at")
+
+    target = history[-1].signature()
+    consecutive = 1
+    for prev in reversed(history[:-1]):
+        if prev.signature() == target:
+            consecutive += 1
+        else:
+            break
+
+    if consecutive >= abort_at:
+        return LoopVerdict.ABORT
+    if consecutive >= warn_at:
+        return LoopVerdict.WARN
+    return LoopVerdict.OK
+
+
+def normalize_tool_input(raw: Any) -> dict[str, Any]:
+    """Coerce a tool-call argument blob into a plain dict.
+
+    Handles three shapes:
+
+    - ``None`` or empty → ``{}``
+    - ``dict`` — returned as-is, except the OpenRouter ``{"_raw": "<json>"}``
+      envelope, which is unwrapped and json-parsed.
+    - ``str`` — interpreted as a JSON document; on parse failure, returns ``{}``.
+
+    Anything else returns ``{}``.
+    """
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        # OpenRouter quirk: a single ``_raw`` key carrying the model's
+        # malformed JSON as a string.
+        if list(raw.keys()) == ["_raw"] and isinstance(raw["_raw"], str):
+            try:
+                parsed = json.loads(raw["_raw"])
+                return parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}

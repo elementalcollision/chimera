@@ -1,0 +1,46 @@
+"""Chimera memory: SQLite-backed ontology + activity log (ADR 0002 + ADR 0003)."""
+
+from .entities import (
+    EntityAlreadyExists,
+    EntityError,
+    EntityNotFound,
+    EntityRecord,
+    IllegalTransition,
+    TransitionRecord,
+    activity_window,
+    create_entity,
+    ensure_current_plan,
+    get_entity,
+    get_entity_by_name,
+    list_entities,
+    list_transitions,
+    record_activity,
+    record_api_call,
+    record_ladder_outcome,
+    transition_entity,
+)
+from .store import connect, default_db_path, init_schema, open_and_init
+
+__all__ = [
+    "EntityRecord",
+    "TransitionRecord",
+    "EntityError",
+    "EntityNotFound",
+    "EntityAlreadyExists",
+    "IllegalTransition",
+    "activity_window",
+    "connect",
+    "create_entity",
+    "default_db_path",
+    "ensure_current_plan",
+    "get_entity",
+    "get_entity_by_name",
+    "init_schema",
+    "list_entities",
+    "list_transitions",
+    "open_and_init",
+    "record_activity",
+    "record_api_call",
+    "record_ladder_outcome",
+    "transition_entity",
+]
