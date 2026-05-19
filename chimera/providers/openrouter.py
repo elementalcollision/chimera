@@ -193,17 +193,24 @@ class OpenRouterProvider(Provider):
         if tools:
             body["tools"] = tools
 
-        t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(_OPENROUTER_URL, headers=self._headers, json=body)
-            if resp.status_code >= 400:
-                snippet = resp.text[:500]
-                raise httpx.HTTPStatusError(
-                    f"OpenRouter {resp.status_code}: {snippet}",
-                    request=resp.request,
-                    response=resp,
+        from .retry import retry_call
+
+        async def _once() -> dict[str, Any]:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    _OPENROUTER_URL, headers=self._headers, json=body
                 )
-            payload = resp.json()
+                if resp.status_code >= 400:
+                    snippet = resp.text[:500]
+                    raise httpx.HTTPStatusError(
+                        f"OpenRouter {resp.status_code}: {snippet}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                return resp.json()
+
+        t0 = time.monotonic()
+        payload = await retry_call(_once)
         latency_ms = int((time.monotonic() - t0) * 1000)
 
         choice = (payload.get("choices") or [{}])[0]

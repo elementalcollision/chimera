@@ -17,6 +17,7 @@ from .messages import (
     ToolResultBlock,
     ToolUseBlock,
 )
+from .retry import retry_call
 
 
 # Stop-reason normalisation per ADR 0001 (consumer-facing strings).
@@ -141,7 +142,7 @@ class AnthropicProvider(Provider):
             kwargs["tools"] = _openai_tools_to_anthropic(tools)
 
         t0 = time.monotonic()
-        resp = await self._client.messages.create(**kwargs)
+        resp = await retry_call(lambda: self._client.messages.create(**kwargs))
         latency_ms = int((time.monotonic() - t0) * 1000)
 
         text_parts: list[str] = []
