@@ -13,6 +13,13 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..engines import (
+    ChronicleManager,
+    CuriosityEngine,
+    DiscoveryEngine,
+    EngineScheduler,
+    ReflectionEngine,
+)
 from ..drift import (
     DriftAction,
     DriftConfig,
@@ -85,6 +92,8 @@ class CycleReport:
     plan_demoted: bool = False
     current_plan_state: str | None = None
     proposals_added: int = 0
+    engine_fired: str | None = None
+    engine_summary: str | None = None
 
 
 class ChimeraLoop:
@@ -147,6 +156,35 @@ class ChimeraLoop:
         self._planner: Planner | None = None
         if self._act is not None:
             self._planner = Planner(providers=self._act.providers, db=self._db)
+        # Daily engines (Discovery / Curiosity / Reflection) — same gating.
+        self._chronicle = ChronicleManager(self.config.mind_dir / "CHRONICLE.md")
+        self._engine_scheduler = EngineScheduler(
+            self.config.state_dir / "engines" / "last_runs.json"
+        )
+        self._engines: dict[str, object] = {}
+        if self._act is not None:
+            providers = self._act.providers
+            self._engines = {
+                "discovery": DiscoveryEngine(
+                    providers=providers,
+                    db=self._db,
+                    mind_dir=self.config.mind_dir,
+                    chronicle=self._chronicle,
+                ),
+                "curiosity": CuriosityEngine(
+                    providers=providers,
+                    db=self._db,
+                    registry=self._registry,
+                    mind_dir=self.config.mind_dir,
+                    chronicle=self._chronicle,
+                ),
+                "reflection": ReflectionEngine(
+                    providers=providers,
+                    db=self._db,
+                    mind_dir=self.config.mind_dir,
+                    chronicle=self._chronicle,
+                ),
+            }
 
     @property
     def drift_detector(self) -> DriftDetector:
@@ -230,8 +268,8 @@ class ChimeraLoop:
     async def _phase_plan(self) -> None:
         """Strategic planner — every Nth cycle, ask Opus for 0..3 proposals.
 
-        Proposals are dedup'd against the current INBOX and appended as
-        ``- [ ]`` lines for the next ACT cycle to pick up.
+        On non-plan cycles, ask the engine scheduler whether a daily engine
+        (Discovery / Curiosity / Reflection) is due to fire.
         """
         assert self._report is not None
         if self._planner is None:
@@ -245,11 +283,8 @@ class ChimeraLoop:
             open_tasks=open_tasks,
         )
         if plan_result.skipped:
-            self._record_phase_activity("plan", details={"skipped": True})
-            self._log_phase(
-                f"PLAN: skipped "
-                f"(cycle={self._report.cycle} % {self.config.opus_plan_every_n_cycles})"
-            )
+            # Try the daily engines on this off-PLAN cycle.
+            await self._maybe_run_engine()
             return
         if plan_result.failure_reason:
             self._record_phase_activity(
@@ -270,6 +305,54 @@ class ChimeraLoop:
         self._log_phase(
             f"PLAN: {len(plan_result.proposals)} proposal(s) added"
         )
+
+    async def _maybe_run_engine(self) -> None:
+        """Off-plan cycle hook: route to a daily engine if one is due."""
+        assert self._report is not None
+        if not self._engines:
+            self._record_phase_activity("plan", details={"skipped": True, "engine": None})
+            self._log_phase("PLAN: skipped (no engines available)")
+            return
+        due = self._engine_scheduler.pick_due()
+        if due is None:
+            self._record_phase_activity("plan", details={"skipped": True, "engine": None})
+            self._log_phase("PLAN: skipped (no engine due)")
+            return
+        engine = self._engines.get(due)
+        if engine is None:
+            self._log_phase(f"PLAN: engine {due!r} not constructed; skipping")
+            return
+        result = await engine.run(cycle=self._report.cycle)  # type: ignore[attr-defined]
+        if not result.failure_reason and not result.skipped:
+            self._engine_scheduler.mark_ran(due)  # type: ignore[arg-type]
+        self._report.engine_fired = due
+        self._report.engine_summary = result.summary or result.failure_reason
+        self._record_phase_activity(
+            "plan",
+            details={
+                "engine": due,
+                "api_calls": result.api_call_count,
+                "failure_reason": result.failure_reason,
+            },
+        )
+        outcome = result.failure_reason or result.summary or "(ok)"
+        self._log_phase(f"PLAN[{due}]: {outcome[:120]}")
+
+    async def force_run_engine(self, name: str) -> object:
+        """Force a named engine to run regardless of schedule.
+
+        Used by ``chimera engines run <name>`` for testing/operator overrides.
+        """
+        if name not in self._engines:
+            raise ValueError(f"unknown engine: {name!r} (available: {sorted(self._engines)})")
+        # Engines need a cycle number; load HEARTBEAT to get the next cycle.
+        if self._state is None:
+            state, body = mind.load_heartbeat(self._heartbeat_path)
+            self._state = state
+            self._heartbeat_body = body
+        cycle = self._state.cycle + 1
+        engine = self._engines[name]
+        return await engine.run(cycle=cycle)  # type: ignore[attr-defined]
 
     def _append_proposals_to_inbox(self, proposals: list) -> None:
         """Append proposals to mind/INBOX.md as new `- [ ]` lines."""

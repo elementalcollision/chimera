@@ -41,6 +41,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Filter by entity kind (plan, tool, skill, subagent).",
     )
 
+    engines = sub.add_parser(
+        "engines",
+        help="Run daily engines (Discovery / Curiosity / Reflection).",
+    )
+    engines_sub = engines.add_subparsers(dest="engines_command", metavar="<engines-cmd>")
+    engines_run = engines_sub.add_parser("run", help="Force-fire one engine.")
+    engines_run.add_argument(
+        "name",
+        choices=("discovery", "curiosity", "reflection"),
+    )
+
     scenario = sub.add_parser(
         "scenario",
         help="Run a scripted scenario (checkpoint artifact).",
@@ -126,6 +137,23 @@ def main(argv: list[str] | None = None) -> int:
         for t in targets:
             rc |= asyncio.run(_ping_provider(t))
         return rc
+    if args.command == "engines":
+        from .core import ChimeraLoop
+
+        if args.engines_command != "run":
+            parser.error("engines: expected 'run <name>'")
+        loop = ChimeraLoop()
+        result = asyncio.run(loop.force_run_engine(args.name))
+        loop.close()
+        print(f"chimera engines run {args.name}:")
+        print(f"  skipped: {result.skipped}")
+        print(f"  api_calls: {result.api_call_count}")
+        if result.failure_reason:
+            print(f"  failure: {result.failure_reason}")
+            return 1
+        print(f"  artifacts: {result.artifacts}")
+        print(f"  summary: {result.summary}")
+        return 0
     if args.command == "ontology":
         from .core import LoopConfig
         from .memory import list_entities, list_transitions, open_and_init
