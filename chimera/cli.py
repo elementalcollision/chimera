@@ -626,31 +626,44 @@ def main(argv: list[str] | None = None) -> int:
                 print("no provider keys; cannot assemble")
                 return 1
 
-            print(f"assembling skill {spec.name!r}...")
-            assembled = asyncio.run(
-                assemble_skill(
+            from .skills import assemble_with_escalation
+
+            print(f"assembling skill {spec.name!r} (with tier escalation)...")
+            ladder = asyncio.run(
+                assemble_with_escalation(
                     spec,
                     providers=ax.providers,
                     db=conn,
                     cycle=-1,
                 )
             )
-            if not assembled.ok:
-                _mark_failed(conn, mutation.id, reason=f"assembly: {assembled.failure_reason}")
-                print(f"assembly failed: {assembled.failure_reason}")
+            for att in ladder.attempts:
+                if not att.assembled_ok:
+                    print(f"  [{att.tier}] assembly failed: {att.failure_reason}")
+                else:
+                    print(
+                        f"  [{att.tier}] passed {int(att.validation_score * 100)}% "
+                        f"(ok={att.validation_ok})"
+                    )
+            assembled = ladder.assembled
+            validation = ladder.validation
+            if ladder.winning_tier is None:
+                _mark_failed(
+                    conn, mutation.id,
+                    reason=(
+                        f"ladder exhausted: last failure "
+                        f"{validation.failure_reason or 'unknown'}"
+                    ),
+                )
+                print("ladder exhausted; no tier produced a valid skill.")
                 return 1
+            print(f"  winning tier: {ladder.winning_tier}")
             print(f"  schema: {assembled.schema['function']['name']}")
             print(f"  samples: {len(assembled.samples)}")
-
-            print("validating...")
-            validation = asyncio.run(validate_skill(assembled))
             print(
                 f"  validation: passed {validation.passed}/{validation.total} "
                 f"(score={validation.score:.2f}, ok={validation.ok})"
             )
-            if not validation.ok:
-                _mark_failed(conn, mutation.id, reason=f"validation: {validation.failure_reason}")
-                return 1
 
             print("activating...")
             result = activate_skill(assembled, validation)
