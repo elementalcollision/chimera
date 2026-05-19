@@ -283,6 +283,54 @@ async def test_act_records_failure_outcome_on_provider_error(shell_env, dispatch
 
 
 @pytest.mark.asyncio
+async def test_act_downgrades_to_artifact_missing_when_promised_file_absent(
+    shell_env, dispatcher, db, tmp_path, monkeypatch,
+):
+    """v4.3: model says 'stop' but the promised artifact isn't on disk."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "state").mkdir(exist_ok=True)  # state/ exists but the claimed log doesn't
+
+    fake = _FakeProvider(
+        [ChatResponse(text="Wrote it.", tool_uses=[], stop_reason="stop")]
+    )
+    executor = ActExecutor(
+        dispatcher=dispatcher,
+        providers={ProviderKind.OPENROUTER: fake, ProviderKind.ANTHROPIC: fake},
+        db=db,
+    )
+    result = await executor.execute(
+        "Write 'hi' to `state/missing.log` then stop.", cycle=42,
+    )
+    assert result.completed is False
+    assert result.finish_reason == "artifact_missing"
+    assert result.missing_artifacts == ["state/missing.log"]
+
+
+@pytest.mark.asyncio
+async def test_act_completes_when_artifact_exists(
+    shell_env, dispatcher, db, tmp_path, monkeypatch,
+):
+    """Sanity: artifact path that DOES exist passes verification."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "state" / "present.log").write_text("ok")
+
+    fake = _FakeProvider(
+        [ChatResponse(text="Done.", tool_uses=[], stop_reason="stop")]
+    )
+    executor = ActExecutor(
+        dispatcher=dispatcher,
+        providers={ProviderKind.OPENROUTER: fake, ProviderKind.ANTHROPIC: fake},
+        db=db,
+    )
+    result = await executor.execute(
+        "Write to `state/present.log` and stop.", cycle=43,
+    )
+    assert result.completed is True
+    assert result.missing_artifacts == []
+
+
+@pytest.mark.asyncio
 async def test_act_escalates_to_next_rung_on_first_rung_failure(shell_env, dispatcher, db):
     """v3.11: when one provider raises, ACT walks the next ladder rung."""
     flaky = _FakeProvider([])

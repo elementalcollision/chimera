@@ -22,8 +22,10 @@ adaptive routing policy (a later sprint) has data to work with.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ..memory import record_api_call, record_ladder_outcome
@@ -72,6 +74,37 @@ class ActResult:
     final_text: str = ""
     failure_reason: str | None = None
     api_call_count: int = 0
+    missing_artifacts: list[str] = field(default_factory=list)
+
+
+_ARTIFACT_PATTERN = re.compile(r"`((?:state|mind)/[A-Za-z0-9_./-]+)`")
+
+
+def expected_artifacts(task_text: str) -> list[str]:
+    """Extract backtick-quoted paths under state/ or mind/ from a task line.
+
+    Used by ACT to verify the model's claimed completion actually produced
+    the files the task asked for (L-1, ADR 0026). The path is treated as
+    relative to the working directory; callers resolve as needed.
+    """
+    seen: list[str] = []
+    for m in _ARTIFACT_PATTERN.finditer(task_text):
+        path = m.group(1)
+        if path not in seen:
+            seen.append(path)
+    return seen
+
+
+def check_artifacts(
+    expected: list[str], *, base_dir: Path | None = None
+) -> list[str]:
+    """Return the subset of ``expected`` paths that do NOT exist on disk."""
+    base = base_dir or Path.cwd()
+    missing: list[str] = []
+    for rel in expected:
+        if not (base / rel).exists():
+            missing.append(rel)
+    return missing
 
 
 class ActExecutor:
@@ -254,17 +287,31 @@ class ActExecutor:
             final_text = response.text
             stop_reason = response.stop_reason
 
-            # No tools → done.
+            # No tools → done. v4.3: verify any path-shaped artifacts the
+            # task asked for actually exist before flipping completed=True.
             if not response.tool_uses or response.stop_reason in ("stop", "length"):
+                completed = response.stop_reason == "stop"
+                finish_reason = response.stop_reason
+                missing: list[str] = []
+                if completed:
+                    expected = expected_artifacts(task_text)
+                    missing = check_artifacts(expected)
+                    if missing:
+                        completed = False
+                        finish_reason = "artifact_missing"
                 return ActResult(
                     task_text=task_text,
-                    completed=response.stop_reason == "stop",
+                    completed=completed,
                     rounds=round_idx + 1,
-                    finish_reason=response.stop_reason,
+                    finish_reason=finish_reason,
                     write_targets=write_targets,
                     tool_call_history=history,
                     final_text=final_text,
                     api_call_count=api_call_count,
+                    missing_artifacts=missing,
+                    failure_reason=(
+                        f"missing artifacts: {', '.join(missing)}" if missing else None
+                    ),
                 )
 
             # Append assistant turn with the model's tool_use blocks.
