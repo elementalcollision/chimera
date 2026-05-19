@@ -30,8 +30,8 @@ export interface WidgetDef {
 type ThemePref = "system" | "light" | "slate";
 type Density = "compact" | "cozy" | "spacious";
 
-const STORAGE_LAYOUT = "chimera-canvas-layout-v4";
-const STORAGE_PINS = "chimera-canvas-pinned-v4";
+const STORAGE_LAYOUT = "chimera-canvas-layout-v5";
+const STORAGE_PINS = "chimera-canvas-pinned-v5";
 const STORAGE_THEME = "chimera-canvas-theme-v1";
 const STORAGE_DENSITY = "chimera-canvas-density-v1";
 const STORAGE_CATALOGUE = "chimera-canvas-catalogue-v1";

@@ -86,7 +86,7 @@ export default async function HomePage() {
     },
     {
       id: "ontology", title: "Ontology", eyebrow: "entities", icon: "list",
-      group: "skills", layout: { x: 0, y: 9, w: 12, h: 4 },
+      group: "skills", layout: { x: 0, y: 9, w: 12, h: 3 },
       body: <OntologyWidget entities={entities} />,
     },
     {

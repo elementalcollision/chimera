@@ -232,13 +232,15 @@ button {
 }
 
 .tile {
+  /* v4.16.3: react-grid-layout positions the outer wrapper; the
+     tile should fill that wrapper, not auto-size to its content. */
   position: absolute;
+  inset: 0;
   background: var(--bg-1);
   border: 1px solid var(--border-1);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: box-shadow var(--dur-base) var(--ease-standard),
-              transform var(--dur-base) var(--ease-standard);
+  transition: box-shadow var(--dur-base) var(--ease-standard);
   display: flex;
   flex-direction: column;
 }
