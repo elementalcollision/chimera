@@ -7,6 +7,7 @@ import {
   recentApiCalls,
 } from "@/lib/db";
 import { readHeartbeat, readMindFile, readTrustState, tierLabel } from "@/lib/mind";
+import { readGraphSnapshot, readTrustJournal } from "@/lib/graph";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,8 @@ export default async function HomePage() {
   const pending = pendingMutations();
   const activity = recentActivity(16);
   const ladder = ladderOutcomesByTier();
+  const graph = readGraphSnapshot();
+  const trustJournal = readTrustJournal(20);
 
   return (
     <>
@@ -233,6 +236,89 @@ export default async function HomePage() {
         <pre className="whitespace-pre-wrap text-xs bg-zinc-100 dark:bg-zinc-900 p-3 rounded max-h-[40rem] overflow-y-auto">
           {chronicle.trim() || "(empty)"}
         </pre>
+      </Section>
+
+      <Section title={`Graph${graph ? ` (snapshot ${graph.generated_at})` : ""}`}>
+        {!graph ? (
+          <Empty>
+            No graph snapshot yet. Run <code className="font-mono">chimera graph rebuild</code> then{" "}
+            <code className="font-mono">chimera graph export</code>.
+          </Empty>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Skill DAG ({graph.skills.length})</h3>
+              {graph.skills.length === 0 ? (
+                <Empty>(no dynamic skills)</Empty>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-zinc-500">
+                    <tr><th>skill</th><th>depends_on</th><th>uses_tool</th></tr>
+                  </thead>
+                  <tbody>
+                    {graph.skills.map((s, i) => (
+                      <tr key={i} className="border-t border-zinc-200 dark:border-zinc-800">
+                        <td className="py-1 pr-3 font-mono">{s.name}</td>
+                        <td className="pr-3">{(s.deps ?? []).filter(Boolean).join(", ") || "—"}</td>
+                        <td className="pr-3">{(s.tools ?? []).filter(Boolean).join(", ") || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold mb-1">Provenance (latest)</h3>
+              {graph.proposed.length === 0 && graph.activated.length === 0 ? (
+                <Empty>(no provenance edges)</Empty>
+              ) : (
+                <ul className="text-xs space-y-1">
+                  {graph.proposed.map((p, i) => (
+                    <li key={`p-${i}`}>
+                      #{p.id} [{p.type}] {p.status} →{" "}
+                      <span className="text-zinc-500">{p.entity_kind}</span>{" "}
+                      <span className="font-mono">{p.entity_name}</span>
+                    </li>
+                  ))}
+                  {graph.activated.map((a, i) => (
+                    <li key={`a-${i}`}>
+                      #{a.id} ⇒ activated skill <span className="font-mono">{a.skill}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </Section>
+
+      <Section title={`Peer trust journal (${trustJournal.length})`}>
+        {trustJournal.length === 0 ? (
+          <Empty>(no peer-trust decisions logged yet)</Empty>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr>
+                <th>when</th>
+                <th>peer</th>
+                <th>decision</th>
+                <th>drift</th>
+                <th>reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trustJournal.map((r, i) => (
+                <tr key={i} className="border-t border-zinc-200 dark:border-zinc-800">
+                  <td className="py-1 pr-3 text-zinc-500">{r.recorded_at}</td>
+                  <td className="pr-3 font-mono">{r.peer}</td>
+                  <td className="pr-3">{r.decision}</td>
+                  <td className="pr-3">{r.drift_score ?? "—"}</td>
+                  <td className="pr-3">{r.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </Section>
 
       <Section title="All mutations (last 20)">

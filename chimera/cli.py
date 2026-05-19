@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from pathlib import Path
+from typing import Any
 
 from . import __version__
 
@@ -174,6 +176,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "provenance", help="Mutation provenance: PROPOSED entity + ACTIVATED skill chain."
     )
     g_prov.add_argument("mutation_id", type=int)
+    g_export = graph_sub.add_parser(
+        "export",
+        help="Write a JSON snapshot of graph queries for the dashboard.",
+    )
+    g_export.add_argument(
+        "--out",
+        default=None,
+        help="Output path (default: state/chimera.graph.snapshot.json).",
+    )
 
     return parser
 
@@ -709,6 +720,57 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  skills with no edges: {len(orphan_skills)}")
             for (n,) in orphan_skills:
                 print(f"    {n}")
+            return 0
+        if sub_cmd == "export":
+            import json as _json
+            from datetime import datetime, timezone
+
+            store.init_schema()
+            snapshot: dict[str, Any] = {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            cols = lambda r: [dict(zip(r.columns, row)) for row in r.rows]
+            snapshot["entities"] = cols(store.query(
+                "MATCH (e:Entity) RETURN e.id AS id, e.kind AS kind, "
+                "e.name AS name, e.kfm_state AS kfm_state "
+                "ORDER BY e.kind, e.name"
+            ))
+            skill_names = [r[0] for r in store.query(
+                "MATCH (s:Skill) RETURN s.name ORDER BY s.name"
+            ).rows]
+            skills: list[dict[str, Any]] = []
+            for sn in skill_names:
+                deps = [r[0] for r in store.query(
+                    "MATCH (:Skill {name: $n})-[:DEPENDS_ON]->(d:Skill) RETURN d.name",
+                    params={"n": sn},
+                ).rows]
+                tools = [r[0] for r in store.query(
+                    "MATCH (:Skill {name: $n})-[:USES_TOOL]->(t:Entity) RETURN t.name",
+                    params={"n": sn},
+                ).rows]
+                skills.append({"name": sn, "deps": deps, "tools": tools})
+            snapshot["skills"] = skills
+            snapshot["proposed"] = cols(store.query(
+                "MATCH (m:Mutation)-[:PROPOSED]->(e:Entity) "
+                "RETURN m.id AS id, m.type AS type, m.status AS status, "
+                "e.kind AS entity_kind, e.name AS entity_name "
+                "ORDER BY m.id DESC LIMIT 50"
+            ))
+            snapshot["activated"] = cols(store.query(
+                "MATCH (m:Mutation)-[:ACTIVATED]->(s:Skill) "
+                "RETURN m.id AS id, s.name AS skill ORDER BY m.id DESC LIMIT 50"
+            ))
+            snapshot["trusted"] = cols(store.query(
+                "MATCH (a:Peer)-[t:TRUSTED]->(b:Peer) "
+                "RETURN a.agent_id AS from, b.agent_id AS to, "
+                "t.verdict AS verdict, t.drift_score AS drift_score, "
+                "t.recorded_at AS recorded_at"
+            ))
+            out_path = Path(args.out) if args.out else (
+                cfg.state_dir / "chimera.graph.snapshot.json"
+            )
+            out_path.write_text(_json.dumps(snapshot, indent=2), encoding="utf-8")
+            print(f"chimera graph export: {out_path}")
             return 0
         if sub_cmd == "provenance":
             store.init_schema()
