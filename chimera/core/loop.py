@@ -534,6 +534,18 @@ class ChimeraLoop:
             self._report.drift_decision = decision
             self._apply_decision(decision)
             if reading is not None:
+                try:
+                    from .drift_log import record_drift
+
+                    record_drift(
+                        cycle=self._report.cycle,
+                        composite_score=reading.composite_score,
+                        severity=reading.severity,
+                        action=decision.action.value,
+                        reason=decision.reason,
+                    )
+                except Exception:
+                    logger.exception("drift_log write failed; continuing")
                 self._log_phase(
                     f"FLUSH: drift composite={reading.composite_score:.3f} "
                     f"severity={reading.severity} → {decision.action.value} "

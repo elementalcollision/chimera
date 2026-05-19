@@ -39,6 +39,32 @@ function trustJournalDir(): string {
     path.join(stateDir(), "peer_trust_journal");
 }
 
+export interface DriftLogRecord {
+  cycle: number;
+  composite_score: number;
+  severity: string;
+  action: string;
+  reason: string;
+  recorded_at: string;
+}
+
+export function readDriftLog(limit = 50): DriftLogRecord[] {
+  const p = path.join(stateDir(), "drift_log.jsonl");
+  if (!fs.existsSync(p)) return [];
+  const out: DriftLogRecord[] = [];
+  for (const line of fs.readFileSync(p, "utf-8").split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      out.push(JSON.parse(s) as DriftLogRecord);
+    } catch {
+      // skip
+    }
+  }
+  return out.slice(-limit);
+}
+
+
 export interface AssemblyAttempt {
   tier: string;
   assembled_ok: boolean;

@@ -8,6 +8,7 @@ import { costByModel, totalCost } from "@/lib/cost";
 import {
   groupTrustJournal,
   readAssemblyJournal,
+  readDriftLog,
   readEmergenceCounts,
   readGraphSnapshot,
   readPeers,
@@ -17,6 +18,7 @@ import {
 import { readHeartbeat, readMindFile, readTrustState } from "@/lib/mind";
 
 import CanvasShell, { WidgetDef } from "@/components/CanvasShell";
+import DriftSparklineWidget from "@/components/widgets/DriftSparklineWidget";
 import StatusWidget from "@/components/widgets/StatusWidget";
 import TokenCostWidget from "@/components/widgets/TokenCostWidget";
 import {
@@ -53,6 +55,7 @@ export default async function HomePage() {
   const costRows = allApiCallTokenRows();
   const buckets = costByModel(costRows);
   const cost = totalCost(buckets);
+  const driftLog = readDriftLog(60);
 
   const widgets: WidgetDef[] = [
     {
@@ -69,15 +72,21 @@ export default async function HomePage() {
       body:<TokenCostWidget buckets={buckets} total={cost} />,
     },
     {
+      id: "drift-sparkline",
+      title: "Drift composite (last 60)",
+      layout: { x: 0, y: 5, w: 6, h: 4 },
+      body:<DriftSparklineWidget records={driftLog} />,
+    },
+    {
       id: "phase-timings",
       title: "Phase timings",
-      layout: { x: 0, y: 5, w: 6, h: 4 },
+      layout: { x: 6, y: 5, w: 6, h: 4 },
       body:<PhaseTimingsWidget timings={timings} />,
     },
     {
       id: "ontology",
       title: "Ontology",
-      layout: { x: 6, y: 5, w: 6, h: 4 },
+      layout: { x: 0, y: 9, w: 12, h: 4 },
       body:<OntologyWidget entities={entities} />,
     },
     {
