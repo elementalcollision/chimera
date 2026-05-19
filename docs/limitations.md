@@ -6,6 +6,25 @@ remediation ADR / version once shipped.
 
 ## Open
 
+### L-4 — `CHIMERA_ENGINES_ENABLED=0` leaks on first cycle after fresh process
+
+**Surfaced:** v4.5 live-spin. With the env var set, cycle 8 still ran
+a PLAN engine for 50s ("3 proposal(s) added"); cycle 9 honored the
+flag (`plan=0ms`). Likely an env-var read timing or scheduler
+construction-caching issue.
+
+**Impact:** Operator running `chimera run` with engines explicitly
+disabled may pay the engine cost once before subsequent cycles
+respect the flag. Recoverable; not data-corrupting.
+
+**Path to fix:** Audit `EngineScheduler.__init__` and `pick_due` for
+env reads cached at construction time. Likely the fix is to re-check
+`os.environ.get("CHIMERA_ENGINES_ENABLED", "1") == "0"` inside
+`pick_due` (we already do — verify the env actually propagated to
+the subprocess in the `chimera run` path).
+
+---
+
 ### L-3 — Compound synthesis tasks fragment and hit `max_rounds`
 
 **Surfaced:** v4.1 through v4.4 cycles, same task each time:
@@ -39,6 +58,25 @@ Option 1 is cheapest; (2) is more invasive but more reliable. Try
 ---
 
 ## Closed
+
+### L-3 — Compound synthesis tasks fragment and hit `max_rounds` *(closed in v4.5)*
+
+**Surfaced:** v4.1 through v4.4. Same task: combine summary + critique
+into one `.md` file. Model fragmented into 20-30+ small reads, never
+reached the final write.
+
+**Closed in:** v4.5 via [ADR 0028](adr/0028-adaptive-budgets.md). Two
+levers:
+1. `dynamic_max_rounds(task_text)` scales per-task budget by declared
+   artifacts and named tool keywords (capped at 32).
+2. When `(finish_reason="max_rounds", missing_artifacts)` recurs ≥2
+   times with overlapping token-signature, ACT auto-emits a
+   `skill_proposal` mutation for a focused `synthesize_to_file` skill.
+Verified live: cycle 8 budget jumped 12→16, cycle 9 auto-proposed
+mutation #1 with the synthesis skill spec. Drift detector also
+demoted the plan independently. Pattern → diagnosis → proposal.
+
+---
 
 ### L-2 — Shell `cwd` defaulted to `mind/`, so `state/x` landed at `mind/state/x`
 

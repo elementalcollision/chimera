@@ -226,7 +226,14 @@ class ActExecutor:
         assert provider is not None
         last_provider_error: str | None = None
 
-        for round_idx in range(self._max_rounds):
+        # v4.5: per-task adaptive budget — scales with declared artifacts
+        # and named tool keywords, capped at 32.
+        from .budget import dynamic_max_rounds
+
+        effective_max_rounds = dynamic_max_rounds(
+            task_text, base=self._max_rounds
+        )
+        for round_idx in range(effective_max_rounds):
             try:
                 response = await provider.complete_with_tools(
                     messages=messages,
@@ -367,14 +374,44 @@ class ActExecutor:
 
             messages.append(Message.tool_results(tool_results))
 
+        # v4.5: max_rounds + declared artifacts missing = fragmentation.
+        # Log it; if the signature recurred enough, auto-propose a
+        # focused synthesis skill via the mutation queue.
+        missing_at_max = check_artifacts(expected_artifacts(task_text))
+        if missing_at_max:
+            try:
+                from .adaptation import (
+                    maybe_propose_synthesis_skill,
+                    record_fragmentation,
+                )
+
+                record_fragmentation(
+                    cycle=cycle,
+                    task_text=task_text,
+                    rounds_used=effective_max_rounds,
+                    tool_call_count=len(history),
+                    missing_artifacts=missing_at_max,
+                )
+                maybe_propose_synthesis_skill(
+                    self._db,
+                    cycle=cycle,
+                    task_text=task_text,
+                    missing_artifacts=missing_at_max,
+                )
+            except Exception:
+                logger.exception(
+                    "fragmentation log / auto-proposal failed; continuing"
+                )
+
         return ActResult(
             task_text=task_text,
             completed=False,
-            rounds=self._max_rounds,
+            rounds=effective_max_rounds,
             finish_reason="max_rounds",
             write_targets=write_targets,
             tool_call_history=history,
             final_text=final_text,
+            missing_artifacts=missing_at_max,
             failure_reason="exhausted max rounds without final stop",
             api_call_count=api_call_count,
         )

@@ -24,6 +24,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "doctor",
         help="Validate config / env / state — boot-time preflight (v3.6+).",
     )
+    sub.add_parser(
+        "fragmentation",
+        help="Show the v4.5 fragmentation log (compound-task failures).",
+    )
 
     run = sub.add_parser("run", help="Run one cycle of the agent loop (stub).")
     run.add_argument("prompt", nargs="?", help="Optional ad-hoc prompt to enqueue.")
@@ -297,6 +301,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if not result.failures else 1
         parser.error(f"unknown emergence subcommand: {sub_cmd}")
         return 2
+    if args.command == "fragmentation":
+        from .core.adaptation import list_fragmentation
+        rows = list_fragmentation()
+        if not rows:
+            print("chimera fragmentation: (no records)")
+            return 0
+        print(f"chimera fragmentation: {len(rows)} record(s)")
+        for r in rows:
+            preview = r.task_text.split("\n")[0][:80]
+            print(
+                f"  cycle {r.cycle:3d}  rounds={r.rounds_used:2d}  "
+                f"tools={r.tool_call_count:2d}  missing={len(r.missing_artifacts)}  "
+                f"{preview}…"
+            )
+        return 0
     if args.command == "doctor":
         from .core import run_checks
         results = run_checks()
