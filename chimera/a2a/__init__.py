@@ -17,6 +17,18 @@ from .peers import (
     list_peer_chimeras,
     list_xenocomm_tools,
 )
+from .alignment import (
+    AlignmentCeremony,
+    AlignmentReport,
+    AlignmentResult,
+    CeremonyResult,
+    CeremonyVerdict,
+    capability_alignment,
+    drift_alignment,
+    kfm_state_alignment,
+    schema_alignment,
+    version_alignment,
+)
 from .peer_dispatch import PeerAwareDispatcher, PeerCallRefused
 from .trust_policy import (
     PeerStateCache,
@@ -37,6 +49,16 @@ from .registry import (
 
 __all__ = [
     "AgentIdentity",
+    "AlignmentCeremony",
+    "AlignmentReport",
+    "AlignmentResult",
+    "CeremonyResult",
+    "CeremonyVerdict",
+    "capability_alignment",
+    "drift_alignment",
+    "kfm_state_alignment",
+    "schema_alignment",
+    "version_alignment",
     "PeerEntry",
     "fetch_peer_identity",
     "fetch_peer_kfm",
