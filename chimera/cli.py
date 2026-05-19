@@ -20,6 +20,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     sub.add_parser("status", help="Show current cycle and trust state (stub).")
+    sub.add_parser(
+        "doctor",
+        help="Validate config / env / state — boot-time preflight (v3.6+).",
+    )
 
     run = sub.add_parser("run", help="Run one cycle of the agent loop (stub).")
     run.add_argument("prompt", nargs="?", help="Optional ad-hoc prompt to enqueue.")
@@ -235,6 +239,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    if args.command == "doctor":
+        from .core import run_checks
+        results = run_checks()
+        rc = 0
+        print("chimera doctor:")
+        for r in results:
+            marker = {"ok": "✓", "warn": "!", "error": "✗"}.get(r.status, "?")
+            print(f"  [{marker}] {r.name:24s} {r.message}")
+            if r.status == "error":
+                rc = 1
+        return rc
     if args.command == "status":
         from .core import load_heartbeat, LoopConfig
         cfg = LoopConfig.from_env()

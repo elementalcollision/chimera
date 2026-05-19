@@ -161,6 +161,8 @@ async def serve_http(
     Binds to ``host``:``port``. ``host=0.0.0.0`` exposes to the
     network — make sure ``CHIMERA_PEER_TOKEN`` is set first.
     """
+    from ..core import assert_no_errors
+    assert_no_errors()
     cms = ChimeraMCPServer.from_env(name=name)
     if not cms.exposed:
         logger.warning(

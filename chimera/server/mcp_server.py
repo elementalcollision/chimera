@@ -172,7 +172,9 @@ async def serve_stdio(name: str = "chimera") -> int:
     from ..a2a import AgentIdentity
     from ..a2a import forget as _forget_peer
     from ..a2a import register as _register_peer
+    from ..core import assert_no_errors
 
+    assert_no_errors()
     cms = ChimeraMCPServer.from_env(name=name)
     if not cms.exposed:
         logger.warning(
