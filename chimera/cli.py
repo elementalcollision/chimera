@@ -106,8 +106,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scenario.add_argument(
         "name",
-        choices=("drift", "research"),
+        choices=("drift", "research", "two_chimera"),
         help="Which scenario to run.",
+    )
+
+    serve = sub.add_parser(
+        "serve",
+        help="Start Chimera's MCP server on stdio (peers call this).",
+    )
+    serve.add_argument(
+        "--name",
+        default="chimera",
+        help="MCP server name advertised to peers (default: chimera).",
     )
 
     return parser
@@ -185,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
         for t in targets:
             rc |= asyncio.run(_ping_provider(t))
         return rc
+    if args.command == "serve":
+        from .server import serve_stdio
+        return asyncio.run(serve_stdio(name=args.name))
     if args.command == "a2a":
         from .a2a import AgentIdentity, list_xenocomm_tools
         from .core import ChimeraLoop
@@ -473,6 +486,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  tool_calls: {result.tool_call_count}")
             print(f"  transcript: {result.transcript_path}")
             return 0 if result.tasks_completed == result.tasks_seen else 1
+        if args.name == "two_chimera":
+            from .scenarios import run_two_chimera_demo as _tcd
+            peer_root = cfg.state_dir.parent / "peer_chimera"
+            result = _tcd(peer_root)
+            print("chimera scenario two_chimera:")
+            print(f"  discovered_tools: {result.discovered_tools}")
+            print(f"  ok: {result.ok}")
+            print("  call_result:")
+            for line in result.call_result.splitlines():
+                print(f"    {line}")
+            return 0 if result.ok else 1
     parser.error(f"unknown command: {args.command}")
     return 2
 
