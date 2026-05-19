@@ -27,6 +27,7 @@ from ..tools import (
 @dataclass
 class TwoChimeraResult:
     discovered_tools: list[str]
+    peer_identity: dict | None
     call_result: str
     ok: bool
 
@@ -60,15 +61,28 @@ async def _arun(
     await register_mcp_servers(cfg, reg)
     discovered = sorted(reg.names())
 
+    # v2.1: handshake first.
+    from ..a2a import fetch_peer_identity
+
+    peer_identity = await fetch_peer_identity("chimera-a", registry=reg)
+
     dispatcher = Dispatcher(reg)
     output = await dispatcher.dispatch(
         "mcp-chimera-a-shell",
         {"argv": ["ls", "."]},
         DispatchContext(),
     )
-    ok = marker_name in output and "[exit=0]" in output
+    ok = (
+        marker_name in output
+        and "[exit=0]" in output
+        and peer_identity.get("role") == "chimera"
+        and bool(peer_identity.get("agent_id"))
+    )
     return TwoChimeraResult(
-        discovered_tools=discovered, call_result=output, ok=ok
+        discovered_tools=discovered,
+        peer_identity=peer_identity,
+        call_result=output,
+        ok=ok,
     )
 
 

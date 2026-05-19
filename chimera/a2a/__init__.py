@@ -1,17 +1,21 @@
-"""Agent-to-Agent (A2A) integration via Xenocomm.
+"""Agent-to-Agent (A2A) — identity, peer discovery, handshake.
 
-v1.5 is a config-only spike per [ADR 0004](../../docs/adr/0004-xenocomm-a2a.md):
-operators add a ``xenocomm`` server to ``CHIMERA_MCP_SERVERS`` and the
-existing MCP client (Phase 3.3) registers Xenocomm's tools under the
-``mcp-xenocomm`` toolset.
-
-This package adds the thin Python conveniences referenced by the ADR:
+v1.5 was a Xenocomm-MCP-client spike. v2.1 adds the identity handshake
+that lets two Chimeras attest to each other before any policy-gated
+work happens.
 
 - :class:`AgentIdentity` — what this Chimera advertises to peers
-- :func:`list_xenocomm_tools` — enumerate discovered Xenocomm tools
+- :func:`list_xenocomm_tools` — Xenocomm tools discovered via MCP
+- :func:`list_peer_chimeras` — server names of peer Chimeras discovered
+- :func:`fetch_peer_identity` — call a peer's ``chimera-identity`` tool
 """
 
 from .identity import AgentIdentity
-from .peers import list_xenocomm_tools
+from .peers import fetch_peer_identity, list_peer_chimeras, list_xenocomm_tools
 
-__all__ = ["AgentIdentity", "list_xenocomm_tools"]
+__all__ = [
+    "AgentIdentity",
+    "fetch_peer_identity",
+    "list_peer_chimeras",
+    "list_xenocomm_tools",
+]

@@ -40,6 +40,7 @@ from ..tools import (
     default_registry,
     register_core_tools,
 )
+from .identity_tool import IDENTITY_TOOL_NAME, register_identity_tool
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +73,14 @@ class ChimeraMCPServer:
         exposed: set[str] | None = None,
     ) -> ChimeraMCPServer:
         reg = registry or default_registry()
-        # Make sure built-in tools are registered. Operators expecting a
-        # specific tool exposed should ensure it's in the registry.
+        # Built-in tools + peer identity tool (v2.1).
         register_core_tools(reg)
+        register_identity_tool(reg)
         dispatcher = Dispatcher(reg)
-        allowed = frozenset(exposed if exposed is not None else exposed_tool_names())
+        operator_allow = set(exposed if exposed is not None else exposed_tool_names())
+        # Identity is always advertised — it's the handshake target.
+        operator_allow.add(IDENTITY_TOOL_NAME)
+        allowed = frozenset(operator_allow)
         srv = build_server(name=name, registry=reg, dispatcher=dispatcher, exposed=allowed)
         return cls(
             name=name, registry=reg, dispatcher=dispatcher, exposed=allowed, server=srv
