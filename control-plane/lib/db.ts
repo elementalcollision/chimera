@@ -72,6 +72,24 @@ export function recentApiCalls(limit = 25): ApiCall[] {
     .all(limit) as ApiCall[];
 }
 
+export function allApiCallTokenRows(): Array<{
+  model_id: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+}> {
+  const db = getDb();
+  if (!db) return [];
+  return db
+    .prepare(
+      "SELECT model_id, input_tokens, output_tokens FROM api_calls WHERE error IS NULL"
+    )
+    .all() as Array<{
+      model_id: string;
+      input_tokens: number | null;
+      output_tokens: number | null;
+    }>;
+}
+
 export function pendingMutations(): Mutation[] {
   const db = getDb();
   if (!db) return [];
