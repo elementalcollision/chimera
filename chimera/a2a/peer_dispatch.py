@@ -22,6 +22,7 @@ import logging
 from typing import Any
 
 from ..tools import DispatchContext, Dispatcher, ToolDenied, ToolRegistry
+from .peer_trust_journal import record_decision
 from .trust_policy import (
     PeerStateCache,
     PeerTrustPolicy,
@@ -65,6 +66,16 @@ class PeerAwareDispatcher(Dispatcher):
         ctx = context or DispatchContext()
         peer_state = await self._ensure_peer_state(peer_name)
         result = self.policy.evaluate(peer_state)
+        drift = peer_state.get("last_drift_score") if peer_state else None
+        try:
+            record_decision(
+                peer_name,
+                result.decision.name,
+                reason=result.reason,
+                drift_score=drift if isinstance(drift, (int, float)) else None,
+            )
+        except Exception:
+            logger.exception("peer-trust journal write failed; continuing")
         if result.decision is PolicyDecision.REFUSE:
             raise PeerCallRefused(
                 f"peer {peer_name!r}: {result.reason}"

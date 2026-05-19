@@ -228,6 +228,99 @@ class GraphStore:
         counts["Peer"] = peer_count
 
         counts.update(self._project_skills_and_wiki())
+        counts.update(self._project_mutation_edges(sqlite_conn))
+        counts.update(self._project_trust_edges())
+        return counts
+
+    def _project_mutation_edges(self, sqlite_conn) -> dict[str, int]:
+        """PROPOSED (Mutation→Entity) + ACTIVATED (Mutation→Skill)."""
+        import json
+
+        counts = {"PROPOSED": 0, "ACTIVATED": 0}
+        entity_by_name: dict[str, str] = {}
+        for row in sqlite_conn.execute("SELECT id, name FROM entities").fetchall():
+            entity_by_name[row["name"]] = row["id"]
+
+        mut_rows = sqlite_conn.execute(
+            "SELECT id, type, status, payload FROM mutations"
+        ).fetchall()
+        for r in mut_rows:
+            try:
+                payload = json.loads(r["payload"]) if r["payload"] else {}
+            except json.JSONDecodeError:
+                payload = {}
+            target_name = None
+            for key in ("entity_name", "target", "name"):
+                v = payload.get(key)
+                if isinstance(v, str) and v in entity_by_name:
+                    target_name = v
+                    break
+            if target_name is not None:
+                self._conn.execute(
+                    "MATCH (m:Mutation {id: $mid}), (e:Entity {id: $eid}) "
+                    "CREATE (m)-[:PROPOSED]->(e)",
+                    parameters={"mid": int(r["id"]), "eid": entity_by_name[target_name]},
+                )
+                counts["PROPOSED"] += 1
+            if (
+                r["type"] == "skill_proposal"
+                and r["status"] == "applied"
+                and isinstance(payload.get("name"), str)
+            ):
+                self._conn.execute(
+                    "MATCH (m:Mutation {id: $mid}), (s:Skill {name: $sn}) "
+                    "CREATE (m)-[:ACTIVATED]->(s)",
+                    parameters={"mid": int(r["id"]), "sn": payload["name"]},
+                )
+                counts["ACTIVATED"] += 1
+        return counts
+
+    def _project_trust_edges(self) -> dict[str, int]:
+        """TRUSTED edges from peer_trust_journal — one Self→Peer edge per latest decision."""
+        counts = {"TRUSTED": 0}
+        try:
+            from ..a2a import AgentIdentity, latest_per_peer, list_peers
+        except Exception:
+            return counts
+
+        latest = latest_per_peer()
+        if not latest:
+            return counts
+
+        self_id = AgentIdentity().agent_id
+        existing = {p.agent_id for p in list_peers()}
+        if self_id not in existing:
+            try:
+                self._conn.execute(
+                    "CREATE (p:Peer {agent_id: $id, version: $v, host: $h, "
+                    "registered_at: $ra})",
+                    parameters={"id": self_id, "v": "self", "h": "self", "ra": ""},
+                )
+            except Exception:
+                pass
+
+        peer_id_by_name: dict[str, str] = {}
+        for p in list_peers():
+            peer_id_by_name[p.agent_id] = p.agent_id
+            for key in (p.agent_id.split(":")[-1], p.agent_id):
+                peer_id_by_name.setdefault(key, p.agent_id)
+
+        for peer_name, rec in latest.items():
+            target_id = peer_id_by_name.get(peer_name)
+            if target_id is None:
+                continue
+            self._conn.execute(
+                "MATCH (a:Peer {agent_id: $a}), (b:Peer {agent_id: $b}) "
+                "CREATE (a)-[:TRUSTED {drift_score: $d, verdict: $v, recorded_at: $t}]->(b)",
+                parameters={
+                    "a": self_id,
+                    "b": target_id,
+                    "d": float(rec.drift_score) if rec.drift_score is not None else 0.0,
+                    "v": rec.decision,
+                    "t": rec.recorded_at,
+                },
+            )
+            counts["TRUSTED"] += 1
         return counts
 
     def _project_skills_and_wiki(

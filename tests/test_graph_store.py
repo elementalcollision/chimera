@@ -10,6 +10,8 @@ from chimera.memory import (
     GRAPH_SCHEMA_VERSION,
     GraphStore,
     create_entity,
+    create_mutation,
+    mark_applied,
     open_and_init,
     transition_entity,
 )
@@ -128,6 +130,54 @@ def test_filesystem_projection_skills_and_wiki(
         "MATCH (a:WikiDoc)-[:REFERENCES]->(b:WikiDoc) RETURN a.path, b.path"
     ).rows
     assert refs == [["one.md", "two.md"]]
+
+
+def test_mutation_edges_projected(graph: GraphStore, sqlite_conn):
+    e = create_entity(sqlite_conn, kind="tool", name="my_tool", cycle=0)
+    m_propose = create_mutation(
+        sqlite_conn,
+        type="tool_proposal",
+        payload={"entity_name": "my_tool", "spec": "..."},
+    )
+    m_skill = create_mutation(
+        sqlite_conn,
+        type="skill_proposal",
+        payload={"name": "do_thing", "description": "x", "brief": "y"},
+    )
+    mark_applied(sqlite_conn, m_skill.id, reason="ok")
+
+    # Seed the dynamic-skill source so rebuild's projection creates the Skill node.
+    from chimera.skills import dynamic_skills_dir
+    skill_file = dynamic_skills_dir() / "do_thing.py"
+    skill_file.write_text('"""seeded"""\n')
+    try:
+        counts = graph.rebuild_from_sqlite(sqlite_conn)
+    finally:
+        skill_file.unlink(missing_ok=True)
+    assert counts["PROPOSED"] == 1
+    assert counts["ACTIVATED"] == 1
+
+    proposed = graph.query(
+        "MATCH (m:Mutation)-[:PROPOSED]->(e:Entity) RETURN m.id, e.name"
+    ).rows
+    assert proposed == [[m_propose.id, "my_tool"]]
+
+
+def test_trust_journal_round_trip(tmp_path: Path, monkeypatch):
+    from chimera.a2a import latest_per_peer, list_decisions, record_decision
+
+    monkeypatch.setenv("CHIMERA_PEER_TRUST_JOURNAL_DIR", str(tmp_path))
+    record_decision("peerA", "ALLOW", reason="ok", drift_score=0.1)
+    record_decision("peerA", "DEGRADE", reason="drifted", drift_score=0.6)
+    record_decision("peerB", "REFUSE", reason="missing state")
+
+    all_recs = list_decisions()
+    assert len(all_recs) == 3
+
+    latest = latest_per_peer()
+    assert latest["peerA"].decision == "DEGRADE"
+    assert latest["peerA"].drift_score == 0.6
+    assert latest["peerB"].decision == "REFUSE"
 
 
 def test_entity_history_query_returns_ordered_chain(graph: GraphStore, sqlite_conn):

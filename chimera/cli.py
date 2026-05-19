@@ -170,6 +170,10 @@ def _build_parser() -> argparse.ArgumentParser:
     graph_sub.add_parser(
         "orphans", help="Entities with no transitions; skills with no edges."
     )
+    g_prov = graph_sub.add_parser(
+        "provenance", help="Mutation provenance: PROPOSED entity + ACTIVATED skill chain."
+    )
+    g_prov.add_argument("mutation_id", type=int)
 
     return parser
 
@@ -705,6 +709,37 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  skills with no edges: {len(orphan_skills)}")
             for (n,) in orphan_skills:
                 print(f"    {n}")
+            return 0
+        if sub_cmd == "provenance":
+            store.init_schema()
+            mid = args.mutation_id
+            mut = store.query(
+                "MATCH (m:Mutation {id: $i}) RETURN m.type, m.status, m.reason",
+                params={"i": mid},
+            )
+            if not mut.rows:
+                print(f"chimera graph provenance: mutation #{mid} not in graph")
+                return 1
+            mtype, mstatus, mreason = mut.rows[0]
+            print(f"chimera graph provenance: mutation #{mid}  [{mtype}]  status={mstatus}")
+            if mreason:
+                print(f"  reason: {mreason}")
+            proposed = store.query(
+                "MATCH (:Mutation {id: $i})-[:PROPOSED]->(e:Entity) "
+                "RETURN e.id, e.kind, e.name, e.kfm_state",
+                params={"i": mid},
+            ).rows
+            for eid, kind, name, st in proposed:
+                print(f"  PROPOSED → [{kind}] {name} ({eid[:8]}…) state={st}")
+            activated = store.query(
+                "MATCH (:Mutation {id: $i})-[:ACTIVATED]->(s:Skill) "
+                "RETURN s.name, s.source_path",
+                params={"i": mid},
+            ).rows
+            for sn, sp in activated:
+                print(f"  ACTIVATED → skill {sn}  ({sp})")
+            if not proposed and not activated:
+                print("  (no provenance edges)")
             return 0
         parser.error(f"unknown graph subcommand: {sub_cmd}")
         return 2

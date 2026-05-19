@@ -41,6 +41,13 @@ from .emergence import (
     record_observations_from_registry,
 )
 from .peer_dispatch import PeerAwareDispatcher, PeerCallRefused
+from .peer_trust_journal import (
+    TrustDecisionRecord,
+    latest_per_peer,
+    list_decisions,
+    record_decision,
+    trust_journal_dir,
+)
 from .trust_policy import (
     PeerStateCache,
     PeerTrustPolicy,
@@ -94,6 +101,11 @@ __all__ = [
     "PolicyResult",
     "is_always_allowed_peer_tool",
     "peer_name_from_tool",
+    "TrustDecisionRecord",
+    "latest_per_peer",
+    "list_decisions",
+    "record_decision",
+    "trust_journal_dir",
     "register",
     "registry_dir",
     "sweep_stale",

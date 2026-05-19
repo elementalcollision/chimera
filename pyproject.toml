@@ -1,6 +1,6 @@
 [project]
 name = "chimera"
-version = "3.0.0"
+version = "3.1.0"
 description = "Chimera — a multi-LLM tools-capable agent (best-of-breed chimera orchestrator)"
 readme = "README.md"
 requires-python = ">=3.12"
