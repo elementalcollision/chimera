@@ -89,11 +89,12 @@ SPAWN_SUB_AGENT_SCHEMA: dict[str, Any] = {
     "function": {
         "name": "spawn_sub_agent",
         "description": (
-            "Delegate a focused brief to a specialist sub-agent running on a chosen "
-            "model tier. The sub-agent runs its own short ACT loop with the requested "
-            "tools and returns a final text response. Use this when you want a "
-            "different model's perspective or to parallelise a subtask. Briefs MUST "
-            "be self-contained — the sub-agent has no memory of the parent context."
+            "IN-PROCESS sub-agent. Spawns a fresh ACT loop on a chosen model tier, "
+            "INSIDE THIS Chimera. Use for: different-model second opinion, "
+            "parallelisable subtask. Do NOT use when the user asks you to 'call a "
+            "peer' or 'talk to another Chimera' — that's a different MCP tool "
+            "(mcp-<peer>-*). Briefs MUST be self-contained; the sub-agent has no "
+            "memory of the parent context — paste any required inputs verbatim."
         ),
         "parameters": {
             "type": "object",

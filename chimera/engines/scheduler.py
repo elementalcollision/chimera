@@ -83,6 +83,11 @@ class EngineScheduler:
         ts = now or _utc_now()
         if force:
             return force
+        # Global kill switch — `CHIMERA_ENGINES_ENABLED=0` makes every
+        # cycle skip the PLAN engine entirely. Useful for ad-hoc manual
+        # cycles where the 60-90s engine cost is unwanted.
+        if os.environ.get("CHIMERA_ENGINES_ENABLED", "1") == "0":
+            return None
         today = ts.strftime("%Y-%m-%d")
         hour = ts.hour
         candidate: EngineName | None = None
