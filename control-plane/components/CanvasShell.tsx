@@ -132,6 +132,14 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
     return out;
   }, [layouts, pinned, hidden]);
 
+  const groupedCatalogue = useMemo(() => {
+    const buckets: Record<WidgetDef["group"], WidgetDef[]> = {
+      agent: [], cost: [], skills: [], federation: [], mind: [],
+    };
+    for (const w of widgets) buckets[w.group].push(w);
+    return buckets;
+  }, [widgets]);
+
   if (!layouts || !renderLayouts) {
     return (
       <div className="app">
@@ -189,14 +197,6 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
 
   const themeIcon: IconName = theme === "system" ? "layout" : resolvedTheme === "slate" ? "sun" : "moon";
   const nextTheme = theme === "system" ? "light" : theme === "light" ? "slate" : "system";
-
-  const groupedCatalogue = useMemo(() => {
-    const buckets: Record<WidgetDef["group"], WidgetDef[]> = {
-      agent: [], cost: [], skills: [], federation: [], mind: [],
-    };
-    for (const w of widgets) buckets[w.group].push(w);
-    return buckets;
-  }, [widgets]);
 
   return (
     <div className="app" data-theme={resolvedTheme} data-density={density}>
