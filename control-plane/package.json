@@ -1,11 +1,11 @@
 {
   "name": "chimera-control-plane",
-  "version": "3.9.0",
+  "version": "3.10.0",
   "description": "Read-only observability dashboard for the Chimera agent.",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
+    "dev": "next dev --turbopack -p 3000",
+    "build": "next build --turbopack",
     "start": "next start -p 3000",
     "lint": "next lint"
   },

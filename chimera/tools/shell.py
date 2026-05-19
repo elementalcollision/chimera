@@ -69,8 +69,11 @@ SHELL_SCHEMA: dict[str, Any] = {
                 "cwd": {
                     "type": "string",
                     "description": (
-                        "Working directory. Must be a path under "
-                        "$CHIMERA_MIND_DIR or $CHIMERA_STATE_DIR. Defaults to mind dir."
+                        "Optional working directory. PREFER OMITTING this field — "
+                        "it defaults to the mind directory. If you set it, use a "
+                        "RELATIVE path like 'state' or 'mind/wiki', NOT an absolute "
+                        "path. Absolute paths outside the mind/state roots are "
+                        "rejected."
                     ),
                 },
                 "timeout_s": {
@@ -110,7 +113,9 @@ def _resolve_cwd(cwd_arg: str | None) -> Path:
         candidate = candidate.resolve()
     if not any(_is_relative_to(candidate, r) for r in roots):
         raise ValueError(
-            f"cwd {candidate} is outside allowed roots ({', '.join(str(r) for r in roots)})"
+            f"cwd {candidate} is outside allowed roots. "
+            f"Use a RELATIVE path like 'state' or 'mind', or omit cwd entirely. "
+            f"Allowed absolute roots: {', '.join(str(r) for r in roots)}"
         )
     if not candidate.exists() or not candidate.is_dir():
         raise ValueError(f"cwd {candidate} does not exist or is not a directory")

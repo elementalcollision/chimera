@@ -84,7 +84,7 @@ class ActExecutor:
         providers: dict[ProviderKind, Provider],
         db: sqlite3.Connection,
         tier: str = "haiku",
-        max_rounds: int = 8,
+        max_rounds: int = 12,
         max_tokens: int = 2048,
         system_prompt_extra: str = DEFAULT_SYSTEM_PROMPT_EXTRA,
     ) -> None:
