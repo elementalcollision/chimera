@@ -14,6 +14,7 @@ from .kfm import (
     check_transition,
 )
 from .loop import ChimeraLoop, CycleReport, LoopConfig
+from .observability import configure_logging, phase_timer
 from .mind import (
     HeartbeatState,
     InboxTask,
@@ -28,6 +29,8 @@ __all__ = [
     "ChimeraLoop",
     "CycleReport",
     "LoopConfig",
+    "configure_logging",
+    "phase_timer",
     "HeartbeatState",
     "InboxTask",
     "EscalationPlan",

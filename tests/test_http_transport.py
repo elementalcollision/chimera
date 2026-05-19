@@ -93,6 +93,16 @@ def test_health_endpoint_no_auth_required(http_app, monkeypatch):
         assert "chimera ok" in resp.text
 
 
+def test_healthz_returns_structured_status(http_app):
+    with TestClient(http_app) as client:
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] in ("ok", "degraded")
+        assert "version" in body
+        assert body["db"] == "ok"
+
+
 def test_mcp_requires_bearer_when_token_set(monkeypatch, tmp_path):
     monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path / "mind"))
     monkeypatch.setenv("CHIMERA_STATE_DIR", str(tmp_path / "state"))

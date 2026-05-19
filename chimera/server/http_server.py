@@ -93,6 +93,33 @@ async def _health(_: Request) -> PlainTextResponse:
     return PlainTextResponse("chimera ok\n")
 
 
+async def _healthz(_: Request) -> JSONResponse:
+    """Structured health probe — cycle, trust tier, version, db reachable."""
+    from .. import __version__
+    from ..core import LoopConfig, load_heartbeat
+    from ..memory import open_and_init
+
+    cfg = LoopConfig.from_env()
+    payload: dict[str, object] = {"status": "ok", "version": __version__}
+    try:
+        state, _ = load_heartbeat(cfg.mind_dir / "HEARTBEAT.md")
+        payload["cycle"] = state.cycle
+        payload["trust_tier"] = state.trust_tier
+        payload["session_started_at"] = state.session_started_at
+    except Exception as exc:
+        payload["status"] = "degraded"
+        payload["heartbeat_error"] = str(exc)
+    try:
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        payload["db"] = "ok"
+    except Exception as exc:
+        payload["status"] = "degraded"
+        payload["db"] = f"error: {exc}"
+    return JSONResponse(payload)
+
+
 def build_http_app(cms: ChimeraMCPServer) -> Starlette:
     """Construct the Starlette ASGI app: /health + /mcp + bearer auth."""
     session_manager = StreamableHTTPSessionManager(app=cms.server)
@@ -102,6 +129,7 @@ def build_http_app(cms: ChimeraMCPServer) -> Starlette:
 
     routes = [
         Route("/health", _health),
+        Route("/healthz", _healthz),
         Mount("/mcp", app=_mcp_handler),
     ]
 
