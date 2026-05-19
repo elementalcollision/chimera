@@ -141,7 +141,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scenario.add_argument(
         "name",
-        choices=("drift", "research", "two_chimera"),
+        choices=("drift", "research", "two_chimera", "multi_host"),
         help="Which scenario to run.",
     )
 
@@ -712,6 +712,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  tool_calls: {result.tool_call_count}")
             print(f"  transcript: {result.transcript_path}")
             return 0 if result.tasks_completed == result.tasks_seen else 1
+        if args.name == "multi_host":
+            from .scenarios import run_multi_host_demo
+            workdir = cfg.state_dir.parent / "multi_host_demo"
+            result = run_multi_host_demo(workdir)
+            print("chimera scenario multi_host:")
+            print(f"  peer_a_port: {result.peer_a_port}")
+            print(f"  peer_a_agent_id: {result.peer_a_agent_id}")
+            print(f"  peers_synced: {result.peers_synced}")
+            print(f"  emergence_records: {result.emergence_records}")
+            if result.failures:
+                print("  failures:")
+                for f in result.failures:
+                    print(f"    - {f}")
+            print(f"  ok: {result.ok}")
+            return 0 if result.ok else 1
         if args.name == "two_chimera":
             from .scenarios import run_two_chimera_demo as _tcd
             peer_root = cfg.state_dir.parent / "peer_chimera"
