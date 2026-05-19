@@ -1,10 +1,12 @@
 import {
   allMutations,
   allApiCallTokenRows,
+  allApiCallCostHistoryRows,
   listEntities,
   recentApiCalls,
 } from "@/lib/db";
 import { costByModel, totalCost } from "@/lib/cost";
+import { costHistory } from "@/lib/cost-history";
 import {
   groupTrustJournal,
   readAssemblyJournal,
@@ -18,7 +20,8 @@ import {
 import { readFragmentation } from "@/lib/fragmentation";
 import { readHeartbeat, readMindFile, readTrustState } from "@/lib/mind";
 
-import CanvasShell, { WidgetDef } from "@/components/CanvasShell";
+import CanvasShell, { ViewPreset, WidgetDef } from "@/components/CanvasShell";
+import CostOverTimeWidget from "@/components/widgets/CostOverTimeWidget";
 import StatusWidget from "@/components/widgets/StatusWidget";
 import TokenCostWidget from "@/components/widgets/TokenCostWidget";
 import {
@@ -55,6 +58,7 @@ export default async function HomePage() {
   const graph = readGraphSnapshot();
   const assemblies = readAssemblyJournal(10);
   const costRows = allApiCallTokenRows();
+  const costHist = costHistory(allApiCallCostHistoryRows(), 24);
   const buckets = costByModel(costRows);
   const cost = totalCost(buckets);
   const driftLog = readDriftLog(60);
@@ -72,6 +76,11 @@ export default async function HomePage() {
       id: "cost", title: "Token cost", eyebrow: "spend", icon: "coins",
       group: "cost", layout: { x: 5, y: 0, w: 7, h: 5 },
       body: <TokenCostWidget buckets={buckets} total={cost} />,
+    },
+    {
+      id: "cost_history", title: "Cost over time", eyebrow: "last 24h", icon: "coins",
+      group: "cost", layout: { x: 0, y: 12, w: 12, h: 4 },
+      body: <CostOverTimeWidget points={costHist} />,
     },
     {
       id: "drift", title: "Drift composite", eyebrow: "trend", icon: "activity",
@@ -143,5 +152,53 @@ export default async function HomePage() {
     },
   ];
 
-  return <CanvasShell widgets={widgets} />;
+  const presets: Record<string, ViewPreset> = {
+    operator: {
+      label: "Operator",
+      layout: {
+        status:        { x: 0,  y: 0,  w: 5, h: 5 },
+        cost:          { x: 5,  y: 0,  w: 7, h: 5 },
+        drift:         { x: 0,  y: 5,  w: 6, h: 4 },
+        phases:        { x: 6,  y: 5,  w: 6, h: 4 },
+        inbox:         { x: 0,  y: 9,  w: 6, h: 6 },
+        chronicle:    { x: 6,  y: 9,  w: 6, h: 6 },
+        mutations:     { x: 0,  y: 15, w: 12, h: 5 },
+      },
+    },
+    cost: {
+      label: "Cost",
+      layout: {
+        cost:          { x: 0,  y: 0,  w: 8, h: 7 },
+        status:        { x: 8,  y: 0,  w: 4, h: 7 },
+        cost_history:  { x: 0,  y: 7,  w: 12, h: 5 },
+        api_calls:     { x: 0,  y: 12, w: 12, h: 6 },
+        phases:        { x: 0,  y: 18, w: 6, h: 5 },
+        fragmentation: { x: 6,  y: 18, w: 6, h: 5 },
+      },
+    },
+    debug: {
+      label: "Debug",
+      layout: {
+        status:        { x: 0,  y: 0,  w: 4, h: 5 },
+        phases:        { x: 4,  y: 0,  w: 4, h: 5 },
+        fragmentation: { x: 8,  y: 0,  w: 4, h: 5 },
+        assembly:      { x: 0,  y: 5,  w: 6, h: 7 },
+        graph:         { x: 6,  y: 5,  w: 6, h: 7 },
+        mutations:     { x: 0,  y: 12, w: 6, h: 5 },
+        api_calls:     { x: 6,  y: 12, w: 6, h: 5 },
+      },
+    },
+    federation: {
+      label: "Federation",
+      layout: {
+        peers:         { x: 0,  y: 0,  w: 6, h: 5 },
+        trust:         { x: 6,  y: 0,  w: 6, h: 5 },
+        emergence:     { x: 0,  y: 5,  w: 6, h: 6 },
+        graph:         { x: 6,  y: 5,  w: 6, h: 6 },
+        status:        { x: 0,  y: 11, w: 12, h: 4 },
+      },
+    },
+  };
+
+  return <CanvasShell widgets={widgets} presets={presets} />;
 }

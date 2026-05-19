@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Responsive, WidthProvider } from "react-grid-layout";
+import { useRouter } from "next/navigation";
 import Icon, { IconName } from "@/components/viz/Icon";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -27,6 +28,14 @@ export interface WidgetDef {
   body: ReactNode;
 }
 
+export interface ViewPreset {
+  label: string;
+  /** Map of widget-id → layout override. Widgets not in the map keep their default. */
+  layout: Record<string, { x: number; y: number; w: number; h: number }>;
+  /** Which widgets to show (others hidden). Default: show all in `layout`. */
+  show?: string[];
+}
+
 type ThemePref = "system" | "light" | "slate";
 type Density = "compact" | "cozy" | "spacious";
 
@@ -35,6 +44,10 @@ const STORAGE_PINS = "chimera-canvas-pinned-v5";
 const STORAGE_THEME = "chimera-canvas-theme-v1";
 const STORAGE_DENSITY = "chimera-canvas-density-v1";
 const STORAGE_CATALOGUE = "chimera-canvas-catalogue-v1";
+const STORAGE_PRESET = "chimera-canvas-preset-v1";
+const STORAGE_AUTOREFRESH = "chimera-canvas-autorefresh-v1";
+
+const AUTO_REFRESH_INTERVAL_MS = 30_000;
 
 interface PersistedLayouts {
   [breakpoint: string]: { i: string; x: number; y: number; w: number; h: number; static?: boolean }[];
@@ -77,7 +90,13 @@ function useResolvedTheme(pref: ThemePref) {
   return resolved;
 }
 
-export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
+export default function CanvasShell({
+  widgets,
+  presets = {},
+}: {
+  widgets: WidgetDef[];
+  presets?: Record<string, ViewPreset>;
+}) {
   const [layouts, setLayouts] = useState<PersistedLayouts | null>(null);
   const [pinned, setPinned] = useState<Record<string, boolean>>({});
   const [theme, setTheme] = useState<ThemePref>("system");
@@ -85,7 +104,10 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
   const [showCatalogue, setShowCatalogue] = useState(true);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [preset, setPresetState] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const resolvedTheme = useResolvedTheme(theme);
+  const router = useRouter();
 
   // Load persisted state from localStorage on mount.
   useEffect(() => {
@@ -95,11 +117,15 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
       const rawT = localStorage.getItem(STORAGE_THEME);
       const rawD = localStorage.getItem(STORAGE_DENSITY);
       const rawC = localStorage.getItem(STORAGE_CATALOGUE);
+      const rawPreset = localStorage.getItem(STORAGE_PRESET);
+      const rawAuto = localStorage.getItem(STORAGE_AUTOREFRESH);
       setLayouts(rawL ? JSON.parse(rawL) : defaultLayout(widgets));
       setPinned(rawP ? JSON.parse(rawP) : Object.fromEntries(widgets.map((w) => [w.id, !!w.defaultStatic])));
       if (rawT === "system" || rawT === "light" || rawT === "slate") setTheme(rawT);
       if (rawD === "compact" || rawD === "cozy" || rawD === "spacious") setDensity(rawD);
       if (rawC != null) setShowCatalogue(rawC === "1");
+      if (rawPreset && rawPreset in presets) setPresetState(rawPreset);
+      if (rawAuto === "1") setAutoRefresh(true);
     } catch {
       setLayouts(defaultLayout(widgets));
       setPinned(Object.fromEntries(widgets.map((w) => [w.id, !!w.defaultStatic])));
@@ -115,6 +141,23 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
   useEffect(() => {
     try { localStorage.setItem(STORAGE_CATALOGUE, showCatalogue ? "1" : "0"); } catch { /* */ }
   }, [showCatalogue]);
+  useEffect(() => {
+    try {
+      if (preset) localStorage.setItem(STORAGE_PRESET, preset);
+      else localStorage.removeItem(STORAGE_PRESET);
+    } catch { /* */ }
+  }, [preset]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_AUTOREFRESH, autoRefresh ? "1" : "0"); } catch { /* */ }
+  }, [autoRefresh]);
+
+  // Auto-refresh: every AUTO_REFRESH_INTERVAL_MS, soft-refresh the
+  // RSC payload so widgets pick up new data without losing layout.
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const t = setInterval(() => router.refresh(), AUTO_REFRESH_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [autoRefresh, router]);
 
   const visibleWidgets = useMemo(
     () => widgets.filter((w) => !hidden.has(w.id)),
@@ -178,8 +221,27 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
     });
   };
 
+  const applyPreset = (key: string) => {
+    const p = presets[key];
+    if (!p) return;
+    setPresetState(key);
+    const visible = new Set(p.show ?? Object.keys(p.layout));
+    setHidden(new Set(widgets.filter((w) => !visible.has(w.id)).map((w) => w.id)));
+    const next: PersistedLayouts = {
+      lg: widgets
+        .filter((w) => visible.has(w.id))
+        .map((w) => {
+          const ov = p.layout[w.id] ?? w.layout;
+          return { i: w.id, ...ov, static: !!pinned[w.id] };
+        }),
+    };
+    setLayouts(next);
+    try { localStorage.setItem(STORAGE_LAYOUT, JSON.stringify(next)); } catch { /* */ }
+  };
+
   const resetLayout = () => {
     if (!confirm("Reset canvas to default layout?")) return;
+    setPresetState(null);
     const fresh = defaultLayout(widgets);
     const freshPins = Object.fromEntries(widgets.map((w) => [w.id, !!w.defaultStatic]));
     setLayouts(fresh);
@@ -219,7 +281,34 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
 
         <div className="topbar__spacer" />
 
+        {Object.keys(presets).length > 0 && (
+          <div className="topbar__presets" aria-label="View presets">
+            {Object.entries(presets).map(([key, p]) => (
+              <button
+                key={key}
+                className="topbar__preset"
+                data-active={preset === key ? "true" : "false"}
+                onClick={() => applyPreset(key)}
+                title={`Apply ${p.label} view`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="topbar__spacer" />
+
         <div className="topbar__actions">
+          {autoRefresh && (
+            <span
+              className="pill"
+              data-tone="ok"
+              title={`Auto-refreshing every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`}
+            >
+              <span className="pill__dot" /> live
+            </span>
+          )}
           <button className="ghostbtn" onClick={resetLayout} title="Reset canvas to default">
             <Icon name="rotate" size={13} /> Reset
           </button>
@@ -400,6 +489,22 @@ export default function CanvasShell({ widgets }: { widgets: WidgetDef[] }) {
               onChange={(e) => setShowCatalogue(e.target.checked)}
             />
             Show widget catalogue
+          </label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12,
+              color: "var(--fg-2)",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+            />
+            Auto-refresh every {AUTO_REFRESH_INTERVAL_MS / 1000}s
           </label>
         </div>
       )}

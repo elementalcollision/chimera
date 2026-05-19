@@ -72,6 +72,26 @@ export function recentApiCalls(limit = 25): ApiCall[] {
     .all(limit) as ApiCall[];
 }
 
+export function allApiCallCostHistoryRows(): Array<{
+  model_id: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  created_at: string;
+}> {
+  const db = getDb();
+  if (!db) return [];
+  return db
+    .prepare(
+      "SELECT model_id, input_tokens, output_tokens, created_at FROM api_calls WHERE error IS NULL ORDER BY created_at ASC"
+    )
+    .all() as Array<{
+      model_id: string;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      created_at: string;
+    }>;
+}
+
 export function allApiCallTokenRows(): Array<{
   model_id: string;
   input_tokens: number | null;
