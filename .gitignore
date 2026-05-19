@@ -39,3 +39,6 @@ build/
 # Runtime state (keep directory via .gitkeep, ignore contents)
 state/*
 !state/.gitkeep
+
+# Scenario-spawned peer Chimera state
+peer_chimera/
