@@ -17,6 +17,7 @@ from .peers import (
     list_peer_chimeras,
     list_xenocomm_tools,
 )
+from .peer_dispatch import PeerAwareDispatcher, PeerCallRefused
 from .trust_policy import (
     PeerStateCache,
     PeerTrustPolicy,
@@ -43,6 +44,8 @@ __all__ = [
     "list_peer_chimeras",
     "list_peers",
     "list_xenocomm_tools",
+    "PeerAwareDispatcher",
+    "PeerCallRefused",
     "PeerStateCache",
     "PeerTrustPolicy",
     "PolicyDecision",

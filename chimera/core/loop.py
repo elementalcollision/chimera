@@ -134,7 +134,11 @@ class ChimeraLoop:
                 logger.info("dynamic skills loaded: %s", loaded)
         except Exception:
             logger.exception("dynamic skill loader failed; continuing without them")
-        self._dispatcher = Dispatcher(self._registry)
+        # v2.5: PeerAwareDispatcher gates mcp-<peer>-* calls through the
+        # cross-agent trust policy. Falls through to the base Dispatcher
+        # behaviour for all non-peer tools.
+        from ..a2a import PeerAwareDispatcher
+        self._dispatcher = PeerAwareDispatcher(self._registry)
         # ACT executor (None when no provider keys are set).
         self._act = act_executor
         if self._act is None:

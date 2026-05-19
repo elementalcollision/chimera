@@ -130,7 +130,10 @@ class ActExecutor:
         if not providers:
             return None
         if dispatcher is None:
-            dispatcher = Dispatcher()  # uses default_registry
+            # v2.5: default to PeerAwareDispatcher so cross-agent trust gating
+            # is on by default for any caller that doesn't supply its own.
+            from ..a2a import PeerAwareDispatcher
+            dispatcher = PeerAwareDispatcher()  # uses default_registry
         return cls(dispatcher=dispatcher, providers=providers, db=db, tier=tier)
 
     @property
