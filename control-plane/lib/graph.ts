@@ -55,6 +55,102 @@ export function readPhaseTimings(): PhaseTimings | null {
   }
 }
 
+export interface PeerEntry {
+  agent_id: string;
+  version: string;
+  capabilities: string[];
+  pid: number;
+  host: string;
+  reach: { transport?: string; url?: string; command?: string[] };
+  registered_at: string;
+}
+
+function peerRegistryDir(): string {
+  if (process.env.CHIMERA_PEER_REGISTRY_DIR) return process.env.CHIMERA_PEER_REGISTRY_DIR;
+  return path.join(process.env.HOME || ".", ".chimera", "peers");
+}
+
+export function readPeers(): PeerEntry[] {
+  const d = peerRegistryDir();
+  if (!fs.existsSync(d)) return [];
+  const out: PeerEntry[] = [];
+  for (const f of fs.readdirSync(d)) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const obj = JSON.parse(fs.readFileSync(path.join(d, f), "utf-8"));
+      out.push(obj as PeerEntry);
+    } catch {
+      // skip
+    }
+  }
+  return out.sort((a, b) => (a.agent_id > b.agent_id ? 1 : -1));
+}
+
+export interface EmergenceCounts {
+  localPeers: { name: string; observations: number }[];
+  remotePeers: { host: string; peer: string; observations: number }[];
+}
+
+function emergenceJournalDir(): string {
+  if (process.env.CHIMERA_PROTOCOL_JOURNAL_DIR) return process.env.CHIMERA_PROTOCOL_JOURNAL_DIR;
+  return path.join(stateDir(), "protocol_journal");
+}
+
+function countLines(p: string): number {
+  if (!fs.existsSync(p)) return 0;
+  return fs.readFileSync(p, "utf-8").split("\n").filter((l) => l.trim()).length;
+}
+
+export function readEmergenceCounts(): EmergenceCounts {
+  const d = emergenceJournalDir();
+  const local: EmergenceCounts["localPeers"] = [];
+  if (fs.existsSync(d)) {
+    for (const f of fs.readdirSync(d)) {
+      if (!f.endsWith(".jsonl")) continue;
+      local.push({ name: f.replace(/\.jsonl$/, ""), observations: countLines(path.join(d, f)) });
+    }
+  }
+  const remote: EmergenceCounts["remotePeers"] = [];
+  const remoteRoot = path.join(d, "remote");
+  if (fs.existsSync(remoteRoot)) {
+    for (const host of fs.readdirSync(remoteRoot)) {
+      const hostDir = path.join(remoteRoot, host);
+      if (!fs.statSync(hostDir).isDirectory()) continue;
+      for (const f of fs.readdirSync(hostDir)) {
+        if (!f.endsWith(".jsonl")) continue;
+        remote.push({
+          host,
+          peer: f.replace(/\.jsonl$/, ""),
+          observations: countLines(path.join(hostDir, f)),
+        });
+      }
+    }
+  }
+  return { localPeers: local.sort((a, b) => a.name.localeCompare(b.name)), remotePeers: remote };
+}
+
+export interface TrustGroupRow {
+  peer: string;
+  decisions: number;
+  latest: TrustJournalRecord | null;
+}
+
+export function groupTrustJournal(records: TrustJournalRecord[]): TrustGroupRow[] {
+  const groups = new Map<string, TrustJournalRecord[]>();
+  for (const r of records) {
+    if (!groups.has(r.peer)) groups.set(r.peer, []);
+    groups.get(r.peer)!.push(r);
+  }
+  const out: TrustGroupRow[] = [];
+  for (const [peer, rs] of groups) {
+    const latest = rs.reduce<TrustJournalRecord | null>(
+      (acc, r) => (!acc || r.recorded_at > acc.recorded_at ? r : acc), null,
+    );
+    out.push({ peer, decisions: rs.length, latest });
+  }
+  return out.sort((a, b) => a.peer.localeCompare(b.peer));
+}
+
 export function readTrustJournal(limit = 50): TrustJournalRecord[] {
   const d = trustJournalDir();
   if (!fs.existsSync(d)) return [];

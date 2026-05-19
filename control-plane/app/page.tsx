@@ -7,7 +7,14 @@ import {
   recentApiCalls,
 } from "@/lib/db";
 import { readHeartbeat, readMindFile, readTrustState, tierLabel } from "@/lib/mind";
-import { readGraphSnapshot, readPhaseTimings, readTrustJournal } from "@/lib/graph";
+import {
+  groupTrustJournal,
+  readEmergenceCounts,
+  readGraphSnapshot,
+  readPeers,
+  readPhaseTimings,
+  readTrustJournal,
+} from "@/lib/graph";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +47,9 @@ export default async function HomePage() {
   const graph = readGraphSnapshot();
   const trustJournal = readTrustJournal(20);
   const timings = readPhaseTimings();
+  const peers = readPeers();
+  const trustGroups = groupTrustJournal(trustJournal);
+  const emergence = readEmergenceCounts();
 
   return (
     <>
@@ -308,28 +318,92 @@ export default async function HomePage() {
         )}
       </Section>
 
-      <Section title={`Peer trust journal (${trustJournal.length})`}>
-        {trustJournal.length === 0 ? (
+      <Section title={`Peers (${peers.length})`}>
+        {peers.length === 0 ? (
+          <Empty>No peers in registry. Run `chimera serve` or `chimera peers sync`.</Empty>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr>
+                <th className="py-1">agent_id</th>
+                <th>version</th>
+                <th>host</th>
+                <th>transport</th>
+                <th>registered_at</th>
+              </tr>
+            </thead>
+            <tbody>
+              {peers.map((p, i) => (
+                <tr key={i} className="border-t border-zinc-200 dark:border-zinc-800">
+                  <td className="py-1 pr-3 font-mono">{p.agent_id}</td>
+                  <td className="pr-3">{p.version}</td>
+                  <td className="pr-3">{p.host}</td>
+                  <td className="pr-3">{p.reach?.transport ?? "—"}</td>
+                  <td className="pr-3 text-zinc-500">{p.registered_at}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section
+        title={`Emergence journal (${emergence.localPeers.length} local, ${emergence.remotePeers.length} remote)`}
+      >
+        {emergence.localPeers.length === 0 && emergence.remotePeers.length === 0 ? (
+          <Empty>No emergence observations yet.</Empty>
+        ) : (
+          <div className="text-xs space-y-2">
+            {emergence.localPeers.length > 0 && (
+              <div>
+                <div className="text-zinc-500 mb-1">local</div>
+                <ul>
+                  {emergence.localPeers.map((r) => (
+                    <li key={`l-${r.name}`}>
+                      <span className="font-mono">{r.name}</span> · {r.observations} observation(s)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {emergence.remotePeers.length > 0 && (
+              <div>
+                <div className="text-zinc-500 mb-1">remote</div>
+                <ul>
+                  {emergence.remotePeers.map((r, i) => (
+                    <li key={`r-${i}`}>
+                      <span className="font-mono">{r.host}/{r.peer}</span> · {r.observations}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
+
+      <Section title={`Peer trust journal (${trustGroups.length} peer(s), ${trustJournal.length} decision(s))`}>
+        {trustGroups.length === 0 ? (
           <Empty>(no peer-trust decisions logged yet)</Empty>
         ) : (
           <table className="w-full text-xs">
             <thead className="text-left text-zinc-500">
               <tr>
-                <th>when</th>
                 <th>peer</th>
-                <th>decision</th>
+                <th>decisions</th>
+                <th>latest</th>
                 <th>drift</th>
-                <th>reason</th>
+                <th>when</th>
               </tr>
             </thead>
             <tbody>
-              {trustJournal.map((r, i) => (
+              {trustGroups.map((g, i) => (
                 <tr key={i} className="border-t border-zinc-200 dark:border-zinc-800">
-                  <td className="py-1 pr-3 text-zinc-500">{r.recorded_at}</td>
-                  <td className="pr-3 font-mono">{r.peer}</td>
-                  <td className="pr-3">{r.decision}</td>
-                  <td className="pr-3">{r.drift_score ?? "—"}</td>
-                  <td className="pr-3">{r.reason}</td>
+                  <td className="py-1 pr-3 font-mono">{g.peer}</td>
+                  <td className="pr-3">{g.decisions}</td>
+                  <td className="pr-3">{g.latest?.decision ?? "—"}</td>
+                  <td className="pr-3">{g.latest?.drift_score ?? "—"}</td>
+                  <td className="pr-3 text-zinc-500">{g.latest?.recorded_at ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
