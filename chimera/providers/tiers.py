@@ -204,16 +204,35 @@ SONNET_LADDER: list[LadderRung] = [
     ),
 ]
 
+LADDER_OPENAI_GPT5_PRO = ModelConfig(
+    model_id="openai/gpt-5-pro",
+    max_calls_per_minute=5,
+    max_calls_per_hour=60,
+    max_calls_per_day=500,
+    input_cost_per_mtok=2.50,
+    output_cost_per_mtok=10.00,
+    provider=Provider.OPENROUTER,
+    openrouter_model_id="openai/gpt-5-pro",
+)
+
+LADDER_GEMINI_3_PRO = ModelConfig(
+    model_id="google/gemini-3-pro",
+    max_calls_per_minute=15,
+    max_calls_per_hour=300,
+    max_calls_per_day=3_000,
+    input_cost_per_mtok=1.25,
+    output_cost_per_mtok=5.00,
+    provider=Provider.OPENROUTER,
+    openrouter_model_id="google/gemini-3-pro",
+)
+
+
+# OPUS_LADDER (v4.8): Anthropic opus first — it's the strongest baseline
+# for code generation, and pushing it to the front fixes the v4.7
+# parse-failure observation. The rest are flagship rungs across other
+# providers so cross-witness critique (ADR 0031) has real disagreement
+# room.
 OPUS_LADDER: list[LadderRung] = [
-    LadderRung(
-        config=LADDER_DEEPSEEK_V4_PRO,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            reasoning_optimized=True,
-            context_tokens=1_048_576,
-        ),
-    ),
     LadderRung(
         config=OPUS,
         capabilities=ModelCapabilities(
@@ -222,6 +241,34 @@ OPUS_LADDER: list[LadderRung] = [
             supports_vision=True,
             reasoning_optimized=True,
             context_tokens=200_000,
+        ),
+    ),
+    LadderRung(
+        config=LADDER_OPENAI_GPT5_PRO,
+        capabilities=ModelCapabilities(
+            supports_tools=True,
+            supports_json_mode=True,
+            reasoning_optimized=True,
+            context_tokens=400_000,
+        ),
+    ),
+    LadderRung(
+        config=LADDER_GEMINI_3_PRO,
+        capabilities=ModelCapabilities(
+            supports_tools=True,
+            supports_json_mode=True,
+            supports_vision=True,
+            reasoning_optimized=True,
+            context_tokens=2_000_000,
+        ),
+    ),
+    LadderRung(
+        config=LADDER_DEEPSEEK_V4_PRO,
+        capabilities=ModelCapabilities(
+            supports_tools=True,
+            supports_json_mode=True,
+            reasoning_optimized=True,
+            context_tokens=1_048_576,
         ),
     ),
 ]

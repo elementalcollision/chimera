@@ -38,16 +38,21 @@ def test_anthropic_model_ids_are_current():
     assert OPUS.model_id == "claude-opus-4-7"
 
 
-def test_tier_ladders_end_with_anthropic_safety_net():
-    """Each tier ladder ends with the Anthropic model as the safety net."""
+def test_haiku_sonnet_ladders_end_with_anthropic_safety_net():
+    """Haiku + sonnet ladders end with the Anthropic model as the safety net."""
     assert TIER_LADDERS["haiku"][-1].config is HAIKU
     assert TIER_LADDERS["sonnet"][-1].config is SONNET
-    assert TIER_LADDERS["opus"][-1].config is OPUS
 
 
-def test_tier_ladders_start_with_openrouter():
-    """Cheapest-first: OpenRouter rungs precede Anthropic."""
-    for tier_name, ladder in TIER_LADDERS.items():
+def test_opus_ladder_starts_with_anthropic_opus_after_v4_8():
+    """v4.8: opus reordered so Anthropic is first (strongest baseline for code-gen)."""
+    assert TIER_LADDERS["opus"][0].config is OPUS
+
+
+def test_haiku_sonnet_ladders_start_with_openrouter():
+    """Cheapest-first: OpenRouter rungs precede Anthropic on haiku + sonnet."""
+    for tier_name in ("haiku", "sonnet"):
+        ladder = TIER_LADDERS[tier_name]
         assert ladder[0].config.provider is ProviderKind.OPENROUTER, (
             f"{tier_name} ladder should start with an OpenRouter rung"
         )

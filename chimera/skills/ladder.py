@@ -22,6 +22,7 @@ from ..providers import Provider
 from ..providers.tiers import Provider as ProviderKind
 from .assembly import AssembledSkill, assemble_skill
 from .critique import critique_and_revise
+from .cross_critique import cross_critique
 from .spec import SkillSpec
 from .validation import ValidationResult, validate_skill
 
@@ -37,6 +38,8 @@ class AttemptOutcome:
     failure_reason: str | None
     revised: bool = False  # whether critique-and-revise was applied
     revised_score: float | None = None
+    witnesses: tuple[str, ...] = ()  # v4.8 cross-witness tiers consulted
+    winning_witness: str | None = None  # tier whose revision won, if any
 
 
 @dataclass
@@ -56,6 +59,7 @@ async def assemble_with_escalation(
     db: sqlite3.Connection,
     cycle: int,
     tiers: Sequence[str] = ("sonnet", "opus"),
+    witnesses: Sequence[str] | None = ("sonnet", "opus"),
     max_tokens: int = 2048,
 ) -> LadderResult:
     """Walk the tier ladder; stop on first tier whose output validates."""
@@ -106,11 +110,69 @@ async def assemble_with_escalation(
                 winning_tier=tier,
             )
 
-        # v4.7: one critique-and-revise pass on this tier before escalating.
+        # v4.8: cross-witness critique. If `witnesses` is set, fan a
+        # critique-and-revise out across multiple tiers concurrently and
+        # take the best revision. Falls back to single-tier critique
+        # when witnesses is None.
         logger.info(
-            "ladder: tier=%s validation %d/%d (score=%.2f); attempting revise",
+            "ladder: tier=%s validation %d/%d (score=%.2f); attempting "
+            "cross-witness critique (witnesses=%s)",
             tier, validation.passed, validation.total, validation.score,
+            list(witnesses) if witnesses else "self",
         )
+        if witnesses:
+            xc = await cross_critique(
+                spec, assembled, validation,
+                providers=providers, db=db, cycle=cycle,
+                witnesses=tuple(witnesses), max_tokens=max_tokens,
+            )
+            consulted = tuple(w.tier for w in xc.witnesses)
+            if xc.best_validation is not None and xc.best_validation.ok:
+                attempts.append(
+                    AttemptOutcome(
+                        tier=tier,
+                        assembled_ok=True,
+                        validation_score=validation.score,
+                        validation_ok=False,
+                        failure_reason=validation.failure_reason,
+                        revised=True,
+                        revised_score=xc.best_validation.score,
+                        witnesses=consulted,
+                        winning_witness=xc.winning_witness,
+                    )
+                )
+                return LadderResult(
+                    assembled=xc.best_assembled,  # type: ignore[arg-type]
+                    validation=xc.best_validation,
+                    attempts=attempts,
+                    winning_tier=tier,
+                )
+            # Carry forward the best partial score if any witness improved.
+            if xc.best_validation is not None and xc.best_validation.score > validation.score:
+                last_assembled = xc.best_assembled
+                last_validation = xc.best_validation
+            attempts.append(
+                AttemptOutcome(
+                    tier=tier,
+                    assembled_ok=True,
+                    validation_score=validation.score,
+                    validation_ok=False,
+                    failure_reason=(
+                        xc.best_validation.failure_reason
+                        if xc.best_validation is not None
+                        else validation.failure_reason
+                    ),
+                    revised=xc.best_validation is not None,
+                    revised_score=(
+                        xc.best_validation.score
+                        if xc.best_validation is not None else None
+                    ),
+                    witnesses=consulted,
+                    winning_witness=None,
+                )
+            )
+            continue
+
         revised = await critique_and_revise(
             spec, assembled, validation,
             providers=providers, db=db, cycle=cycle, tier=tier,
@@ -136,8 +198,6 @@ async def assemble_with_escalation(
                     attempts=attempts,
                     winning_tier=tier,
                 )
-            # Revision was structurally fine but still didn't pass —
-            # carry the better of the two scores forward.
             if revised_val.score > validation.score:
                 last_assembled = revised
                 last_validation = revised_val

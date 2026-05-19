@@ -28,6 +28,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "fragmentation",
         help="Show the v4.5 fragmentation log (compound-task failures).",
     )
+    sub.add_parser(
+        "tiers",
+        help="Show every model rung in every tier ladder (v4.8+).",
+    )
 
     run = sub.add_parser("run", help="Run one cycle of the agent loop (stub).")
     run.add_argument("prompt", nargs="?", help="Optional ad-hoc prompt to enqueue.")
@@ -301,6 +305,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if not result.failures else 1
         parser.error(f"unknown emergence subcommand: {sub_cmd}")
         return 2
+    if args.command == "tiers":
+        from .providers.tiers import TIER_LADDERS
+        for tier, rungs in TIER_LADDERS.items():
+            print(f"chimera tiers: {tier} ({len(rungs)} rung(s))")
+            for i, r in enumerate(rungs):
+                cfg = r.config
+                print(
+                    f"  [{i}] {cfg.model_id:40s}  "
+                    f"in=${cfg.input_cost_per_mtok:>5.2f}/Mtok  "
+                    f"out=${cfg.output_cost_per_mtok:>5.2f}/Mtok  "
+                    f"ctx={r.capabilities.context_tokens:>10,}"
+                )
+        return 0
     if args.command == "fragmentation":
         from .core.adaptation import list_fragmentation
         rows = list_fragmentation()
@@ -640,11 +657,19 @@ def main(argv: list[str] | None = None) -> int:
             for att in ladder.attempts:
                 if not att.assembled_ok:
                     print(f"  [{att.tier}] assembly failed: {att.failure_reason}")
-                else:
-                    print(
-                        f"  [{att.tier}] passed {int(att.validation_score * 100)}% "
-                        f"(ok={att.validation_ok})"
-                    )
+                    continue
+                line = (
+                    f"  [{att.tier}] base={int(att.validation_score * 100)}%"
+                )
+                if att.revised:
+                    rev = int((att.revised_score or 0.0) * 100)
+                    line += f"  revised={rev}%"
+                if att.witnesses:
+                    line += f"  witnesses={','.join(att.witnesses)}"
+                if att.winning_witness:
+                    line += f"  winner={att.winning_witness}"
+                line += f"  ok={att.validation_ok or bool(att.winning_witness)}"
+                print(line)
             assembled = ladder.assembled
             validation = ladder.validation
             if ladder.winning_tier is None:

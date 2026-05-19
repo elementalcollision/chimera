@@ -86,7 +86,8 @@ async def test_ladder_revises_when_first_validation_fails(db, monkeypatch):
     monkeypatch.setattr("chimera.skills.ladder.critique_and_revise", fake_critique)
 
     result = await assemble_with_escalation(
-        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet", "opus"),
+        _spec(), providers={}, db=db, cycle=1,
+        tiers=("sonnet", "opus"), witnesses=None,
     )
     assert result.winning_tier == "sonnet"  # revision succeeded on sonnet, no escalation
     assert seen_tiers == ["sonnet"]
@@ -122,7 +123,8 @@ async def test_ladder_escalates_when_revision_still_fails(db, monkeypatch):
     monkeypatch.setattr("chimera.skills.ladder.critique_and_revise", fake_critique)
 
     result = await assemble_with_escalation(
-        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet", "opus"),
+        _spec(), providers={}, db=db, cycle=1,
+        tiers=("sonnet", "opus"), witnesses=None,
     )
     assert result.winning_tier == "opus"
     assert seen_tiers == ["sonnet", "opus"]
@@ -150,7 +152,7 @@ async def test_ladder_skips_revision_when_critic_fails(db, monkeypatch):
     monkeypatch.setattr("chimera.skills.ladder.critique_and_revise", fake_critique)
 
     result = await assemble_with_escalation(
-        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet",),
+        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet",), witnesses=None,
     )
     assert result.winning_tier is None
     assert result.attempts[0].revised is False

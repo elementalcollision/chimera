@@ -57,7 +57,8 @@ async def test_ladder_returns_first_passing_tier(db, monkeypatch):
     monkeypatch.setattr("chimera.skills.ladder.validate_skill", fake_validate)
 
     result = await assemble_with_escalation(
-        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet", "opus"),
+        _spec(), providers={}, db=db, cycle=1,
+        tiers=("sonnet", "opus"), witnesses=None,
     )
     assert result.winning_tier == "opus"
     assert seen == ["sonnet", "opus"]
@@ -81,7 +82,8 @@ async def test_ladder_returns_winning_tier_immediately(db, monkeypatch):
     monkeypatch.setattr("chimera.skills.ladder.validate_skill", fake_validate)
 
     result = await assemble_with_escalation(
-        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet", "opus"),
+        _spec(), providers={}, db=db, cycle=1,
+        tiers=("sonnet", "opus"), witnesses=None,
     )
     assert result.winning_tier == "sonnet"
     assert seen == ["sonnet"]  # never escalated
@@ -101,7 +103,8 @@ async def test_ladder_exhausted_all_tiers(db, monkeypatch):
     monkeypatch.setattr("chimera.skills.ladder.validate_skill", fake_validate)
 
     result = await assemble_with_escalation(
-        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet", "opus"),
+        _spec(), providers={}, db=db, cycle=1,
+        tiers=("sonnet", "opus"), witnesses=None,
     )
     assert result.winning_tier is None
     assert len(result.attempts) == 2
@@ -123,7 +126,8 @@ async def test_ladder_skips_validation_when_assembly_fails(db, monkeypatch):
     monkeypatch.setattr("chimera.skills.ladder.validate_skill", fake_validate)
 
     result = await assemble_with_escalation(
-        _spec(), providers={}, db=db, cycle=1, tiers=("sonnet", "opus"),
+        _spec(), providers={}, db=db, cycle=1,
+        tiers=("sonnet", "opus"), witnesses=None,
     )
     assert result.winning_tier == "opus"
     assert [a.assembled_ok for a in result.attempts] == [False, True]
