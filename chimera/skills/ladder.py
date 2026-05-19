@@ -59,7 +59,9 @@ async def assemble_with_escalation(
     db: sqlite3.Connection,
     cycle: int,
     tiers: Sequence[str] = ("sonnet", "opus"),
-    witnesses: Sequence[str] | None = ("sonnet", "opus"),
+    witnesses: Sequence[str] | None = (
+        "claude-opus-4-7", "gpt-5-pro", "gemini-3-pro",
+    ),
     max_tokens: int = 2048,
 ) -> LadderResult:
     """Walk the tier ladder; stop on first tier whose output validates."""

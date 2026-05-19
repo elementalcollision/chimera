@@ -90,7 +90,9 @@ async def cross_critique(
     providers: dict[ProviderKind, Provider],
     db: sqlite3.Connection,
     cycle: int,
-    witnesses: Sequence[str] = ("sonnet", "opus"),
+    witnesses: Sequence[str] = (
+        "claude-opus-4-7", "gpt-5-pro", "gemini-3-pro",
+    ),
     max_tokens: int = 2048,
 ) -> CrossCritiqueResult:
     """Fan critique out across ``witnesses`` concurrently.

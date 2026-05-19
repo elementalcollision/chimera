@@ -44,6 +44,22 @@ def test_opus_ladder_starts_with_anthropic_opus():
     assert OPUS_LADDER[0].config is OPUS
 
 
+def test_default_witnesses_span_three_providers():
+    """v4.13: default witness pool draws from Anthropic + OpenAI + Google."""
+    from inspect import signature
+    sig = signature(assemble_with_escalation)
+    default = sig.parameters["witnesses"].default
+    assert default is not None
+    names = list(default)
+    assert "claude-opus-4-7" in names
+    assert "gpt-5-pro" in names
+    assert "gemini-3-pro" in names
+    # Three distinct rungs from three distinct providers.
+    from chimera.providers import resolve_rung
+    providers = {resolve_rung(n).config.provider for n in names}
+    assert len(providers) >= 2  # Anthropic vs OpenRouter at minimum
+
+
 def test_opus_ladder_includes_openai_and_gemini():
     ids = [r.config.openrouter_model_id for r in OPUS_LADDER]
     assert any("openai/" in m for m in ids)
