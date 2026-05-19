@@ -1,0 +1,277 @@
+import {
+  allMutations,
+  ladderOutcomesByTier,
+  listEntities,
+  pendingMutations,
+  recentActivity,
+  recentApiCalls,
+} from "@/lib/db";
+import { readHeartbeat, readMindFile, readTrustState, tierLabel } from "@/lib/mind";
+
+export const dynamic = "force-dynamic";
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-8">
+      <h2 className="text-lg font-semibold mb-2 border-b border-zinc-300 dark:border-zinc-700 pb-1">
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="text-zinc-500 italic">{children}</p>;
+}
+
+export default async function HomePage() {
+  const hb = readHeartbeat();
+  const trust = readTrustState();
+  const inbox = readMindFile("INBOX.md") ?? "";
+  const chronicle = readMindFile("CHRONICLE.md") ?? "";
+  const entities = listEntities();
+  const calls = recentApiCalls(15);
+  const muts = allMutations(20);
+  const pending = pendingMutations();
+  const activity = recentActivity(16);
+  const ladder = ladderOutcomesByTier();
+
+  return (
+    <>
+      <Section title="Status">
+        {!hb ? (
+          <Empty>HEARTBEAT.md not found (set CHIMERA_MIND_DIR or run Chimera once).</Empty>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card label="Cycle" value={String(hb.cycle)} />
+            <Card label="Status" value={hb.status} />
+            <Card
+              label="Trust tier"
+              value={trust ? `${trust.current_tier} (${tierLabel(trust.current_tier)})` : hb.trust_tier}
+            />
+            <Card
+              label="Last readiness"
+              value={trust ? trust.last_readiness.toFixed(2) : "—"}
+            />
+            <Card
+              label="Anthropic calls"
+              value={String(hb.model_usage.anthropic_calls ?? 0)}
+            />
+            <Card
+              label="OpenRouter calls"
+              value={String(hb.model_usage.openrouter_calls ?? 0)}
+            />
+            <Card
+              label="Last drift score"
+              value={hb.last_drift_score == null ? "—" : String(hb.last_drift_score)}
+            />
+            <Card label="Session started" value={hb.session_started_at ?? "—"} />
+          </div>
+        )}
+      </Section>
+
+      <Section title="INBOX">
+        <pre className="whitespace-pre-wrap text-xs bg-zinc-100 dark:bg-zinc-900 p-3 rounded">
+          {inbox || "(empty)"}
+        </pre>
+      </Section>
+
+      <Section title="Ontology (entities)">
+        {entities.length === 0 ? (
+          <Empty>No entities yet.</Empty>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr>
+                <th className="py-1">state</th>
+                <th>kind</th>
+                <th>name</th>
+                <th>cycle</th>
+                <th>id</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entities.map((e) => (
+                <tr key={e.id} className="border-t border-zinc-200 dark:border-zinc-800">
+                  <td className="py-1 pr-3 font-mono">{e.kfm_state}</td>
+                  <td className="pr-3">{e.kind}</td>
+                  <td className="pr-3">{e.name}</td>
+                  <td className="pr-3">{e.state_entered_at_cycle}</td>
+                  <td className="text-zinc-500">{e.id.slice(0, 8)}…</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title="Recent API calls">
+        {calls.length === 0 ? (
+          <Empty>No api_calls yet.</Empty>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr>
+                <th>cycle</th>
+                <th>provider</th>
+                <th>model</th>
+                <th>in</th>
+                <th>out</th>
+                <th>ms</th>
+                <th>finish</th>
+              </tr>
+            </thead>
+            <tbody>
+              {calls.map((c) => (
+                <tr key={c.id} className="border-t border-zinc-200 dark:border-zinc-800">
+                  <td className="py-1 pr-3">{c.cycle}</td>
+                  <td className="pr-3">{c.provider}</td>
+                  <td className="pr-3 truncate max-w-[18rem]">{c.model_id}</td>
+                  <td className="pr-3">{c.input_tokens ?? "—"}</td>
+                  <td className="pr-3">{c.output_tokens ?? "—"}</td>
+                  <td className="pr-3">{c.latency_ms ?? "—"}</td>
+                  <td className="pr-3">{c.error ? `error: ${c.error.slice(0, 60)}` : c.finish_reason ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title={`Pending mutations (${pending.length})`}>
+        {pending.length === 0 ? (
+          <Empty>(no pending mutations)</Empty>
+        ) : (
+          <ul className="space-y-2">
+            {pending.map((m) => (
+              <li key={m.id} className="border-l-2 border-amber-400 pl-3">
+                <div className="text-xs text-zinc-500">#{m.id} · {m.type} · {m.created_at}</div>
+                <pre className="whitespace-pre-wrap text-xs">{m.payload}</pre>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section title="Trust history">
+        {!trust ? (
+          <Empty>No trust state yet.</Empty>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr>
+                <th>when</th>
+                <th>kind</th>
+                <th>from</th>
+                <th>to</th>
+                <th>reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trust.history.slice(-10).reverse().map((e, i) => (
+                <tr key={i} className="border-t border-zinc-200 dark:border-zinc-800">
+                  <td className="py-1 pr-3 text-zinc-500">{e.timestamp}</td>
+                  <td className="pr-3">{e.kind}</td>
+                  <td className="pr-3">T{e.from_tier}</td>
+                  <td className="pr-3">T{e.to_tier}</td>
+                  <td className="pr-3 text-zinc-700 dark:text-zinc-300">{e.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title="Tier ladder outcomes">
+        {Object.keys(ladder).length === 0 ? (
+          <Empty>No ladder data yet.</Empty>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr>
+                <th>tier</th>
+                <th>success</th>
+                <th>transient_fail</th>
+                <th>retry_exhausted</th>
+                <th>non_retriable</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(ladder).map(([tier, outcomes]) => (
+                <tr key={tier} className="border-t border-zinc-200 dark:border-zinc-800">
+                  <td className="py-1 pr-3 font-semibold">{tier}</td>
+                  <td className="pr-3">{outcomes.success ?? 0}</td>
+                  <td className="pr-3">{outcomes.transient_fail ?? 0}</td>
+                  <td className="pr-3">{outcomes.retry_exhausted ?? 0}</td>
+                  <td className="pr-3">{outcomes.non_retriable ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title="Recent activity (per phase)">
+        {activity.length === 0 ? (
+          <Empty>No activity rows.</Empty>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            {activity.map((a) => (
+              <div
+                key={`${a.cycle}-${a.cell_id}`}
+                className="border border-zinc-200 dark:border-zinc-800 rounded px-2 py-1"
+              >
+                <span className="text-zinc-500">cycle {a.cycle}</span> · {a.cell_id}
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Chronicle (latest)">
+        <pre className="whitespace-pre-wrap text-xs bg-zinc-100 dark:bg-zinc-900 p-3 rounded max-h-[40rem] overflow-y-auto">
+          {chronicle.trim() || "(empty)"}
+        </pre>
+      </Section>
+
+      <Section title="All mutations (last 20)">
+        {muts.length === 0 ? (
+          <Empty>No mutations yet.</Empty>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr>
+                <th>id</th>
+                <th>type</th>
+                <th>status</th>
+                <th>created</th>
+                <th>reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {muts.map((m) => (
+                <tr key={m.id} className="border-t border-zinc-200 dark:border-zinc-800">
+                  <td className="py-1 pr-3">#{m.id}</td>
+                  <td className="pr-3">{m.type}</td>
+                  <td className="pr-3">{m.status}</td>
+                  <td className="pr-3 text-zinc-500">{m.created_at}</td>
+                  <td className="pr-3">{m.reason ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+    </>
+  );
+}
+
+function Card({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-zinc-200 dark:border-zinc-800 rounded p-3">
+      <div className="text-xs text-zinc-500">{label}</div>
+      <div className="text-base mt-1 font-semibold">{value}</div>
+    </div>
+  );
+}
