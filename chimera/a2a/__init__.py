@@ -11,7 +11,12 @@ work happens.
 """
 
 from .identity import AgentIdentity
-from .peers import fetch_peer_identity, list_peer_chimeras, list_xenocomm_tools
+from .peers import (
+    fetch_peer_identity,
+    fetch_peer_kfm,
+    list_peer_chimeras,
+    list_xenocomm_tools,
+)
 from .registry import (
     PeerEntry,
     forget,
@@ -25,6 +30,7 @@ __all__ = [
     "AgentIdentity",
     "PeerEntry",
     "fetch_peer_identity",
+    "fetch_peer_kfm",
     "forget",
     "list_peer_chimeras",
     "list_peers",

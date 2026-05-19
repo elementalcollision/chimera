@@ -66,13 +66,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     peers_p = sub.add_parser(
         "peers",
-        help="Inspect / manage the local peer registry (v2.2).",
+        help="Inspect / manage the local peer registry (v2.2+).",
     )
     peers_sub = peers_p.add_subparsers(dest="peers_command", metavar="<peers-cmd>")
     peers_sub.add_parser("list", help="List entries in the peer registry.")
     p_forget = peers_sub.add_parser("forget", help="Remove a peer entry by agent_id.")
     p_forget.add_argument("agent_id")
     peers_sub.add_parser("sweep", help="Remove stale (pid-gone) local peer entries.")
+    p_kfm = peers_sub.add_parser(
+        "kfm",
+        help="Fetch the swarm-KFM state of one peer (or all if no name given).",
+    )
+    p_kfm.add_argument("name", nargs="?", help="Peer server-name as known to MCP loader.")
 
     trust = sub.add_parser(
         "trust",
@@ -236,6 +241,34 @@ def main(argv: list[str] | None = None) -> int:
         if sub_cmd == "sweep":
             n = _sweep_stale()
             print(f"chimera peers: removed {n} stale entr(ies)")
+            return 0
+        if sub_cmd == "kfm":
+            from .a2a import fetch_peer_kfm, list_peer_chimeras
+            from .core import ChimeraLoop
+            from .tools import register_mcp_servers_from_env
+
+            loop = ChimeraLoop()
+            asyncio.run(register_mcp_servers_from_env(loop._registry))  # type: ignore[attr-defined]
+            targets: list[str]
+            if args.name:
+                targets = [args.name]
+            else:
+                targets = list_peer_chimeras(loop._registry)  # type: ignore[attr-defined]
+            if not targets:
+                print("chimera peers kfm: no peer Chimeras discovered via MCP.")
+                loop.close()
+                return 0
+            import json as _json
+            print(f"chimera peers kfm: querying {len(targets)} peer(s)...")
+            for t in targets:
+                try:
+                    snap = asyncio.run(fetch_peer_kfm(t, registry=loop._registry))  # type: ignore[attr-defined]
+                    print(f"  {t}:")
+                    for k, v in sorted(snap.items()):
+                        print(f"    {k}: {v}")
+                except Exception as exc:
+                    print(f"  {t}: error: {exc}")
+            loop.close()
             return 0
         parser.error(f"unknown peers subcommand: {sub_cmd}")
         return 2

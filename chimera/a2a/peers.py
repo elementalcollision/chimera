@@ -53,3 +53,24 @@ async def fetch_peer_identity(
     dispatcher = Dispatcher(reg)
     raw = await dispatcher.dispatch(tool_name, {}, DispatchContext())
     return json.loads(raw)
+
+
+async def fetch_peer_kfm(
+    peer_name: str,
+    *,
+    registry: ToolRegistry | None = None,
+) -> dict[str, Any]:
+    """Call ``mcp-<peer_name>-chimera-kfm-state`` and parse the JSON response.
+
+    Returns cycle, trust_tier, plan_kfm_state, last_drift_score. Per ADR 0008.
+    """
+    reg = registry or default_registry()
+    tool_name = f"mcp-{peer_name}-chimera-kfm-state"
+    if reg.get(tool_name) is None:
+        raise LookupError(
+            f"no kfm-state tool for peer {peer_name!r} "
+            f"(expected registered tool {tool_name!r})"
+        )
+    dispatcher = Dispatcher(reg)
+    raw = await dispatcher.dispatch(tool_name, {}, DispatchContext())
+    return json.loads(raw)

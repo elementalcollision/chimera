@@ -41,6 +41,7 @@ from ..tools import (
     register_core_tools,
 )
 from .identity_tool import IDENTITY_TOOL_NAME, register_identity_tool
+from .kfm_tool import KFM_STATE_TOOL_NAME, register_kfm_state_tool
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +74,15 @@ class ChimeraMCPServer:
         exposed: set[str] | None = None,
     ) -> ChimeraMCPServer:
         reg = registry or default_registry()
-        # Built-in tools + peer identity tool (v2.1).
+        # Built-in tools + always-exposed peer surface (identity, KFM state).
         register_core_tools(reg)
         register_identity_tool(reg)
+        register_kfm_state_tool(reg)
         dispatcher = Dispatcher(reg)
         operator_allow = set(exposed if exposed is not None else exposed_tool_names())
-        # Identity is always advertised — it's the handshake target.
+        # Always advertised — peers depend on these for handshake + swarm view.
         operator_allow.add(IDENTITY_TOOL_NAME)
+        operator_allow.add(KFM_STATE_TOOL_NAME)
         allowed = frozenset(operator_allow)
         srv = build_server(name=name, registry=reg, dispatcher=dispatcher, exposed=allowed)
         return cls(
