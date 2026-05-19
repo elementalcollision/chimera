@@ -19,6 +19,17 @@ from .entities import (
     record_ladder_outcome,
     transition_entity,
 )
+from .mutations import (
+    Mutation,
+    approve_mutation,
+    create_mutation,
+    get_mutation,
+    list_mutations,
+    mark_applied,
+    mark_failed,
+    reject_mutation,
+    sweep_stale,
+)
 from .store import connect, default_db_path, init_schema, open_and_init
 
 __all__ = [
@@ -43,4 +54,13 @@ __all__ = [
     "record_api_call",
     "record_ladder_outcome",
     "transition_entity",
+    "Mutation",
+    "approve_mutation",
+    "create_mutation",
+    "get_mutation",
+    "list_mutations",
+    "mark_applied",
+    "mark_failed",
+    "reject_mutation",
+    "sweep_stale",
 ]

@@ -41,6 +41,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Filter by entity kind (plan, tool, skill, subagent).",
     )
 
+    mutations = sub.add_parser(
+        "mutations",
+        help="Inspect and approve/reject pending mutations.",
+    )
+    mut_sub = mutations.add_subparsers(dest="mut_command", metavar="<mut-cmd>")
+    mut_sub.add_parser("list", help="List mutations (default: pending).")
+    mut_show = mut_sub.add_parser("show", help="Show one mutation.")
+    mut_show.add_argument("id", type=int)
+    mut_approve = mut_sub.add_parser("approve", help="Approve a pending mutation.")
+    mut_approve.add_argument("id", type=int)
+    mut_approve.add_argument("--reason", default=None)
+    mut_reject = mut_sub.add_parser("reject", help="Reject a pending mutation.")
+    mut_reject.add_argument("id", type=int)
+    mut_reject.add_argument("--reason", default=None)
+
+    skills = sub.add_parser(
+        "skills",
+        help="Manage dynamic skills (assemble from a mutation, list, etc).",
+    )
+    skills_sub = skills.add_subparsers(dest="skills_command", metavar="<skills-cmd>")
+    skills_sub.add_parser("list", help="List currently registered dynamic skills.")
+    skills_asm = skills_sub.add_parser(
+        "assemble",
+        help="Assemble + validate + activate a skill from a mutation id.",
+    )
+    skills_asm.add_argument("mutation_id", type=int)
+
     engines = sub.add_parser(
         "engines",
         help="Run daily engines (Discovery / Curiosity / Reflection).",
@@ -137,6 +164,165 @@ def main(argv: list[str] | None = None) -> int:
         for t in targets:
             rc |= asyncio.run(_ping_provider(t))
         return rc
+    if args.command == "mutations":
+        from .core import LoopConfig
+        from .memory import (
+            approve_mutation as _approve,
+            get_mutation as _get,
+            list_mutations as _list,
+            open_and_init,
+            reject_mutation as _reject,
+        )
+        import json as _json
+
+        cfg = LoopConfig.from_env()
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+        sub_cmd = args.mut_command or "list"
+        if sub_cmd == "list":
+            rows = _list(conn, status="pending")
+            if not rows:
+                print("(no pending mutations)")
+                return 0
+            print(f"{len(rows)} pending mutation(s):")
+            for m in rows:
+                payload_preview = _json.dumps(m.payload)[:100]
+                print(f"  #{m.id:3d}  [{m.type}]  {payload_preview}")
+            return 0
+        if sub_cmd == "show":
+            m = _get(conn, args.id)
+            if m is None:
+                print(f"mutation #{args.id} not found")
+                return 1
+            print(f"#{m.id}  [{m.type}]  status={m.status}")
+            print(f"created_at: {m.created_at}")
+            print(f"approved_at: {m.approved_at}")
+            print(f"applied_at: {m.applied_at}")
+            print(f"reason: {m.reason}")
+            print(f"payload:\n{_json.dumps(m.payload, indent=2)}")
+            return 0
+        if sub_cmd == "approve":
+            try:
+                m = _approve(conn, args.id, reason=args.reason)
+            except ValueError as e:
+                print(f"error: {e}")
+                return 1
+            print(f"approved mutation #{m.id} ({m.type})")
+            return 0
+        if sub_cmd == "reject":
+            try:
+                m = _reject(conn, args.id, reason=args.reason)
+            except ValueError as e:
+                print(f"error: {e}")
+                return 1
+            print(f"rejected mutation #{m.id} ({m.type})")
+            return 0
+        parser.error(f"unknown mutations subcommand: {sub_cmd}")
+        return 2
+    if args.command == "skills":
+        from .core import LoopConfig
+        from .memory import (
+            get_mutation as _get,
+            mark_applied as _mark_applied,
+            mark_failed as _mark_failed,
+            open_and_init,
+        )
+        from .skills import (
+            SkillSpec,
+            activate_skill,
+            assemble_skill,
+            dynamic_skills_dir,
+            load_dynamic_skills,
+            validate_skill,
+        )
+        from .core.act import ActExecutor
+        from .tools import ToolRegistry, register_core_tools
+
+        sub_cmd = args.skills_command or "list"
+
+        if sub_cmd == "list":
+            reg = ToolRegistry()
+            register_core_tools(reg)
+            loaded = load_dynamic_skills(reg)
+            print(f"chimera skills: {len(loaded)} dynamic skill(s) loaded")
+            for name in loaded:
+                entry = reg.get(name)
+                desc = entry.description if entry else ""
+                print(f"  - {name}: {desc}")
+            return 0
+
+        if sub_cmd == "assemble":
+            cfg = LoopConfig.from_env()
+            conn = open_and_init(cfg.state_dir / "chimera.db")
+            mutation = _get(conn, args.mutation_id)
+            if mutation is None:
+                print(f"mutation #{args.mutation_id} not found")
+                return 1
+            if mutation.type != "skill_proposal":
+                print(f"mutation #{args.mutation_id} is type={mutation.type!r}, not 'skill_proposal'")
+                return 1
+            if mutation.status != "approved":
+                print(
+                    f"mutation #{args.mutation_id} is status={mutation.status!r}; "
+                    "must be 'approved' (run `chimera mutations approve {id}` first)"
+                )
+                return 1
+
+            try:
+                spec = SkillSpec(
+                    name=mutation.payload.get("name", ""),
+                    description=mutation.payload.get("description", ""),
+                    brief=mutation.payload.get("brief", ""),
+                )
+            except ValueError as exc:
+                _mark_failed(conn, mutation.id, reason=f"bad spec: {exc}")
+                print(f"bad SkillSpec: {exc}")
+                return 1
+
+            # Construct providers via ACT executor helper.
+            ax = ActExecutor.from_env(dispatcher=None, db=conn)  # type: ignore[arg-type]
+            if ax is None:
+                print("no provider keys; cannot assemble")
+                return 1
+
+            print(f"assembling skill {spec.name!r}...")
+            assembled = asyncio.run(
+                assemble_skill(
+                    spec,
+                    providers=ax.providers,
+                    db=conn,
+                    cycle=-1,
+                )
+            )
+            if not assembled.ok:
+                _mark_failed(conn, mutation.id, reason=f"assembly: {assembled.failure_reason}")
+                print(f"assembly failed: {assembled.failure_reason}")
+                return 1
+            print(f"  schema: {assembled.schema['function']['name']}")
+            print(f"  samples: {len(assembled.samples)}")
+
+            print("validating...")
+            validation = asyncio.run(validate_skill(assembled))
+            print(
+                f"  validation: passed {validation.passed}/{validation.total} "
+                f"(score={validation.score:.2f}, ok={validation.ok})"
+            )
+            if not validation.ok:
+                _mark_failed(conn, mutation.id, reason=f"validation: {validation.failure_reason}")
+                return 1
+
+            print("activating...")
+            result = activate_skill(assembled, validation)
+            if not result.ok:
+                _mark_failed(conn, mutation.id, reason=f"activation: {result.failure_reason}")
+                print(f"activation failed: {result.failure_reason}")
+                return 1
+            print(f"  written to: {result.path}")
+            print(f"  registered as: {result.tool_name}")
+            _mark_applied(conn, mutation.id, reason=f"activated at {result.path}")
+            return 0
+
+        parser.error(f"unknown skills subcommand: {sub_cmd}")
+        return 2
     if args.command == "engines":
         from .core import ChimeraLoop
 

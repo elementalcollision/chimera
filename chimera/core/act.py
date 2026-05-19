@@ -107,13 +107,16 @@ class ActExecutor:
     def from_env(
         cls,
         *,
-        dispatcher: Dispatcher,
+        dispatcher: Dispatcher | None,
         db: sqlite3.Connection,
         tier: str = "haiku",
     ) -> ActExecutor | None:
         """Construct using whichever provider env keys are available.
 
         Returns ``None`` if neither key is set — caller should skip ACT.
+
+        ``dispatcher`` may be None for helpers that only need provider
+        access (e.g. the skills CLI uses this just to get .providers).
         """
         providers: dict[ProviderKind, Provider] = {}
         try:
@@ -126,6 +129,8 @@ class ActExecutor:
             pass
         if not providers:
             return None
+        if dispatcher is None:
+            dispatcher = Dispatcher()  # uses default_registry
         return cls(dispatcher=dispatcher, providers=providers, db=db, tier=tier)
 
     @property

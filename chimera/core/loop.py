@@ -37,6 +37,7 @@ from ..memory import (
     record_activity,
     transition_entity,
 )
+from ..skills import load_dynamic_skills
 from ..tools import (
     Dispatcher,
     SubAgentRunner,
@@ -121,6 +122,13 @@ class ChimeraLoop:
         # Tool registry + dispatcher. Register all built-in tools by default.
         self._registry = tool_registry or default_registry()
         register_core_tools(self._registry)
+        # Load any dynamic skills previously activated under chimera/tools/dynamic/.
+        try:
+            loaded = load_dynamic_skills(self._registry)
+            if loaded:
+                logger.info("dynamic skills loaded: %s", loaded)
+        except Exception:
+            logger.exception("dynamic skill loader failed; continuing without them")
         self._dispatcher = Dispatcher(self._registry)
         # ACT executor (None when no provider keys are set).
         self._act = act_executor

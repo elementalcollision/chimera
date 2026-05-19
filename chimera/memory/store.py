@@ -82,6 +82,20 @@ CREATE TABLE IF NOT EXISTS ladder_outcomes (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ladder_outcomes_tier ON ladder_outcomes(tier);
+
+-- v1.2: mutation queue for "Chimera proposes, operator disposes".
+CREATE TABLE IF NOT EXISTS mutations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    type            TEXT NOT NULL,   -- skill_proposal | config_change | ...
+    payload         TEXT NOT NULL,   -- JSON
+    status          TEXT NOT NULL,   -- pending | approved | rejected | applied | expired | failed
+    reason          TEXT,
+    created_at      TEXT NOT NULL,
+    approved_at     TEXT,
+    applied_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mutations_status ON mutations(status);
+CREATE INDEX IF NOT EXISTS idx_mutations_type ON mutations(type);
 """
 
 

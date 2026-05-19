@@ -14,9 +14,10 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..core.kfm import KFM_STATES, OperatorType, check_transition
+if TYPE_CHECKING:
+    from ..core.kfm import OperatorType  # noqa: F401 — annotation-only
 
 
 class EntityError(Exception):
@@ -103,6 +104,7 @@ def create_entity(
     details: dict[str, Any] | None = None,
 ) -> EntityRecord:
     """Insert a new entity. Raises if (kind, name) already exists."""
+    from ..core.kfm import KFM_STATES
     if initial_state not in KFM_STATES:
         raise ValueError(f"unknown initial_state: {initial_state!r}")
     entity_id = str(uuid.uuid4())  # TODO: UUIDv7 when stdlib supports it
@@ -184,6 +186,8 @@ def transition_entity(
 
     Raises :class:`IllegalTransition` if the move is not allowed.
     """
+    from ..core.kfm import check_transition
+
     entity = get_entity(conn, entity_id)
     if entity is None:
         raise EntityNotFound(entity_id)
