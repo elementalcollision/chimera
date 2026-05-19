@@ -306,6 +306,30 @@ class ActExecutor:
                     if missing:
                         completed = False
                         finish_reason = "artifact_missing"
+                # v4.5 + v4.10: fragmentation is the same shape whether
+                # ACT ran out of rounds OR the model said `stop` without
+                # producing the artifact. Hook fires on either path.
+                if missing:
+                    try:
+                        from .adaptation import (
+                            maybe_propose_synthesis_skill,
+                            record_fragmentation,
+                        )
+                        record_fragmentation(
+                            cycle=cycle,
+                            task_text=task_text,
+                            rounds_used=round_idx + 1,
+                            tool_call_count=len(history),
+                            missing_artifacts=missing,
+                        )
+                        maybe_propose_synthesis_skill(
+                            self._db, cycle=cycle, task_text=task_text,
+                            missing_artifacts=missing,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "fragmentation log / auto-proposal failed; continuing"
+                        )
                 return ActResult(
                     task_text=task_text,
                     completed=completed,
