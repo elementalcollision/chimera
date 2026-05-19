@@ -29,6 +29,17 @@ from .alignment import (
     schema_alignment,
     version_alignment,
 )
+from .emergence import (
+    EvolutionKind,
+    EvolutionRecord,
+    ObservationRecord,
+    detect_protocol_drift,
+    forget_peer,
+    journal_dir,
+    list_for_peer,
+    record_observation,
+    record_observations_from_registry,
+)
 from .peer_dispatch import PeerAwareDispatcher, PeerCallRefused
 from .trust_policy import (
     PeerStateCache,
@@ -59,6 +70,15 @@ __all__ = [
     "kfm_state_alignment",
     "schema_alignment",
     "version_alignment",
+    "EvolutionKind",
+    "EvolutionRecord",
+    "ObservationRecord",
+    "detect_protocol_drift",
+    "forget_peer",
+    "journal_dir",
+    "list_for_peer",
+    "record_observation",
+    "record_observations_from_registry",
     "PeerEntry",
     "fetch_peer_identity",
     "fetch_peer_kfm",
