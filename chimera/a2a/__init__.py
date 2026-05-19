@@ -12,10 +12,24 @@ work happens.
 
 from .identity import AgentIdentity
 from .peers import fetch_peer_identity, list_peer_chimeras, list_xenocomm_tools
+from .registry import (
+    PeerEntry,
+    forget,
+    list_peers,
+    register,
+    registry_dir,
+    sweep_stale,
+)
 
 __all__ = [
     "AgentIdentity",
+    "PeerEntry",
     "fetch_peer_identity",
+    "forget",
     "list_peer_chimeras",
+    "list_peers",
     "list_xenocomm_tools",
+    "register",
+    "registry_dir",
+    "sweep_stale",
 ]

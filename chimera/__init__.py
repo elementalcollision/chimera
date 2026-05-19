@@ -3,4 +3,4 @@
 See PLAN.md and docs/adr/ for the design.
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"

@@ -58,11 +58,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
     a2a = sub.add_parser(
         "a2a",
-        help="Inspect A2A / Xenocomm peer integration (v1.5 spike).",
+        help="Inspect A2A / Xenocomm peer integration (v1.5+).",
     )
     a2a_sub = a2a.add_subparsers(dest="a2a_command", metavar="<a2a-cmd>")
     a2a_sub.add_parser("identity", help="Show this agent's identity payload.")
     a2a_sub.add_parser("peers", help="List Xenocomm tools discovered via MCP.")
+
+    peers_p = sub.add_parser(
+        "peers",
+        help="Inspect / manage the local peer registry (v2.2).",
+    )
+    peers_sub = peers_p.add_subparsers(dest="peers_command", metavar="<peers-cmd>")
+    peers_sub.add_parser("list", help="List entries in the peer registry.")
+    p_forget = peers_sub.add_parser("forget", help="Remove a peer entry by agent_id.")
+    p_forget.add_argument("agent_id")
+    peers_sub.add_parser("sweep", help="Remove stale (pid-gone) local peer entries.")
 
     trust = sub.add_parser(
         "trust",
@@ -198,6 +208,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         from .server import serve_stdio
         return asyncio.run(serve_stdio(name=args.name))
+    if args.command == "peers":
+        from .a2a import forget as _forget_peer
+        from .a2a import list_peers as _list_peers
+        from .a2a import registry_dir as _registry_dir
+        from .a2a import sweep_stale as _sweep_stale
+
+        sub_cmd = args.peers_command or "list"
+        if sub_cmd == "list":
+            entries = _list_peers()
+            d = _registry_dir()
+            if not entries:
+                print(f"chimera peers: (registry dir {d} is empty)")
+                return 0
+            print(f"chimera peers ({len(entries)} entries in {d}):")
+            for e in entries:
+                caps = ", ".join(e.capabilities)
+                print(
+                    f"  {e.agent_id}  v{e.version}  host={e.host}  pid={e.pid}  "
+                    f"transport={e.reach.get('transport', '?')}\n    caps: {caps}"
+                )
+            return 0
+        if sub_cmd == "forget":
+            ok = _forget_peer(args.agent_id)
+            print(f"chimera peers: {'removed' if ok else 'not found'} — {args.agent_id}")
+            return 0 if ok else 1
+        if sub_cmd == "sweep":
+            n = _sweep_stale()
+            print(f"chimera peers: removed {n} stale entr(ies)")
+            return 0
+        parser.error(f"unknown peers subcommand: {sub_cmd}")
+        return 2
     if args.command == "a2a":
         from .a2a import AgentIdentity, list_xenocomm_tools
         from .core import ChimeraLoop

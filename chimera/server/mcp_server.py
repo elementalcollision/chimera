@@ -143,14 +143,36 @@ def build_server(
 
 
 async def serve_stdio(name: str = "chimera") -> int:
-    """Run the MCP server on stdio until peer disconnects."""
+    """Run the MCP server on stdio until peer disconnects.
+
+    On start, register this Chimera in the peer registry (per ADR 0007);
+    on exit (graceful or otherwise), remove the entry.
+    """
+    from ..a2a import AgentIdentity
+    from ..a2a import forget as _forget_peer
+    from ..a2a import register as _register_peer
+
     cms = ChimeraMCPServer.from_env(name=name)
     if not cms.exposed:
         logger.warning(
             "no tools exposed to peers; set %s to a comma-separated allow-list",
             _ENV_EXPOSED,
         )
+    identity = AgentIdentity()
+    registry_path = None
+    try:
+        registry_path = _register_peer(identity)
+        logger.info("registered in peer registry: %s", registry_path)
+    except OSError:
+        logger.exception("peer registry write failed; continuing without it")
+
     init_opts = cms.server.create_initialization_options()
-    async with stdio_server() as (read, write):
-        await cms.server.run(read, write, init_opts)
+    try:
+        async with stdio_server() as (read, write):
+            await cms.server.run(read, write, init_opts)
+    finally:
+        try:
+            _forget_peer(identity.agent_id)
+        except OSError:
+            pass
     return 0
