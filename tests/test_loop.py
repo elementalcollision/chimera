@@ -129,6 +129,13 @@ async def test_one_cycle_with_fresh_mind_dir(mind_dir: Path, config: LoopConfig)
     log_text = "\n".join(report.phase_log)
     for phase in ["HOUSEKEEPING", "WAKE", "ASSESS", "PLAN", "ACT", "WRITE", "FLUSH", "COMMIT", "ROTATE"]:
         assert phase in log_text, f"missing phase {phase} in log"
+    # Every phase recorded a non-negative wall-clock time.
+    expected_keys = {
+        "housekeeping", "wake", "assess", "plan", "act",
+        "write", "flush", "commit", "rotate",
+    }
+    assert expected_keys <= set(report.phase_times_ms.keys())
+    assert all(v >= 0 for v in report.phase_times_ms.values())
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ import {
   recentApiCalls,
 } from "@/lib/db";
 import { readHeartbeat, readMindFile, readTrustState, tierLabel } from "@/lib/mind";
-import { readGraphSnapshot, readTrustJournal } from "@/lib/graph";
+import { readGraphSnapshot, readPhaseTimings, readTrustJournal } from "@/lib/graph";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +39,7 @@ export default async function HomePage() {
   const ladder = ladderOutcomesByTier();
   const graph = readGraphSnapshot();
   const trustJournal = readTrustJournal(20);
+  const timings = readPhaseTimings();
 
   return (
     <>
@@ -236,6 +237,21 @@ export default async function HomePage() {
         <pre className="whitespace-pre-wrap text-xs bg-zinc-100 dark:bg-zinc-900 p-3 rounded max-h-[40rem] overflow-y-auto">
           {chronicle.trim() || "(empty)"}
         </pre>
+      </Section>
+
+      <Section title={`Phase timings${timings ? ` (cycle ${timings.cycle})` : ""}`}>
+        {!timings ? (
+          <Empty>No phase_timings.json yet. Run `chimera run` once.</Empty>
+        ) : (
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-2 text-xs">
+            {Object.entries(timings.phase_times_ms).map(([k, v]) => (
+              <div key={k} className="border border-zinc-200 dark:border-zinc-800 rounded px-2 py-1">
+                <div className="text-zinc-500">{k}</div>
+                <div className="font-mono">{v.toFixed(0)} ms</div>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
 
       <Section title={`Graph${graph ? ` (snapshot ${graph.generated_at})` : ""}`}>

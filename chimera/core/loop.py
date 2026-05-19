@@ -100,6 +100,7 @@ class CycleReport:
     trust_tier_after: str | None = None
     trust_autopromoted: bool = False
     trust_locked_down: bool = False
+    phase_times_ms: dict[str, float] = field(default_factory=dict)
 
 
 class ChimeraLoop:
@@ -238,16 +239,38 @@ class ChimeraLoop:
                 logger.exception("MCP discovery failed; continuing without MCP tools")
             self._mcp_initialized = True
 
-        await self._phase_housekeeping()
-        await self._phase_wake()  # also sets self._report.cycle
+        async def _run(name: str, coro_fn, budget_ms: float | None = None):
+            from .observability import phase_timer
 
-        await self._phase_assess()
-        await self._phase_plan()
-        await self._phase_act()
-        await self._phase_write()
-        await self._phase_flush()
-        await self._phase_commit()
-        rotated = await self._phase_rotate()
+            with phase_timer(f"loop.{name}", budget_ms=budget_ms) as t:
+                result = await coro_fn()
+            self._report.phase_times_ms[name] = t["elapsed_ms"]
+            return result
+
+        await _run("housekeeping", self._phase_housekeeping, budget_ms=500)
+        await _run("wake", self._phase_wake, budget_ms=500)
+        await _run("assess", self._phase_assess, budget_ms=1000)
+        await _run("plan", self._phase_plan, budget_ms=60_000)
+        await _run("act", self._phase_act, budget_ms=120_000)
+        await _run("write", self._phase_write, budget_ms=1000)
+        await _run("flush", self._phase_flush, budget_ms=2000)
+        await _run("commit", self._phase_commit, budget_ms=1000)
+        rotated = await _run("rotate", self._phase_rotate, budget_ms=1000)
+
+        # Persist the per-phase timings as a small JSON for the dashboard.
+        try:
+            import json as _json
+            timings_path = self.config.state_dir / "phase_timings.json"
+            timings_path.write_text(
+                _json.dumps({
+                    "cycle": self._report.cycle,
+                    "completed_at": mind.utc_now_iso(),
+                    "phase_times_ms": self._report.phase_times_ms,
+                }, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.exception("failed to persist phase timings; continuing")
 
         self._report.rotated = rotated
         self._report.completed_at = mind.utc_now_iso()

@@ -39,6 +39,22 @@ function trustJournalDir(): string {
     path.join(stateDir(), "peer_trust_journal");
 }
 
+export interface PhaseTimings {
+  cycle: number;
+  completed_at: string;
+  phase_times_ms: Record<string, number>;
+}
+
+export function readPhaseTimings(): PhaseTimings | null {
+  const p = path.join(stateDir(), "phase_timings.json");
+  if (!fs.existsSync(p)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf-8")) as PhaseTimings;
+  } catch {
+    return null;
+  }
+}
+
 export function readTrustJournal(limit = 50): TrustJournalRecord[] {
   const d = trustJournalDir();
   if (!fs.existsSync(d)) return [];

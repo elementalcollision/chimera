@@ -249,6 +249,11 @@ def main(argv: list[str] | None = None) -> int:
         report = asyncio.run(ChimeraLoop().run_one_cycle())
         for line in report.phase_log:
             print(f"  {line}")
+        if report.phase_times_ms:
+            timings = "  ".join(
+                f"{k}={v:.0f}ms" for k, v in report.phase_times_ms.items()
+            )
+            print(f"  timings: {timings}")
         print(
             f"cycle {report.cycle}: tasks_seen={report.tasks_seen} "
             f"flipped={report.tasks_completed} rotated={report.rotated}"
