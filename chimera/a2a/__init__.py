@@ -17,6 +17,14 @@ from .peers import (
     list_peer_chimeras,
     list_xenocomm_tools,
 )
+from .trust_policy import (
+    PeerStateCache,
+    PeerTrustPolicy,
+    PolicyDecision,
+    PolicyResult,
+    is_always_allowed_peer_tool,
+    peer_name_from_tool,
+)
 from .registry import (
     PeerEntry,
     forget,
@@ -35,6 +43,12 @@ __all__ = [
     "list_peer_chimeras",
     "list_peers",
     "list_xenocomm_tools",
+    "PeerStateCache",
+    "PeerTrustPolicy",
+    "PolicyDecision",
+    "PolicyResult",
+    "is_always_allowed_peer_tool",
+    "peer_name_from_tool",
     "register",
     "registry_dir",
     "sweep_stale",
