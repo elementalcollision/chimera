@@ -56,6 +56,19 @@ def _build_parser() -> argparse.ArgumentParser:
     mut_reject.add_argument("id", type=int)
     mut_reject.add_argument("--reason", default=None)
 
+    trust = sub.add_parser(
+        "trust",
+        help="Inspect and adjust trust tier (T0..T5).",
+    )
+    trust_sub = trust.add_subparsers(dest="trust_command", metavar="<trust-cmd>")
+    trust_sub.add_parser("show", help="Show current tier + recent history.")
+    trust_promote = trust_sub.add_parser("promote", help="Promote one tier.")
+    trust_promote.add_argument("--reason", default="manual promotion")
+    trust_demote = trust_sub.add_parser("demote", help="Demote one tier.")
+    trust_demote.add_argument("--reason", default="manual demotion")
+    trust_lock = trust_sub.add_parser("lockdown", help="Immediate T0 lockdown.")
+    trust_lock.add_argument("--reason", default="manual lockdown")
+
     skills = sub.add_parser(
         "skills",
         help="Manage dynamic skills (assemble from a mutation, list, etc).",
@@ -164,6 +177,40 @@ def main(argv: list[str] | None = None) -> int:
         for t in targets:
             rc |= asyncio.run(_ping_provider(t))
         return rc
+    if args.command == "trust":
+        from .core import LoopConfig
+        from .trust import TrustManager
+
+        cfg = LoopConfig.from_env()
+        tm = TrustManager(cfg.state_dir / "trust_state.json")
+        sub_cmd = args.trust_command or "show"
+        if sub_cmd == "show":
+            print(f"chimera trust: {tm.tier.name} ({tm.tier.label})")
+            print(f"  hours_in_tier: {tm.hours_in_current_tier():.2f}")
+            print(f"  last_readiness: {tm.state.last_readiness:.2f}")
+            recent = tm.state.history[-5:]
+            if recent:
+                print("  recent events:")
+                for ev in recent:
+                    print(
+                        f"    {ev.timestamp} {ev.kind:11s} "
+                        f"T{ev.from_tier}→T{ev.to_tier}  {ev.reason}"
+                    )
+            return 0
+        if sub_cmd == "promote":
+            ok = tm.promote(reason=args.reason)
+            print(f"chimera trust: {'promoted' if ok else 'no-op'} → {tm.tier.name}")
+            return 0 if ok else 1
+        if sub_cmd == "demote":
+            ok = tm.demote(reason=args.reason)
+            print(f"chimera trust: {'demoted' if ok else 'no-op'} → {tm.tier.name}")
+            return 0 if ok else 1
+        if sub_cmd == "lockdown":
+            ok = tm.lockdown(reason=args.reason)
+            print(f"chimera trust: {'locked down' if ok else 'no-op (already T0)'}")
+            return 0 if ok else 1
+        parser.error(f"unknown trust subcommand: {sub_cmd}")
+        return 2
     if args.command == "mutations":
         from .core import LoopConfig
         from .memory import (

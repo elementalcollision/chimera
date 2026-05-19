@@ -38,6 +38,7 @@ from ..memory import (
     transition_entity,
 )
 from ..skills import load_dynamic_skills
+from ..trust import TrustManager, TrustTier
 from ..tools import (
     Dispatcher,
     SubAgentRunner,
@@ -95,6 +96,10 @@ class CycleReport:
     proposals_added: int = 0
     engine_fired: str | None = None
     engine_summary: str | None = None
+    trust_tier_before: str | None = None
+    trust_tier_after: str | None = None
+    trust_autopromoted: bool = False
+    trust_locked_down: bool = False
 
 
 class ChimeraLoop:
@@ -160,6 +165,7 @@ class ChimeraLoop:
         self._current_plan: EntityRecord | None = None
         self._act_results: list[ActResult] = []
         self._mcp_initialized: bool = False
+        self._trust = TrustManager(self.config.state_dir / "trust_state.json")
         # Planner is only constructable if ACT has providers.
         self._planner: Planner | None = None
         if self._act is not None:
@@ -380,12 +386,24 @@ class ChimeraLoop:
         Without provider keys (no ACT executor available), this falls back to
         the stub behavior. Tasks whose ACT result has ``completed=True`` get
         flagged for WRITE to flip to ``- [x]``.
+
+        At T0 (LOCKED), tool dispatch is skipped — Chimera runs in observer
+        mode until promoted.
         """
         assert self._report is not None
         self._act_results = []
+        self._report.trust_tier_before = self._trust.tier.name
         if self._act is None:
             self._record_phase_activity("act", details={"tasks": len(self._tasks), "stub": True})
             self._log_phase(f"ACT (no providers configured; {len(self._tasks)} task(s) untouched)")
+            return
+        if self._trust.tier is TrustTier.T0:
+            self._record_phase_activity(
+                "act", details={"tasks": len(self._tasks), "locked": True}
+            )
+            self._log_phase(
+                f"ACT: LOCKED at T0; observer mode (skipping {len(self._tasks)} task(s))"
+            )
             return
 
         for task in self._tasks:
@@ -496,7 +514,53 @@ class ChimeraLoop:
 
         # Persist drift state every cycle so observations survive restart.
         self._drift.save()
+
+        # Auto-promotion check (cheap; pure decision).
+        try:
+            self._maybe_autopromote()
+        except Exception:
+            logger.exception("autopromote check failed; continuing")
+
         self._record_phase_activity("flush")
+
+    def _maybe_autopromote(self) -> None:
+        """Compute readiness and ask TrustManager whether to bump up a tier."""
+        assert self._report is not None
+        # drift_score: take the latest reading composite if available.
+        latest = self._drift.readings[-1] if self._drift.readings else None
+        drift_score = latest.composite_score if latest else 0.0
+        # activity_rate: based on api_calls in the last 3 cycles vs 5+ expected.
+        rows = self._db.execute(
+            "SELECT COUNT(*) AS n FROM api_calls WHERE cycle >= ?",
+            (max(0, self._report.cycle - 3),),
+        ).fetchone()
+        recent_calls = (rows["n"] if rows else 0) or 0
+        activity_rate = min(1.0, recent_calls / 6.0)
+        # failure_rate: errored api_calls / total in same window.
+        fail_row = self._db.execute(
+            "SELECT COUNT(*) AS n FROM api_calls WHERE cycle >= ? AND error IS NOT NULL",
+            (max(0, self._report.cycle - 3),),
+        ).fetchone()
+        failure_count = (fail_row["n"] if fail_row else 0) or 0
+        failure_rate = failure_count / max(1, recent_calls)
+        readiness = self._trust.readiness(
+            drift_score=drift_score,
+            activity_rate=activity_rate,
+            failure_rate=failure_rate,
+        )
+        before = self._trust.tier.name
+        if self._trust.maybe_autopromote(
+            readiness=readiness, reason_suffix=f"cycle {self._report.cycle}"
+        ):
+            self._report.trust_autopromoted = True
+            self._log_phase(
+                f"FLUSH: autopromoted {before} → {self._trust.tier.name} "
+                f"(readiness={readiness:.2f})"
+            )
+        self._report.trust_tier_after = self._trust.tier.name
+        # Mirror tier into HEARTBEAT frontmatter so `chimera status` shows it.
+        if self._state is not None:
+            self._state.trust_tier = self._trust.tier.name
 
     def _apply_decision(self, decision: DriftDecision) -> None:
         """Translate a drift decision into loop state changes."""
@@ -504,10 +568,14 @@ class ChimeraLoop:
         assert self._state is not None
         if decision.action is DriftAction.KILL_SESSION:
             self._force_rotation_reason = decision.reason
-            # Also demote the plan: re-anchor must start from a clean slate.
+            # Also demote the plan AND lockdown trust.
             self._demote_current_plan(reason=f"kill_session: {decision.reason}")
+            if self._trust.lockdown(reason=f"drift kill_session: {decision.reason}"):
+                self._report.trust_locked_down = True
         elif decision.action is DriftAction.DEMOTE_PLAN:
             self._demote_current_plan(reason=decision.reason)
+            # Demote one trust tier on severe drift (not full lockdown).
+            self._trust.demote(reason=f"drift demote_plan: {decision.reason}")
         elif decision.action is DriftAction.NUDGE and decision.nudge:
             self._report.pending_nudge = decision.nudge
 
