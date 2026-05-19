@@ -237,7 +237,11 @@ def test_shell_safe_commands_is_nonempty():
 async def test_shell_runs_safe_command(shell_env):
     mind, _ = shell_env
     (mind / "hello.txt").write_text("howdy\n")
-    out = await shell_handler({"argv": ["ls", "."]}, DispatchContext())
+    # v4.4: default cwd is now the repo root (mind+state's common parent),
+    # so an explicit "mind" cwd is needed to see hello.txt.
+    out = await shell_handler(
+        {"argv": ["ls", "."], "cwd": "mind"}, DispatchContext()
+    )
     assert "hello.txt" in out
     assert "[exit=0]" in out
 
@@ -257,10 +261,43 @@ async def test_shell_allows_unlisted_with_elevation(shell_env):
     assert "[exit=0]" in out
 
 
+def test_shell_default_cwd_is_common_parent_of_mind_and_state(shell_env, tmp_path):
+    """v4.4 / L-2: default cwd is the parent of mind/+state/, so relative
+    paths 'state/x' and 'mind/x' both resolve to the right place."""
+    from chimera.tools.shell import _default_cwd, _resolve_cwd
+    assert _default_cwd() == tmp_path.resolve()
+    # Relative 'state/...' from default cwd should land under tmp_path/state.
+    assert _resolve_cwd("state") == (tmp_path / "state").resolve()
+    assert _resolve_cwd("mind") == (tmp_path / "mind").resolve()
+
+
+def test_shell_default_cwd_falls_back_when_no_common_parent(monkeypatch, tmp_path):
+    """When mind and state don't share a parent, default cwd falls back to mind."""
+    mind = tmp_path / "alpha" / "mind"
+    state = tmp_path / "beta" / "state"
+    mind.mkdir(parents=True)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state))
+    from chimera.tools.shell import _allowed_roots, _default_cwd
+    assert len(_allowed_roots()) == 2  # no common parent → no third root
+    assert _default_cwd() == mind.resolve()
+
+
 @pytest.mark.asyncio
-async def test_shell_rejects_cwd_outside_roots(shell_env, tmp_path):
-    outside = tmp_path / "outside"
-    outside.mkdir()
+async def test_shell_ls_at_default_cwd_sees_both_mind_and_state(shell_env, tmp_path):
+    """Sanity: running an allow-listed command at the default cwd lists
+    both mind/ and state/ as siblings."""
+    out = await shell_handler({"argv": ["ls", "."]}, DispatchContext())
+    assert "mind" in out
+    assert "state" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_rejects_cwd_outside_roots(shell_env, tmp_path, tmp_path_factory):
+    # v4.4: must be outside tmp_path entirely, since tmp_path is now the
+    # common parent of mind+state and therefore an allowed root.
+    outside = tmp_path_factory.mktemp("truly-outside")
     with pytest.raises(ValueError, match="outside allowed roots"):
         await shell_handler(
             {"argv": ["ls", "."], "cwd": str(outside)}, DispatchContext()
@@ -305,5 +342,5 @@ async def test_register_shell_tool_then_dispatch(shell_env):
     reg = ToolRegistry()
     register_shell_tool(reg)
     (shell_env[0] / "marker.txt").write_text("ok\n")
-    out = await Dispatcher(reg).dispatch("shell", {"argv": ["ls", "."]}, DispatchContext())
+    out = await Dispatcher(reg).dispatch("shell", {"argv": ["ls", "."], "cwd": "mind"}, DispatchContext())
     assert "marker.txt" in out

@@ -6,34 +6,26 @@ remediation ADR / version once shipped.
 
 ## Open
 
-### L-2 — Shell `cwd` defaults to `mind/`, so `state/x` lands at `mind/state/x`
-
-**Surfaced:** v4.3 live-spin cycle 6. INBOX task asked to write to
-`state/fib_validation.log`. Agent ran a `python -c '… open("state/…", "w") …'`
-shell call without setting `cwd`. Shell's default cwd is `mind/` (per
-the existing schema), so the file landed at `mind/state/fib_validation.log`.
-v4.3 artifact verification correctly flagged `state/fib_validation.log`
-as missing, but the underlying issue is that the model + sandbox interpret
-the same relative path differently.
-
-**Impact:** Agents writing to "state/…" effectively create a parallel
-hierarchy under `mind/state/…`. v4.3 catches the false-completion but
-the leftover file pollutes the mind tree until manually cleaned.
-
-**Path to fix:** Three options ranked by surgical-ness:
-1. Add the repo root (common parent of `mind/` and `state/`) to the
-   shell sandbox's allowed roots and switch the default cwd there. The
-   shell tool then naturally resolves "state/x" and "mind/x" correctly.
-2. Have the shell tool re-route a relative path starting with `state/` to
-   the actual state dir when default cwd is `mind/`. Magical; surprising.
-3. Drop default cwd entirely — force the agent to be explicit. Cheap;
-   noisy.
-Recommend (1).
+_None._
 
 
 ---
 
 ## Closed
+
+### L-2 — Shell `cwd` defaulted to `mind/`, so `state/x` landed at `mind/state/x`
+
+**Surfaced:** v4.3 live-spin cycle 6. Agent wrote to `state/x` via a
+shell call without setting `cwd`; default cwd was `mind/`, so the
+file landed at `mind/state/x`.
+
+**Closed in:** v4.4 via [ADR 0027](adr/0027-shell-default-cwd.md).
+Shell default cwd switched to the mind+state common parent (repo
+root) and that parent added to allowed_roots when discoverable.
+Relative `state/x` and `mind/x` paths now resolve as the model
+intends.
+
+---
 
 ### L-1 — `completed=True` doesn't verify promised artifacts
 

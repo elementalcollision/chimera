@@ -121,7 +121,9 @@ async def test_call_tool_dispatches_when_exposed(monkeypatch, tmp_path):
     handler = server.request_handlers[mt.CallToolRequest]
     req = mt.CallToolRequest(
         method="tools/call",
-        params=mt.CallToolRequestParams(name="shell", arguments={"argv": ["ls", "."]}),
+        params=mt.CallToolRequestParams(
+            name="shell", arguments={"argv": ["ls", "."], "cwd": "mind"}
+        ),
     )
     result = await handler(req)
     payload = result.root

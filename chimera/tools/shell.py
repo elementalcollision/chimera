@@ -70,10 +70,9 @@ SHELL_SCHEMA: dict[str, Any] = {
                     "type": "string",
                     "description": (
                         "Optional working directory. PREFER OMITTING this field — "
-                        "it defaults to the mind directory. If you set it, use a "
-                        "RELATIVE path like 'state' or 'mind/wiki', NOT an absolute "
-                        "path. Absolute paths outside the mind/state roots are "
-                        "rejected."
+                        "it defaults to the repo root, so relative paths 'state/x' "
+                        "and 'mind/x' both resolve as expected. Absolute paths "
+                        "outside the mind/state/repo-root tree are rejected."
                     ),
                 },
                 "timeout_s": {
@@ -88,6 +87,13 @@ SHELL_SCHEMA: dict[str, Any] = {
 
 
 def _allowed_roots() -> list[Path]:
+    """Roots a shell subprocess may use as cwd.
+
+    Always includes mind/ and state/. When they share a common parent
+    (the typical layout: ``<repo>/mind`` and ``<repo>/state``), that
+    parent is also allowed — without it, the model can't write to both
+    'state/x' and 'mind/x' from a single cwd (L-2).
+    """
     roots: list[Path] = []
     mind = os.environ.get("CHIMERA_MIND_DIR")
     state = os.environ.get("CHIMERA_STATE_DIR")
@@ -99,16 +105,27 @@ def _allowed_roots() -> list[Path]:
         roots.append(Path(state).resolve())
     else:
         roots.append((Path.cwd() / "state").resolve())
+    if roots[0].parent == roots[1].parent:
+        roots.append(roots[0].parent)
     return roots
+
+
+def _default_cwd() -> Path:
+    """Default cwd for shell calls. Repo root when mind+state share one;
+    otherwise mind. Picked so 'state/x' and 'mind/x' both resolve.
+    """
+    roots = _allowed_roots()
+    return roots[2] if len(roots) >= 3 else roots[0]
 
 
 def _resolve_cwd(cwd_arg: str | None) -> Path:
     roots = _allowed_roots()
+    base = _default_cwd()
     if cwd_arg is None:
-        return roots[0]
+        return base
     candidate = Path(cwd_arg)
     if not candidate.is_absolute():
-        candidate = (roots[0] / candidate).resolve()
+        candidate = (base / candidate).resolve()
     else:
         candidate = candidate.resolve()
     if not any(_is_relative_to(candidate, r) for r in roots):
