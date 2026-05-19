@@ -643,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("no provider keys; cannot assemble")
                 return 1
 
-            from .skills import assemble_with_escalation
+            from .skills import assemble_with_escalation, record_assembly
 
             print(f"assembling skill {spec.name!r} (with tier escalation)...")
             ladder = asyncio.run(
@@ -654,6 +654,10 @@ def main(argv: list[str] | None = None) -> int:
                     cycle=-1,
                 )
             )
+            try:
+                record_assembly(mutation.id, spec.name, ladder)
+            except Exception:
+                pass  # journal write is best-effort
             for att in ladder.attempts:
                 if not att.assembled_ok:
                     print(f"  [{att.tier}] assembly failed: {att.failure_reason}")

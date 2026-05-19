@@ -39,6 +39,45 @@ function trustJournalDir(): string {
     path.join(stateDir(), "peer_trust_journal");
 }
 
+export interface AssemblyAttempt {
+  tier: string;
+  assembled_ok: boolean;
+  validation_score: number;
+  validation_ok: boolean;
+  failure_reason: string | null;
+  revised: boolean;
+  revised_score: number | null;
+  witnesses: string[];
+  winning_witness: string | null;
+}
+
+export interface AssemblyJournalEntry {
+  mutation_id: number;
+  skill_name: string;
+  winning_tier: string | null;
+  final_score: number;
+  final_ok: boolean;
+  attempts: AssemblyAttempt[];
+  recorded_at: string;
+}
+
+export function readAssemblyJournal(limit = 20): AssemblyJournalEntry[] {
+  const p = path.join(stateDir(), "skill_assembly_log.jsonl");
+  if (!fs.existsSync(p)) return [];
+  const out: AssemblyJournalEntry[] = [];
+  for (const line of fs.readFileSync(p, "utf-8").split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      out.push(JSON.parse(s) as AssemblyJournalEntry);
+    } catch {
+      // skip malformed
+    }
+  }
+  return out.slice(-limit).reverse();
+}
+
+
 export interface PhaseTimings {
   cycle: number;
   completed_at: string;

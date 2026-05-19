@@ -10,6 +10,7 @@ Per ADR 0003 deferred-list. The flow is:
 
 from .assembly import AssembledSkill, assemble_skill
 from .activator import ActivationResult, activate_skill, dynamic_skills_dir, load_dynamic_skills
+from .journal import AssemblyJournalEntry, list_assemblies, record_assembly
 from .ladder import AttemptOutcome, LadderResult, assemble_with_escalation
 from .spec import SkillSpec
 from .validation import ValidationResult, validate_skill
@@ -17,8 +18,11 @@ from .validation import ValidationResult, validate_skill
 __all__ = [
     "AssembledSkill",
     "ActivationResult",
+    "AssemblyJournalEntry",
     "AttemptOutcome",
     "LadderResult",
+    "list_assemblies",
+    "record_assembly",
     "SkillSpec",
     "ValidationResult",
     "activate_skill",

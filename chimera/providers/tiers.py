@@ -280,6 +280,48 @@ TIER_LADDERS: dict[str, list[LadderRung]] = {
 }
 
 
+def _all_rungs() -> list[LadderRung]:
+    """Deduplicated flat list of every rung across every tier ladder."""
+    seen: dict[str, LadderRung] = {}
+    for ladder in TIER_LADDERS.values():
+        for r in ladder:
+            seen.setdefault(r.config.model_id, r)
+    return list(seen.values())
+
+
+def _alias_for(rung: LadderRung) -> str:
+    """Short, model-only name. 'openai/gpt-5-pro' → 'gpt-5-pro';
+    'claude-opus-4-7' → 'claude-opus-4-7' (no provider prefix)."""
+    mid = rung.config.model_id
+    return mid.split("/", 1)[1] if "/" in mid else mid
+
+
+def resolve_rung(name: str) -> LadderRung:
+    """Resolve a name into a single rung.
+
+    - Tier name (``"haiku"`` / ``"sonnet"`` / ``"opus"``) → that tier's
+      cheapest rung (matches :func:`select_rung`).
+    - Per-rung alias (``"gpt-5-pro"``, ``"gemini-3-pro"``,
+      ``"deepseek-v4-pro"``, ``"claude-opus-4-7"``, …) → the matching
+      rung from any ladder.
+
+    Per-rung aliases let cross-witness callers say
+    ``witnesses=("claude-opus-4-7", "gpt-5-pro", "gemini-3-pro")``
+    instead of being limited to tier-level routing.
+    """
+    if name in TIER_LADDERS:
+        return select_rung(name)
+    for rung in _all_rungs():
+        if _alias_for(rung) == name:
+            return rung
+        if rung.config.model_id == name:
+            return rung
+    raise ValueError(
+        f"unknown rung name {name!r}; valid tiers: {list(TIER_LADDERS)}; "
+        f"or pass a model alias like 'gpt-5-pro' / 'claude-opus-4-7'"
+    )
+
+
 def eligible_rungs(
     tier: str, *, requires_tools: bool = False, prefer_cheapest: bool = True,
 ) -> list[LadderRung]:

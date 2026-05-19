@@ -9,6 +9,7 @@ import {
 import { readHeartbeat, readMindFile, readTrustState, tierLabel } from "@/lib/mind";
 import {
   groupTrustJournal,
+  readAssemblyJournal,
   readEmergenceCounts,
   readGraphSnapshot,
   readPeers,
@@ -50,6 +51,7 @@ export default async function HomePage() {
   const peers = readPeers();
   const trustGroups = groupTrustJournal(trustJournal);
   const emergence = readEmergenceCounts();
+  const assemblies = readAssemblyJournal(10);
 
   return (
     <>
@@ -408,6 +410,49 @@ export default async function HomePage() {
               ))}
             </tbody>
           </table>
+        )}
+      </Section>
+
+      <Section title={`Skill assembly attempts (${assemblies.length})`}>
+        {assemblies.length === 0 ? (
+          <Empty>No assemblies logged yet. Run `chimera skills assemble &lt;id&gt;`.</Empty>
+        ) : (
+          <div className="space-y-3 text-xs">
+            {assemblies.map((a) => (
+              <div key={`${a.mutation_id}-${a.recorded_at}`} className="border-l-2 border-amber-400 pl-3">
+                <div className="text-zinc-500">
+                  #{a.mutation_id} · {a.skill_name} · {a.recorded_at} ·{" "}
+                  winning_tier={a.winning_tier ?? "—"} · final={Math.round(a.final_score * 100)}% · ok={String(a.final_ok)}
+                </div>
+                <table className="w-full mt-1">
+                  <thead className="text-left text-zinc-500">
+                    <tr>
+                      <th>tier</th>
+                      <th>base</th>
+                      <th>revised</th>
+                      <th>witnesses</th>
+                      <th>winner</th>
+                      <th>reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {a.attempts.map((att, i) => (
+                      <tr key={i} className="border-t border-zinc-200 dark:border-zinc-800">
+                        <td className="py-1 pr-3 font-mono">{att.tier}</td>
+                        <td className="pr-3">{Math.round(att.validation_score * 100)}%</td>
+                        <td className="pr-3">
+                          {att.revised ? Math.round((att.revised_score ?? 0) * 100) + "%" : "—"}
+                        </td>
+                        <td className="pr-3">{att.witnesses.join(", ") || "—"}</td>
+                        <td className="pr-3">{att.winning_witness ?? "—"}</td>
+                        <td className="pr-3 text-zinc-500">{att.failure_reason ?? ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
         )}
       </Section>
 

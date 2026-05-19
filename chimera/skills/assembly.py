@@ -16,7 +16,7 @@ from typing import Any
 from ..memory import record_api_call, record_ladder_outcome
 from ..providers import Message, Provider
 from ..providers.tiers import Provider as ProviderKind
-from ..providers.tiers import select_rung
+from ..providers.tiers import resolve_rung
 from .spec import SkillSpec
 
 
@@ -163,7 +163,7 @@ async def assemble_skill(
     max_tokens: int = 2048,
 ) -> AssembledSkill:
     """Call the assembler tier to produce the handler + schema + samples."""
-    rung = select_rung(tier)
+    rung = resolve_rung(tier)
     provider = providers.get(rung.config.provider)
     if provider is None:
         return AssembledSkill(

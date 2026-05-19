@@ -18,7 +18,7 @@ from ..memory import record_api_call, record_ladder_outcome
 from ..providers import Message, Provider
 from ..providers.tiers import LadderRung
 from ..providers.tiers import Provider as ProviderKind
-from ..providers.tiers import select_rung
+from ..providers.tiers import resolve_rung
 from .assembly import AssembledSkill, parse_assembly_response
 from .spec import SkillSpec
 from .validation import ValidationResult
@@ -97,7 +97,7 @@ async def critique_and_revise(
 ) -> AssembledSkill | None:
     """One revision pass. Returns the revised :class:`AssembledSkill` or
     ``None`` if the reviser failed entirely."""
-    rung: LadderRung = select_rung(tier)
+    rung: LadderRung = resolve_rung(tier)
     provider = providers.get(rung.config.provider)
     if provider is None:
         logger.warning("critique: no provider for tier %s", tier)
