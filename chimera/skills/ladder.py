@@ -21,6 +21,7 @@ from typing import Sequence
 from ..providers import Provider
 from ..providers.tiers import Provider as ProviderKind
 from .assembly import AssembledSkill, assemble_skill
+from .critique import critique_and_revise
 from .spec import SkillSpec
 from .validation import ValidationResult, validate_skill
 
@@ -34,6 +35,8 @@ class AttemptOutcome:
     validation_score: float
     validation_ok: bool
     failure_reason: str | None
+    revised: bool = False  # whether critique-and-revise was applied
+    revised_score: float | None = None
 
 
 @dataclass
@@ -84,23 +87,81 @@ async def assemble_with_escalation(
             continue
 
         validation = await validate_skill(assembled)
-        attempts.append(
-            AttemptOutcome(
-                tier=tier,
-                assembled_ok=True,
-                validation_score=validation.score,
-                validation_ok=validation.ok,
-                failure_reason=validation.failure_reason,
-            )
-        )
         last_assembled = assembled
         last_validation = validation
         if validation.ok:
+            attempts.append(
+                AttemptOutcome(
+                    tier=tier,
+                    assembled_ok=True,
+                    validation_score=validation.score,
+                    validation_ok=True,
+                    failure_reason=None,
+                )
+            )
             return LadderResult(
                 assembled=assembled,
                 validation=validation,
                 attempts=attempts,
                 winning_tier=tier,
+            )
+
+        # v4.7: one critique-and-revise pass on this tier before escalating.
+        logger.info(
+            "ladder: tier=%s validation %d/%d (score=%.2f); attempting revise",
+            tier, validation.passed, validation.total, validation.score,
+        )
+        revised = await critique_and_revise(
+            spec, assembled, validation,
+            providers=providers, db=db, cycle=cycle, tier=tier,
+            max_tokens=max_tokens,
+        )
+        if revised is not None and revised.ok:
+            revised_val = await validate_skill(revised)
+            if revised_val.ok:
+                attempts.append(
+                    AttemptOutcome(
+                        tier=tier,
+                        assembled_ok=True,
+                        validation_score=validation.score,
+                        validation_ok=False,
+                        failure_reason=validation.failure_reason,
+                        revised=True,
+                        revised_score=revised_val.score,
+                    )
+                )
+                return LadderResult(
+                    assembled=revised,
+                    validation=revised_val,
+                    attempts=attempts,
+                    winning_tier=tier,
+                )
+            # Revision was structurally fine but still didn't pass —
+            # carry the better of the two scores forward.
+            if revised_val.score > validation.score:
+                last_assembled = revised
+                last_validation = revised_val
+            attempts.append(
+                AttemptOutcome(
+                    tier=tier,
+                    assembled_ok=True,
+                    validation_score=validation.score,
+                    validation_ok=False,
+                    failure_reason=revised_val.failure_reason,
+                    revised=True,
+                    revised_score=revised_val.score,
+                )
+            )
+        else:
+            attempts.append(
+                AttemptOutcome(
+                    tier=tier,
+                    assembled_ok=True,
+                    validation_score=validation.score,
+                    validation_ok=False,
+                    failure_reason=validation.failure_reason,
+                    revised=False,
+                )
             )
 
     # Exhausted all tiers — return the last attempt so the caller can

@@ -39,38 +39,54 @@ class AssembledSkill:
 
 ASSEMBLY_PROMPT_TEMPLATE = """You are Chimera's skill assembler.
 
-Given a brief, produce:
+Given a brief, produce three artifacts in EXACTLY three fenced blocks
+labelled `schema`, `python`, `samples` — in that order, with NO prose
+between them and NO additional fences.
 
-1. An OpenAI-shaped tool schema describing the tool's inputs.
-2. An async Python handler function that implements the tool.
-3. Three sample inputs, each with an expected substring of the output.
-
-Handler MUST:
-- Be exactly one function: `async def handle(args: dict, context) -> str:`
-- Use ONLY Python stdlib (no third-party imports).
-- Have NO subprocess, NO network (no `socket`, `urllib`, `http`, `requests`),
-  NO `eval`, NO `exec`, NO `__import__`, NO writes outside the working dir.
+Handler contract:
+- Single function: `async def handle(args: dict, context) -> str:`
+- ONLY Python stdlib (no third-party imports).
+- NO subprocess, NO network (no `socket`, `urllib`, `http`, `requests`),
+  NO `eval`, NO `exec`, NO `__import__`, NO writes outside cwd.
 - Return a `str`. Be deterministic and pure where possible.
-- Handle missing/invalid args by raising `ValueError` with a clear message.
+- Handle missing/invalid args by raising `ValueError(<clear message>)`.
 
-Respond with EXACTLY these three fenced blocks (no prose between them):
+Sample contract:
+- A JSON array of `{{"input": <dict>, "expected_substring": <str>}}`.
+- 3 samples covering: a typical case, an edge case, and an error case
+  (where the handler raises `ValueError`; expected_substring may be the
+  error keyword you raise, since validator captures stderr).
+
+---
+
+## Worked example
+
+Brief: A skill named `reverse_string` that takes `{{"text": str}}` and
+returns the reversed string.
 
 ```schema
-{{"type": "function", "function": {{"name": "{name}", "description": "...", "parameters": {{...}}}}}}
+{{"type": "function", "function": {{"name": "reverse_string", "description": "Reverse a string.", "parameters": {{"type": "object", "properties": {{"text": {{"type": "string"}}}}, "required": ["text"]}}}}}}
 ```
 
 ```python
 async def handle(args, context):
-    ...
+    text = args.get("text")
+    if not isinstance(text, str):
+        raise ValueError("text must be a string")
+    return text[::-1]
 ```
 
 ```samples
 [
-  {{"input": {{...}}, "expected_substring": "..."}},
-  {{"input": {{...}}, "expected_substring": "..."}},
-  {{"input": {{...}}, "expected_substring": "..."}}
+  {{"input": {{"text": "hello"}}, "expected_substring": "olleh"}},
+  {{"input": {{"text": ""}}, "expected_substring": ""}},
+  {{"input": {{"text": 42}}, "expected_substring": "must be a string"}}
 ]
 ```
+
+---
+
+## Now produce the same three blocks for THIS brief
 
 Skill name: {name}
 Skill description: {description}
