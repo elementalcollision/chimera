@@ -255,6 +255,15 @@ async def register_mcp_servers(
             )
         out[name] = len(schemas)
         logger.info("MCP %s: registered %d tool(s)", name, len(schemas))
+        # v3.8: auto-record observations for emergence drift detection.
+        if os.environ.get("CHIMERA_EMERGENCE_AUTORECORD", "1") != "0":
+            try:
+                from ..a2a.emergence import record_observations_from_registry
+                record_observations_from_registry(cfg.name, reg)
+            except Exception:
+                logger.exception(
+                    "emergence auto-record failed for %s; continuing", cfg.name
+                )
     return out
 
 

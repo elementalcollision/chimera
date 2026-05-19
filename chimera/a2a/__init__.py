@@ -64,6 +64,7 @@ from .registry import (
     registry_dir,
     sweep_stale,
 )
+from .emergence_sync import EmergenceSyncResult, serialize_journal, sync_remote_emergence
 from .remote_sync import SyncResult, sweep_remote_stale, sync_remote_peers
 
 __all__ = [
@@ -113,4 +114,7 @@ __all__ = [
     "SyncResult",
     "sync_remote_peers",
     "sweep_remote_stale",
+    "EmergenceSyncResult",
+    "serialize_journal",
+    "sync_remote_emergence",
 ]

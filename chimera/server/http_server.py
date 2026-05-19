@@ -65,7 +65,7 @@ class _BearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         from .peer_auth import current_peer
 
-        if request.url.path == "/health":
+        if request.url.path in ("/health", "/healthz"):
             return await call_next(request)
         if not self._expected and not self._token_map:
             return await call_next(request)
@@ -134,9 +134,14 @@ def build_http_app(cms: ChimeraMCPServer) -> Starlette:
     async def _mcp_handler(scope, receive, send):
         await session_manager.handle_request(scope, receive, send)
 
+    async def _emergence_feed(_: Request) -> PlainTextResponse:
+        from ..a2a.emergence_sync import serialize_journal
+        return PlainTextResponse(serialize_journal(), media_type="application/jsonl")
+
     routes = [
         Route("/health", _health),
         Route("/healthz", _healthz),
+        Route("/emergence-feed", _emergence_feed),
         Mount("/mcp", app=_mcp_handler),
     ]
 

@@ -171,6 +171,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="HTTP port (default 8765).",
     )
 
+    emergence = sub.add_parser(
+        "emergence",
+        help="Inspect / sync the protocol-evolution journal (v2.9+).",
+    )
+    emergence_sub = emergence.add_subparsers(dest="emergence_command", metavar="<emg-cmd>")
+    emergence_sub.add_parser("list", help="List per-peer earliest and latest observations.")
+    e_sync = emergence_sub.add_parser(
+        "sync",
+        help="Pull /emergence-feed from CHIMERA_REMOTE_PEERS into remote/.",
+    )
+    e_sync.add_argument("--urls", default=None)
+
     graph = sub.add_parser(
         "graph",
         help="LadybugDB graph store: init / query / rebuild (v2.10+).",
@@ -253,6 +265,38 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    if args.command == "emergence":
+        from .a2a import journal_dir
+        sub_cmd = args.emergence_command or "list"
+        if sub_cmd == "list":
+            d = journal_dir()
+            files = sorted(d.glob("*.jsonl"))
+            remote = sorted((d / "remote").glob("*/*.jsonl")) if (d / "remote").exists() else []
+            print(f"chimera emergence: {len(files)} local, {len(remote)} remote")
+            for p in files:
+                lines = sum(1 for _ in p.read_text().splitlines() if _.strip())
+                print(f"  local  {p.stem}: {lines} observation(s)")
+            for p in remote:
+                rel = p.relative_to(d / "remote")
+                lines = sum(1 for _ in p.read_text().splitlines() if _.strip())
+                print(f"  remote {rel}: {lines} observation(s)")
+            return 0
+        if sub_cmd == "sync":
+            from .a2a.emergence_sync import sync_remote_emergence
+            urls = None
+            if args.urls:
+                urls = [u.strip() for u in args.urls.split(",") if u.strip()]
+            result = sync_remote_emergence(urls)
+            print(
+                f"chimera emergence sync: fetched={result.fetched} "
+                f"records_added={result.records_added} "
+                f"failed={len(result.failures)}"
+            )
+            for url, err in result.failures:
+                print(f"  ! {url}: {err}")
+            return 0 if not result.failures else 1
+        parser.error(f"unknown emergence subcommand: {sub_cmd}")
+        return 2
     if args.command == "doctor":
         from .core import run_checks
         results = run_checks()
