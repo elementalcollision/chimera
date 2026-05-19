@@ -96,11 +96,18 @@ async def _health(_: Request) -> PlainTextResponse:
 async def _healthz(_: Request) -> JSONResponse:
     """Structured health probe — cycle, trust tier, version, db reachable."""
     from .. import __version__
+    from ..a2a import AgentIdentity
     from ..core import LoopConfig, load_heartbeat
     from ..memory import open_and_init
 
     cfg = LoopConfig.from_env()
-    payload: dict[str, object] = {"status": "ok", "version": __version__}
+    identity = AgentIdentity()
+    payload: dict[str, object] = {
+        "status": "ok",
+        "version": __version__,
+        "agent_id": identity.agent_id,
+        "capabilities": list(identity.capabilities),
+    }
     try:
         state, _ = load_heartbeat(cfg.mind_dir / "HEARTBEAT.md")
         payload["cycle"] = state.cycle

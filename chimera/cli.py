@@ -79,6 +79,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p_forget = peers_sub.add_parser("forget", help="Remove a peer entry by agent_id.")
     p_forget.add_argument("agent_id")
     peers_sub.add_parser("sweep", help="Remove stale (pid-gone) local peer entries.")
+    p_sync = peers_sub.add_parser(
+        "sync",
+        help="Fetch /healthz from CHIMERA_REMOTE_PEERS and upsert entries (v3.7+).",
+    )
+    p_sync.add_argument(
+        "--urls",
+        default=None,
+        help="Comma-separated base URLs (overrides CHIMERA_REMOTE_PEERS).",
+    )
+    p_sweep_remote = peers_sub.add_parser(
+        "sweep-remote",
+        help="Remove HTTP peer entries older than --max-age-hours (default 24).",
+    )
+    p_sweep_remote.add_argument("--max-age-hours", type=float, default=24.0)
     p_kfm = peers_sub.add_parser(
         "kfm",
         help="Fetch the swarm-KFM state of one peer (or all if no name given).",
@@ -316,6 +330,25 @@ def main(argv: list[str] | None = None) -> int:
         if sub_cmd == "sweep":
             n = _sweep_stale()
             print(f"chimera peers: removed {n} stale entr(ies)")
+            return 0
+        if sub_cmd == "sync":
+            from .a2a import sync_remote_peers
+            urls = None
+            if args.urls:
+                urls = [u.strip() for u in args.urls.split(",") if u.strip()]
+            result = sync_remote_peers(urls)
+            print(
+                f"chimera peers sync: fetched={result.fetched} "
+                f"added={result.added} updated={result.updated} "
+                f"failed={len(result.failures)}"
+            )
+            for url, err in result.failures:
+                print(f"  ! {url}: {err}")
+            return 0 if not result.failures else 1
+        if sub_cmd == "sweep-remote":
+            from .a2a import sweep_remote_stale
+            n = sweep_remote_stale(max_age_hours=args.max_age_hours)
+            print(f"chimera peers: removed {n} stale remote entr(ies)")
             return 0
         if sub_cmd == "kfm":
             from .a2a import fetch_peer_kfm, list_peer_chimeras

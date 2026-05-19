@@ -64,6 +64,7 @@ from .registry import (
     registry_dir,
     sweep_stale,
 )
+from .remote_sync import SyncResult, sweep_remote_stale, sync_remote_peers
 
 __all__ = [
     "AgentIdentity",
@@ -109,4 +110,7 @@ __all__ = [
     "register",
     "registry_dir",
     "sweep_stale",
+    "SyncResult",
+    "sync_remote_peers",
+    "sweep_remote_stale",
 ]
