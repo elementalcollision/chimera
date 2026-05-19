@@ -1,0 +1,228 @@
+"""LadybugDB graph store (v2.10) — embedded Cypher over Chimera's state.
+
+Per [ADR 0015]. SQLite remains the source of truth for ``entities``,
+``entity_transitions``, ``mutations``, ``api_calls``. This module
+maintains a **derived projection** of that data — plus filesystem-only
+edges (peer-trust, skill-deps, wiki cross-refs) — in a Kuzu / Ladybug
+database under ``state/chimera.graph/``.
+
+Re-buildable from scratch: ``GraphStore.rebuild_from_sqlite(conn)`` is
+idempotent. Any SQLite schema migration invalidates the graph and the
+next ``rebuild`` rebuilds it.
+
+The PyPI package name is currently ``kuzu`` while LadybugDB ships
+binary compatibility during its rebrand transition. We pin to
+``kuzu>=0.10`` (the last common API surface) and document the rename
+in ADR 0015.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import kuzu
+
+logger = logging.getLogger(__name__)
+
+
+GRAPH_SCHEMA_VERSION = 1
+
+
+@dataclass(frozen=True)
+class GraphQueryResult:
+    columns: list[str]
+    rows: list[list[Any]]
+
+
+_NODE_TABLES = [
+    # All primary keys are STRING for portability with our UUIDs / names.
+    "CREATE NODE TABLE IF NOT EXISTS Entity("
+    " id STRING, kind STRING, name STRING, kfm_state STRING,"
+    " state_entered_at_cycle INT64, created_at STRING,"
+    " PRIMARY KEY(id))",
+    "CREATE NODE TABLE IF NOT EXISTS Mutation("
+    " id INT64, type STRING, status STRING, reason STRING, created_at STRING,"
+    " PRIMARY KEY(id))",
+    "CREATE NODE TABLE IF NOT EXISTS ApiCall("
+    " id INT64, cycle INT64, provider STRING, model_id STRING,"
+    " finish_reason STRING, created_at STRING, PRIMARY KEY(id))",
+    "CREATE NODE TABLE IF NOT EXISTS Peer("
+    " agent_id STRING, version STRING, host STRING, registered_at STRING,"
+    " PRIMARY KEY(agent_id))",
+    "CREATE NODE TABLE IF NOT EXISTS Skill("
+    " name STRING, source_path STRING, PRIMARY KEY(name))",
+    "CREATE NODE TABLE IF NOT EXISTS WikiDoc("
+    " path STRING, PRIMARY KEY(path))",
+]
+
+_REL_TABLES = [
+    "CREATE REL TABLE IF NOT EXISTS TRANSITIONED_TO("
+    " FROM Entity TO Entity,"
+    " from_state STRING, to_state STRING, operator_type STRING,"
+    " reason STRING, cycle INT64, created_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS PROPOSED(FROM Mutation TO Entity)",
+    "CREATE REL TABLE IF NOT EXISTS ACTIVATED(FROM Mutation TO Skill)",
+    "CREATE REL TABLE IF NOT EXISTS TRUSTED("
+    " FROM Peer TO Peer, drift_score DOUBLE, verdict STRING, recorded_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS DEPENDS_ON(FROM Skill TO Skill)",
+    "CREATE REL TABLE IF NOT EXISTS USES_TOOL(FROM Skill TO Entity)",
+    "CREATE REL TABLE IF NOT EXISTS REFERENCES(FROM WikiDoc TO WikiDoc)",
+]
+
+
+def default_graph_dir() -> Path:
+    state_dir = Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
+    return state_dir / "chimera.graph"
+
+
+class GraphStore:
+    """Thin wrapper over kuzu.Database + Connection."""
+
+    def __init__(self, path: Path | str | None = None) -> None:
+        self.path = Path(path) if path is not None else default_graph_dir()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._db = kuzu.Database(str(self.path))
+        self._conn = kuzu.Connection(self._db)
+
+    @property
+    def connection(self) -> kuzu.Connection:
+        return self._conn
+
+    def close(self) -> None:
+        # Kuzu cleans up on GC; no explicit close. Method is here so callers
+        # that mirror SQLite usage don't have to special-case it.
+        pass
+
+    def init_schema(self) -> None:
+        """Idempotent: create node + rel tables if missing."""
+        for stmt in _NODE_TABLES + _REL_TABLES:
+            self._conn.execute(stmt)
+
+    def query(self, cypher: str, *, params: dict[str, Any] | None = None) -> GraphQueryResult:
+        """Execute Cypher and return a structured result."""
+        result = self._conn.execute(cypher, parameters=params)
+        columns = list(result.get_column_names())
+        rows: list[list[Any]] = []
+        while result.has_next():
+            rows.append(list(result.get_next()))
+        return GraphQueryResult(columns=columns, rows=rows)
+
+    # ── projection helpers ───────────────────────────────────
+
+    def clear_all(self) -> None:
+        """Truncate every node + rel table. Used by rebuild."""
+        # Kuzu doesn't have TRUNCATE; we DELETE in dependency order.
+        for rel in [
+            "TRANSITIONED_TO", "PROPOSED", "ACTIVATED",
+            "TRUSTED", "DEPENDS_ON", "USES_TOOL", "REFERENCES",
+        ]:
+            try:
+                self._conn.execute(f"MATCH ()-[r:{rel}]->() DELETE r")
+            except Exception:
+                pass
+        for node in ["Entity", "Mutation", "ApiCall", "Peer", "Skill", "WikiDoc"]:
+            try:
+                self._conn.execute(f"MATCH (n:{node}) DELETE n")
+            except Exception:
+                pass
+
+    def rebuild_from_sqlite(self, sqlite_conn) -> dict[str, int]:
+        """Project SQLite rows into the graph. Returns counts per node/rel type."""
+        self.init_schema()
+        self.clear_all()
+        counts: dict[str, int] = {}
+
+        # Entities.
+        entity_rows = sqlite_conn.execute(
+            "SELECT id, kind, name, kfm_state, state_entered_at_cycle, created_at FROM entities"
+        ).fetchall()
+        for r in entity_rows:
+            self._conn.execute(
+                "CREATE (e:Entity {id: $id, kind: $kind, name: $name, "
+                "kfm_state: $st, state_entered_at_cycle: $cyc, created_at: $ts})",
+                parameters={
+                    "id": r["id"], "kind": r["kind"], "name": r["name"],
+                    "st": r["kfm_state"], "cyc": int(r["state_entered_at_cycle"]),
+                    "ts": r["created_at"],
+                },
+            )
+        counts["Entity"] = len(entity_rows)
+
+        # Mutations.
+        mut_rows = sqlite_conn.execute(
+            "SELECT id, type, status, reason, created_at FROM mutations"
+        ).fetchall()
+        for r in mut_rows:
+            self._conn.execute(
+                "CREATE (m:Mutation {id: $id, type: $type, status: $st, "
+                "reason: $reason, created_at: $ts})",
+                parameters={
+                    "id": int(r["id"]), "type": r["type"], "st": r["status"],
+                    "reason": r["reason"] or "", "ts": r["created_at"],
+                },
+            )
+        counts["Mutation"] = len(mut_rows)
+
+        # ApiCalls — last 1000 only to keep the graph svelte.
+        api_rows = sqlite_conn.execute(
+            "SELECT id, cycle, provider, model_id, finish_reason, created_at "
+            "FROM api_calls ORDER BY id DESC LIMIT 1000"
+        ).fetchall()
+        for r in api_rows:
+            self._conn.execute(
+                "CREATE (a:ApiCall {id: $id, cycle: $cyc, provider: $p, "
+                "model_id: $m, finish_reason: $fr, created_at: $ts})",
+                parameters={
+                    "id": int(r["id"]), "cyc": int(r["cycle"]), "p": r["provider"],
+                    "m": r["model_id"], "fr": r["finish_reason"] or "",
+                    "ts": r["created_at"],
+                },
+            )
+        counts["ApiCall"] = len(api_rows)
+
+        # TRANSITIONED_TO edges (entity self-loops in the lifecycle).
+        trans_rows = sqlite_conn.execute(
+            "SELECT entity_id, from_state, to_state, operator_type, reason, "
+            "cycle, created_at FROM entity_transitions"
+        ).fetchall()
+        for r in trans_rows:
+            # KFM transitions are A→A on the same entity over time;
+            # for a useful provenance graph we connect the entity to itself
+            # with one edge per transition.
+            self._conn.execute(
+                "MATCH (e:Entity {id: $eid}) "
+                "CREATE (e)-[t:TRANSITIONED_TO {"
+                " from_state: $fs, to_state: $ts, operator_type: $op,"
+                " reason: $reason, cycle: $cyc, created_at: $at}]->(e)",
+                parameters={
+                    "eid": r["entity_id"], "fs": r["from_state"],
+                    "ts": r["to_state"], "op": r["operator_type"],
+                    "reason": r["reason"] or "", "cyc": int(r["cycle"]),
+                    "at": r["created_at"],
+                },
+            )
+        counts["TRANSITIONED_TO"] = len(trans_rows)
+
+        # Peers (from filesystem registry).
+        peer_count = 0
+        try:
+            from ..a2a import list_peers
+            for p in list_peers():
+                self._conn.execute(
+                    "CREATE (p:Peer {agent_id: $id, version: $v, host: $h, "
+                    "registered_at: $ra})",
+                    parameters={
+                        "id": p.agent_id, "v": p.version, "h": p.host,
+                        "ra": p.registered_at,
+                    },
+                )
+                peer_count += 1
+        except Exception:
+            logger.exception("failed to project peers; continuing")
+        counts["Peer"] = peer_count
+
+        return counts

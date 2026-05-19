@@ -1,5 +1,6 @@
 """Chimera memory: SQLite-backed ontology + activity log (ADR 0002 + ADR 0003)."""
 
+from .graph import GRAPH_SCHEMA_VERSION, GraphQueryResult, GraphStore, default_graph_dir
 from .entities import (
     EntityAlreadyExists,
     EntityError,
@@ -63,4 +64,8 @@ __all__ = [
     "mark_failed",
     "reject_mutation",
     "sweep_stale",
+    "GRAPH_SCHEMA_VERSION",
+    "GraphQueryResult",
+    "GraphStore",
+    "default_graph_dir",
 ]

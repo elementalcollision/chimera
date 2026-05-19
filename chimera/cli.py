@@ -151,6 +151,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="HTTP port (default 8765).",
     )
 
+    graph = sub.add_parser(
+        "graph",
+        help="LadybugDB graph store: init / query / rebuild (v2.10+).",
+    )
+    graph_sub = graph.add_subparsers(dest="graph_command", metavar="<graph-cmd>")
+    graph_sub.add_parser("init", help="Create schema in state/chimera.graph/.")
+    graph_sub.add_parser("rebuild", help="Re-project SQLite + registry into the graph.")
+    g_query = graph_sub.add_parser("query", help="Run a Cypher query and print rows.")
+    g_query.add_argument("cypher", help="Cypher statement.")
+
     return parser
 
 
@@ -591,6 +601,34 @@ def main(argv: list[str] | None = None) -> int:
             for line in result.call_result.splitlines():
                 print(f"    {line}")
             return 0 if result.ok else 1
+    if args.command == "graph":
+        from .core import LoopConfig
+        from .memory import GraphStore, default_graph_dir, open_and_init
+
+        cfg = LoopConfig.from_env()
+        sub_cmd = args.graph_command or "init"
+        store = GraphStore(default_graph_dir())
+        if sub_cmd == "init":
+            store.init_schema()
+            print(f"chimera graph: schema ready at {store.path}")
+            return 0
+        if sub_cmd == "rebuild":
+            conn = open_and_init(cfg.state_dir / "chimera.db")
+            counts = store.rebuild_from_sqlite(conn)
+            print(f"chimera graph rebuild ({store.path}):")
+            for k, v in sorted(counts.items()):
+                print(f"  {k}: {v}")
+            return 0
+        if sub_cmd == "query":
+            store.init_schema()
+            result = store.query(args.cypher)
+            print("  " + " | ".join(result.columns))
+            for row in result.rows:
+                print("  " + " | ".join(str(c) for c in row))
+            print(f"({len(result.rows)} row(s))")
+            return 0
+        parser.error(f"unknown graph subcommand: {sub_cmd}")
+        return 2
     parser.error(f"unknown command: {args.command}")
     return 2
 
