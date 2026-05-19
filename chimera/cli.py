@@ -56,6 +56,14 @@ def _build_parser() -> argparse.ArgumentParser:
     mut_reject.add_argument("id", type=int)
     mut_reject.add_argument("--reason", default=None)
 
+    a2a = sub.add_parser(
+        "a2a",
+        help="Inspect A2A / Xenocomm peer integration (v1.5 spike).",
+    )
+    a2a_sub = a2a.add_subparsers(dest="a2a_command", metavar="<a2a-cmd>")
+    a2a_sub.add_parser("identity", help="Show this agent's identity payload.")
+    a2a_sub.add_parser("peers", help="List Xenocomm tools discovered via MCP.")
+
     trust = sub.add_parser(
         "trust",
         help="Inspect and adjust trust tier (T0..T5).",
@@ -177,6 +185,35 @@ def main(argv: list[str] | None = None) -> int:
         for t in targets:
             rc |= asyncio.run(_ping_provider(t))
         return rc
+    if args.command == "a2a":
+        from .a2a import AgentIdentity, list_xenocomm_tools
+        from .core import ChimeraLoop
+        from .tools import register_mcp_servers_from_env
+
+        sub_cmd = args.a2a_command or "identity"
+        if sub_cmd == "identity":
+            ident = AgentIdentity()
+            import json as _json
+            print(_json.dumps(ident.to_dict(), indent=2))
+            return 0
+        if sub_cmd == "peers":
+            loop = ChimeraLoop()
+            asyncio.run(register_mcp_servers_from_env(loop._registry))  # type: ignore[attr-defined]
+            tools = list_xenocomm_tools(loop._registry)  # type: ignore[attr-defined]
+            loop.close()
+            if not tools:
+                print(
+                    "chimera a2a: no Xenocomm tools discovered. "
+                    "Set CHIMERA_MCP_SERVERS to include a 'xenocomm' entry "
+                    "(see docs/adr/0004-xenocomm-a2a.md)."
+                )
+                return 0
+            print(f"chimera a2a: {len(tools)} Xenocomm tool(s) discovered:")
+            for t in tools:
+                print(f"  - {t}")
+            return 0
+        parser.error(f"unknown a2a subcommand: {sub_cmd}")
+        return 2
     if args.command == "trust":
         from .core import LoopConfig
         from .trust import TrustManager
