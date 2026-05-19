@@ -37,7 +37,7 @@ from ..providers import (
 )
 from ..providers.tiers import LadderRung
 from ..providers.tiers import Provider as ProviderKind
-from ..providers.tiers import select_rung
+from ..providers.tiers import eligible_rungs, select_rung
 from ..tools import (
     DispatchContext,
     Dispatcher,
@@ -172,16 +172,26 @@ class ActExecutor:
         final_text = ""
         stop_reason = ""
 
-        rung = self._pick_rung(requires_tools=True)
-        provider = self._provider_for(rung)
-        if provider is None:
+        # v3.11: walk all eligible rungs cheapest-first. We start on the
+        # cheapest; on a provider error we record retry_exhausted and
+        # escalate to the next rung. Out of rungs → give up.
+        rung_list = [
+            r for r in eligible_rungs(self._tier, requires_tools=True)
+            if self._provider_for(r) is not None
+        ]
+        if not rung_list:
             return ActResult(
                 task_text=task_text,
                 completed=False,
                 rounds=0,
                 finish_reason="provider_unavailable",
-                failure_reason=f"no provider for {rung.config.provider}",
+                failure_reason=f"no provider available for tier {self._tier!r}",
             )
+        rung_idx = 0
+        rung = rung_list[0]
+        provider = self._provider_for(rung)
+        assert provider is not None
+        last_provider_error: str | None = None
 
         for round_idx in range(self._max_rounds):
             try:
@@ -192,6 +202,7 @@ class ActExecutor:
                     max_tokens=self._max_tokens,
                 )
             except Exception as exc:
+                last_provider_error = str(exc)
                 record_api_call(
                     self._db,
                     cycle=cycle,
@@ -204,16 +215,22 @@ class ActExecutor:
                     cycle=cycle,
                     tier=self._tier,
                     rung_model_id=rung.label,
-                    outcome="non_retriable",
+                    outcome="retry_exhausted",
                 )
-                return ActResult(
-                    task_text=task_text,
-                    completed=False,
-                    rounds=round_idx,
-                    finish_reason="provider_error",
-                    failure_reason=str(exc),
-                    api_call_count=api_call_count,
-                )
+                rung_idx += 1
+                if rung_idx >= len(rung_list):
+                    return ActResult(
+                        task_text=task_text,
+                        completed=False,
+                        rounds=round_idx,
+                        finish_reason="provider_error",
+                        failure_reason=last_provider_error,
+                        api_call_count=api_call_count,
+                    )
+                rung = rung_list[rung_idx]
+                provider = self._provider_for(rung)
+                assert provider is not None
+                continue
 
             api_call_count += 1
             record_api_call(

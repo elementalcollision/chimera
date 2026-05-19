@@ -25,7 +25,7 @@ from .tiers import (
     ModelConfig,
 )
 from .tiers import Provider as ProviderKind
-from .tiers import select_rung
+from .tiers import eligible_rungs, select_rung
 
 __all__ = [
     "AnthropicProvider",
@@ -51,5 +51,6 @@ __all__ = [
     "HAIKU_LADDER",
     "SONNET_LADDER",
     "OPUS_LADDER",
+    "eligible_rungs",
     "select_rung",
 ]

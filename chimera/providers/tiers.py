@@ -233,6 +233,21 @@ TIER_LADDERS: dict[str, list[LadderRung]] = {
 }
 
 
+def eligible_rungs(
+    tier: str, *, requires_tools: bool = False, prefer_cheapest: bool = True,
+) -> list[LadderRung]:
+    """Return all ladder rungs satisfying the request, in escalation order.
+
+    Used by the ACT executor (v3.11+) to walk down the ladder when a rung
+    exhausts its retries. Cheapest-first matches :func:`select_rung`.
+    """
+    if tier not in TIER_LADDERS:
+        raise ValueError(f"unknown tier: {tier!r}; valid: {list(TIER_LADDERS)}")
+    rungs = TIER_LADDERS[tier]
+    ordered = rungs if prefer_cheapest else list(reversed(rungs))
+    return [r for r in ordered if not requires_tools or r.capabilities.supports_tools]
+
+
 def select_rung(tier: str, *, requires_tools: bool = False, prefer_cheapest: bool = True) -> LadderRung:
     """Pick a rung from a tier ladder.
 

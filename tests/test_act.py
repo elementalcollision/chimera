@@ -277,7 +277,38 @@ async def test_act_records_failure_outcome_on_provider_error(shell_env, dispatch
     assert result.finish_reason == "provider_error"
     assert "provider down" in (result.failure_reason or "")
     outcomes = db.execute("SELECT outcome FROM ladder_outcomes").fetchall()
-    assert outcomes[0]["outcome"] == "non_retriable"
+    # v3.11: each rung records retry_exhausted before the executor gives up.
+    assert all(o["outcome"] == "retry_exhausted" for o in outcomes)
+    assert len(outcomes) >= 1
+
+
+@pytest.mark.asyncio
+async def test_act_escalates_to_next_rung_on_first_rung_failure(shell_env, dispatcher, db):
+    """v3.11: when one provider raises, ACT walks the next ladder rung."""
+    flaky = _FakeProvider([])
+
+    async def _raise(*a, **kw):
+        raise RuntimeError("flaky rung")
+
+    flaky.complete_with_tools = _raise  # type: ignore[assignment]
+    healthy = _FakeProvider(
+        [ChatResponse(text="all good", tool_uses=[], stop_reason="stop")]
+    )
+    # HAIKU_LADDER puts OpenRouter rungs first (cheapest) and Anthropic
+    # last (safety net). Make OpenRouter flaky and Anthropic healthy so the
+    # executor must escalate down the ladder to find success.
+    executor = ActExecutor(
+        dispatcher=dispatcher,
+        providers={ProviderKind.OPENROUTER: flaky, ProviderKind.ANTHROPIC: healthy},
+        db=db,
+    )
+    result = await executor.execute("hello", cycle=3)
+    assert result.completed is True
+    assert "all good" in result.final_text
+    outcomes = db.execute("SELECT outcome FROM ladder_outcomes ORDER BY id").fetchall()
+    kinds = [o["outcome"] for o in outcomes]
+    assert "retry_exhausted" in kinds
+    assert "success" in kinds
 
 
 # ── Live integration (env-gated) ────────────────────────────
