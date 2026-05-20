@@ -344,7 +344,9 @@ class ActExecutor:
         # problem, not a *capability* problem. Promoting tier would
         # just burn the cap faster on the next attempt. The cycle
         # rotates and the task gets a fresh budget on the next cycle.
-        if not result.completed and result.finish_reason != "cost_cap":
+        if not result.completed and result.finish_reason not in (
+            "cost_cap", "rolling_hour_cap",
+        ):
             try:
                 record_failure(
                     self._db,
@@ -422,13 +424,20 @@ class ActExecutor:
         # this round's provider call. None on the very first round.
         import time as _time
         prior_tools_done_at: float | None = None
-        from .budget import check_cycle_cost_cap, CycleCostCapExceeded
+        from .budget import (
+            check_cycle_cost_cap,
+            check_rolling_hour_cost_cap,
+            CycleCostCapExceeded,
+            RollingHourCostCapExceeded,
+        )
         for round_idx in range(effective_max_rounds):
             # v4.53: hard-stop if this cycle has spent over the cap.
-            # Checked BEFORE the provider call so a tripping cycle
+            # v4.57: also hard-stop if rolling-60m spend exceeds cap.
+            # Both checked BEFORE the provider call so a tripping cycle
             # exits cleanly without one final expensive request.
             try:
                 check_cycle_cost_cap(self._db, cycle)
+                check_rolling_hour_cost_cap(self._db)
             except CycleCostCapExceeded as exc:
                 logger.warning(
                     "act: cycle %d cost cap tripped at $%.2f (cap $%.2f); "
@@ -440,6 +449,20 @@ class ActExecutor:
                     completed=False,
                     rounds=round_idx,
                     finish_reason="cost_cap",
+                    failure_reason=str(exc),
+                    api_call_count=api_call_count,
+                )
+            except RollingHourCostCapExceeded as exc:
+                logger.warning(
+                    "act: rolling-60m cost cap tripped at $%.2f (cap $%.2f); "
+                    "exiting round loop without tier promotion",
+                    exc.spend_usd, exc.cap_usd,
+                )
+                return ActResult(
+                    task_text=task_text,
+                    completed=False,
+                    rounds=round_idx,
+                    finish_reason="rolling_hour_cap",
                     failure_reason=str(exc),
                     api_call_count=api_call_count,
                 )
@@ -487,6 +510,20 @@ class ActExecutor:
                 continue
 
             api_call_count += 1
+            # v4.57 (ADR 0076): compute and persist cost_usd at write
+            # time. The dashboard widget computed cost client-side from
+            # tokens × tier prices; that still works, but the DB column
+            # being empty meant cycle-cost queries (and chimera doctor)
+            # couldn't see real spend. Now both paths agree.
+            from .budget import _price_table as _bp_price_table
+            _prices = _bp_price_table()
+            _in_price, _out_price = _prices.get(response.model_id, (0.0, 0.0))
+            _in_tok = response.input_tokens or 0
+            _out_tok = response.output_tokens or 0
+            cost_usd = (
+                (_in_tok / 1_000_000.0) * _in_price
+                + (_out_tok / 1_000_000.0) * _out_price
+            )
             record_api_call(
                 self._db,
                 cycle=cycle,
@@ -494,6 +531,7 @@ class ActExecutor:
                 model_id=response.model_id,
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
+                cost_usd=cost_usd if cost_usd > 0 else None,
                 latency_ms=response.latency_ms,
                 finish_reason=response.stop_reason,
                 # v4.33: parallel-tool fan-out telemetry.

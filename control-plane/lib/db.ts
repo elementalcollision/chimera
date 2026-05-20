@@ -123,11 +123,14 @@ export function apiCallTokenRowsLastMinutes(minutes: number): Array<{
   if (!db) return [];
   // Bind as a string fragment because sqlite's datetime modifier doesn't
   // parametrize cleanly with bound integers — clamp to a safe range.
+  // v4.57: wrap created_at in datetime() so the T-separator + +00:00 tz
+  // that record_api_call writes normalizes to SQLite's expected shape.
+  // Raw string compare would silently overcount; see ADR 0076.
   const m = Math.max(1, Math.min(1440, Math.floor(minutes)));
   return db
     .prepare(
       `SELECT model_id, input_tokens, output_tokens FROM api_calls ` +
-      `WHERE error IS NULL AND created_at >= datetime('now', '-${m} minutes')`
+      `WHERE error IS NULL AND datetime(created_at) >= datetime('now', '-${m} minutes')`
     )
     .all() as Array<{
       model_id: string;

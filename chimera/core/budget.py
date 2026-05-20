@@ -213,3 +213,108 @@ def check_cycle_cost_cap(db: sqlite3.Connection, cycle: int) -> None:
         raise CycleCostCapExceeded(
             spend_usd=spend, cap_usd=cap, cycle=cycle,
         )
+
+
+# ── v4.57 (ADR 0076): rolling-hour spend cap ────────────────────────
+#
+# The per-cycle cap (v4.53) catches one runaway cycle, but if the
+# escalation memory keeps promoting tasks across multiple cycles and
+# each cycle stays just under the cap, total spend can still climb.
+# The 2026-05-19 burn averaged $1.70/min for 135 minutes — even with
+# the per-cycle cap at $2.00, a sequence of 10 bad cycles back-to-back
+# could accumulate $20 before the human noticed. The rolling-hour cap
+# is the long-window protection.
+#
+# Default $20/hour = roughly 10× the per-cycle cap, matching the
+# operational "if I see red on the alarm widget for an hour, this run
+# is broken" intuition.
+
+_DEFAULT_ROLLING_HOUR_CAP_USD = 20.00
+
+
+class RollingHourCostCapExceeded(Exception):
+    """Raised when accumulated spend in the rolling 60-minute window
+    exceeds the rolling-hour cap.
+
+    Distinct exception type from :class:`CycleCostCapExceeded` so ACT
+    can log + report each cause separately (and operators can tell at
+    a glance whether one cycle ran away or whether the day's been a
+    slow burn).
+    """
+
+    def __init__(self, *, spend_usd: float, cap_usd: float, window_minutes: int = 60):
+        self.spend_usd = spend_usd
+        self.cap_usd = cap_usd
+        self.window_minutes = window_minutes
+        super().__init__(
+            f"rolling-{window_minutes}m spend ${spend_usd:.2f} "
+            f"exceeds cap ${cap_usd:.2f}"
+        )
+
+
+def rolling_hour_cap_usd() -> float:
+    """Return the rolling-hour USD cap, honoring CHIMERA_ROLLING_HOUR_CAP_USD.
+
+    Default: $20.00. The 2026-05-19 burn averaged $1.70/min × 60min
+    = $102/hour — five times this cap. Set to 0 to disable.
+    """
+    raw = os.environ.get("CHIMERA_ROLLING_HOUR_CAP_USD", "").strip()
+    if not raw:
+        return _DEFAULT_ROLLING_HOUR_CAP_USD
+    try:
+        v = float(raw)
+    except ValueError:
+        return _DEFAULT_ROLLING_HOUR_CAP_USD
+    if v < 0:
+        return 0.0
+    return v
+
+
+def rolling_spend_usd(db: sqlite3.Connection, *, minutes: int = 60) -> float:
+    """Sum USD spend over the last ``minutes``.
+
+    Uses the same price table as :func:`cycle_spend_usd` but
+    time-bounded by ``created_at >= datetime('now', '-N minutes')``.
+    Per-call cost_usd column is ignored even when populated (v4.57+)
+    — we recompute from tokens × current price table so a tier-price
+    update applies retroactively when read.
+    """
+    m = max(1, min(1440, int(minutes)))
+    # NOTE: production writes ISO timestamps with T-separator and
+    # +00:00 tz (``_utc_now_iso``); SQLite's ``datetime('now', '-N min')``
+    # produces space-separated, no-tz. Raw string comparison would
+    # silently overcount. Wrap both sides in ``datetime()`` to
+    # normalize.
+    cur = db.execute(
+        "SELECT model_id, "
+        "  COALESCE(SUM(input_tokens), 0), "
+        "  COALESCE(SUM(output_tokens), 0) "
+        "FROM api_calls "
+        "WHERE error IS NULL "
+        f"  AND datetime(created_at) >= datetime('now', '-{m} minutes') "
+        "GROUP BY model_id"
+    )
+    table = _price_table()
+    total = 0.0
+    for model_id, in_tok, out_tok in cur.fetchall():
+        in_price, out_price = table.get(model_id, (0.0, 0.0))
+        total += (in_tok / 1_000_000.0) * in_price
+        total += (out_tok / 1_000_000.0) * out_price
+    return total
+
+
+def check_rolling_hour_cost_cap(db: sqlite3.Connection) -> None:
+    """Raise :class:`RollingHourCostCapExceeded` if 60-min spend > cap.
+
+    Companion to :func:`check_cycle_cost_cap`. ACT calls both at the
+    top of each round; tripping either exits the round loop. No-op
+    when the cap is 0 (disabled via env).
+    """
+    cap = rolling_hour_cap_usd()
+    if cap <= 0:
+        return
+    spend = rolling_spend_usd(db, minutes=60)
+    if spend >= cap:
+        raise RollingHourCostCapExceeded(
+            spend_usd=spend, cap_usd=cap, window_minutes=60,
+        )

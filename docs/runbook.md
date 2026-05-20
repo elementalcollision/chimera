@@ -30,6 +30,10 @@ if [ "$SEQ" -ge 8 ] && [ -z "${CHIMERA_ENGINES_ENABLED:-}" ]; then
 fi
 # v4.53 (ADR 0072): per-cycle $ cap — defaults to $2.00 if unset.
 export CHIMERA_CYCLE_COST_CAP_USD=${CHIMERA_CYCLE_COST_CAP_USD:-2.00}
+# v4.57 (ADR 0076): rolling-60m $ cap — defaults to $20.00 if unset.
+# Catches a sequence of cycles each staying just under the per-cycle
+# cap. Set to 0 to disable.
+export CHIMERA_ROLLING_HOUR_CAP_USD=${CHIMERA_ROLLING_HOUR_CAP_USD:-20.00}
 
 for i in $(seq 1 "$SEQ"); do
   echo "=== cycle $i @ $(date +%H:%M:%S) ==="
