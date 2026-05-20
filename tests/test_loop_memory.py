@@ -177,8 +177,13 @@ async def test_housekeeping_appends_to_graph_incrementally(
     """Housekeeping runs first in the cycle, so the graph picks up
     previous-cycle entities. After two cycles, the bootstrap plan
     (created in cycle 1's WAKE) is visible in the graph via cycle 2's
-    housekeeping pass."""
+    housekeeping pass.
+
+    v4.62 (ADR 0081): graph projection is now opt-in (default OFF).
+    This test explicitly enables it so the auto-refresh runs.
+    """
     monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("CHIMERA_GRAPH_ENABLED", "1")
 
     loop = ChimeraLoop(config)
     await loop.run_one_cycle()

@@ -67,6 +67,56 @@ def test_audit_flags_dead_entity(db):
     assert e.id in ids
 
 
+# v4.64 (ADR 0083) — these tests pin the new transition-based "dead"
+# semantic. Prior to v4.64 the audit joined dead_entities on
+# agent_activity_log.cell_ref, which was never populated in production,
+# so every non-terminal entity showed as dead. Now the join is against
+# entity_transitions.entity_id.
+
+
+def test_dead_excludes_recently_transitioned_entity(db):
+    """An entity with a transition INSIDE the window is alive."""
+    e = create_entity(db, kind="skill", name="alive", cycle=1)
+    # Transition at cycle 25 — well inside the 10-cycle window from
+    # cycle=30.
+    transition_entity(db, e.id, "EXPERIMENTAL", "f", cycle=25)
+    snap = audit_ontology(
+        db, current_cycle=30, activity_window_cycles=10,
+    )
+    ids = [d["id"] for d in snap["dead_entities"]]
+    assert e.id not in ids
+    # Sanity: count should reflect this.
+    assert snap["dead_count"] == 0
+
+
+def test_dead_flags_entity_with_only_old_transitions(db):
+    """An entity whose transitions all predate the window IS dead."""
+    e = create_entity(db, kind="skill", name="old-mover", cycle=1)
+    # Single old transition.
+    transition_entity(db, e.id, "EXPERIMENTAL", "f", cycle=5)
+    # Audit at cycle 30 with a 10-cycle window → cutoff = 20 → the
+    # cycle=5 transition is outside.
+    snap = audit_ontology(
+        db, current_cycle=30, activity_window_cycles=10,
+    )
+    ids = [d["id"] for d in snap["dead_entities"]]
+    assert e.id in ids
+
+
+def test_dead_does_not_misreport_under_old_cell_ref_bug(db):
+    """Regression: pre-v4.64, every non-terminal entity showed as
+    dead because nothing wrote cell_ref. Verify that an entity with
+    a current-cycle transition is NOT in dead_entities now."""
+    e = create_entity(db, kind="plan", name="current", cycle=1)
+    transition_entity(db, e.id, "EXPERIMENTAL", "f", cycle=2)
+    transition_entity(db, e.id, "CANDIDATE", "m", cycle=3)
+    snap = audit_ontology(
+        db, current_cycle=5, activity_window_cycles=10,
+    )
+    ids = [d["id"] for d in snap["dead_entities"]]
+    assert e.id not in ids
+
+
 def test_audit_skips_terminal_states(db):
     # Walk an entity through to ARCHIVED — it should NOT count as stale.
     e = create_entity(db, kind="plan", name="retired", cycle=1)

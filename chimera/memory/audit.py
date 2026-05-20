@@ -192,9 +192,22 @@ def _audit_ontology_inner(
         for r in stale_rows
     ]
 
-    # Dead: any entity with no agent_activity_log row touching it in
-    # the last ``activity_window_cycles``. Joins on cell_ref because the
-    # activity log records cell_ref = entity_id when an entity is touched.
+    # Dead: any entity with no entity_transitions row in the last
+    # ``activity_window_cycles``.
+    #
+    # v4.64 (ADR 0083): switched from agent_activity_log.cell_ref to
+    # entity_transitions.entity_id. The original v4.21 design joined
+    # on cell_ref, but no production caller of ``record_activity()``
+    # ever set cell_ref — so ``NOT EXISTS (cell_ref = e.id …)`` was
+    # always true for every non-terminal entity, meaning the audit
+    # reported every non-terminal entity as "dead." Transitions are
+    # the entity-scoped signal we actually have: every lifecycle move
+    # writes a row with the right ``entity_id``.
+    #
+    # Caveat: a long-stable entity in active use but with no
+    # transitions in the window will still show as "dead" under this
+    # signal. That's a stricter definition than "untouched" but it's
+    # honest — it's exactly what the lifecycle table says.
     activity_cutoff = current_cycle - activity_window_cycles
     dead_rows = conn.execute(
         """
@@ -203,9 +216,9 @@ def _audit_ontology_inner(
         WHERE e.kfm_state NOT IN (?, ?)
           AND NOT EXISTS (
               SELECT 1
-              FROM agent_activity_log AS a
-              WHERE a.cell_ref = e.id
-                AND a.cycle > ?
+              FROM entity_transitions AS t
+              WHERE t.entity_id = e.id
+                AND t.cycle > ?
           )
         ORDER BY e.state_entered_at_cycle ASC
         LIMIT ?

@@ -88,3 +88,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0080-wiki-fts-search.md](./0080-wiki-fts-search.md) | ADR 0080 — mind/wiki FTS5 search (v4.61) | Accepted (2026-05-20) |
 | [0081-optional-graph-projection.md](./0081-optional-graph-projection.md) | ADR 0081 — Graph projection is opt-in (v4.62) | Accepted (2026-05-20) |
 | [0082-task-splitter.md](./0082-task-splitter.md) | ADR 0082 — Task splitter (v4.63) | Accepted (2026-05-20) |
+| [0083-dead-entity-query-fix.md](./0083-dead-entity-query-fix.md) | ADR 0083 — Audit `dead_entity` query uses transitions, not activity log (v4.64) | Accepted (2026-05-20) |

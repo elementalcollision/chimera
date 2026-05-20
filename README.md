@@ -4,19 +4,23 @@ A multi-LLM, tools-capable agent built on a thin Python core. Pulls patterns
 from Hermes, OpenClaw, Reggio (claude-daemon), Leonardo, village (KFM), and
 autoresearch — selectively, never wholesale.
 
-**Status:** v4.52 — production-shape with a learning loop. Stable schemas, an
-8-phase agent loop, a federation drill, a graph-backed memory, a live
-observability dashboard, and persistent task-escalation memory so the agent
-learns from its own failures.
+**Status:** v4.64 — production-shape with a learning loop, three-layer
+cost-discipline, opt-in graph projection, FTS5 wiki recall, and a task
+splitter. Stable schemas, an 8-phase agent loop, a federation drill, a
+live observability dashboard, persistent task-escalation memory, and
+three orthogonal cost caps (per-cycle / rolling-hour / per-task) so
+runaways stop themselves.
 
 ## What it does
 
 - Runs an 8-phase cycle: HOUSEKEEPING → WAKE → ASSESS → PLAN → ACT → WRITE → FLUSH → COMMIT.
-- Dispatches tools (shell, code_exec, web_fetch, web_search, MCP peers, sub-agents) **in parallel** within each ACT round.
-- Maintains a KFM ontology (entities + transitions) in SQLite and a Kuzu-backed projection for graph queries.
+- Dispatches tools (shell, code_exec, web_fetch, web_search, **mind_search**, MCP peers, sub-agents) **in parallel** within each ACT round.
+- Maintains a KFM ontology (entities + transitions) in SQLite. Kuzu graph projection is **opt-in** (`CHIMERA_GRAPH_ENABLED=1`) — the SQLite + recursive-CTE path covers ~95% of queries.
+- Searches its own knowledge base via SQLite FTS5 over `mind/wiki/` before falling back to web_search.
 - Auto-archives stale DEPRECATED entities; queues kill-mutations for operator-gated permanent retirement.
+- **Three cost caps** (ADRs 0072/0076/0079) hard-stop runaway cycles, slow burns, and stuck tasks; **cost-rate alarm widget + `chimera cost` / `chimera estimate` CLI** for retrospective + prospective visibility.
 - Federates with other Chimera nodes over MCP stdio or HTTP with bearer auth; trust-gated outbound dispatch.
-- Surfaces queue health, ontology audit, drift, re-anchor trend, tool fan-out and cost-per-fan-out in a Next.js canvas dashboard.
+- Surfaces queue health, ontology audit, drift, re-anchor trend, tool fan-out, cost-per-fan-out, **cost-rate band**, and engine telemetry in a Next.js canvas dashboard.
 
 ## Quick start (local)
 
@@ -69,11 +73,13 @@ theme, four view presets (Operator / Cost / Debug / Federation).
 | Layer | Pieces |
 |---|---|
 | **Loop** | `chimera/core/loop.py` — 8 phases, per-phase budget, activity log |
-| **ACT** | `chimera/core/act.py` — parallel tool dispatch, tier escalation (intra- and cross-cycle), continuation-context carry-over, schema-hint on validation error, round-boundary latency telemetry |
-| **Learning** | `chimera/core/escalation.py` — persistent `task_escalations` memory: a task that fails at one tier auto-promotes the next attempt; budget scales with tier (v4.47); `chimera escalations list/summary/clear` for operator inspection |
-| **Providers** | Anthropic + OpenRouter; tier ladder (haiku → sonnet → opus → cross-provider witnesses); auto-sync prices via `chimera tiers --json` |
-| **Tools** | shell, code_exec, http_fetch, web_search, mcp_client, spawn_sub_agent, plus dynamic skills loaded from `chimera/tools/dynamic/` |
-| **Memory** | SQLite (entities, transitions, mutations, api_calls, activity log) + Kuzu graph projection (auto-incremental during housekeeping) |
+| **ACT** | `chimera/core/act.py` — parallel tool dispatch, tier escalation (intra- and cross-cycle), continuation-context carry-over, schema-hint on validation error, round-boundary latency telemetry, three cost caps |
+| **Learning** | `chimera/core/escalation.py` — persistent `task_escalations` memory: a task that fails at one tier auto-promotes the next attempt; budget scales with tier (v4.47); research-task tier floor (v4.56); hot-signature alarm (v4.54); `chimera escalations list/summary/clear` |
+| **Cost discipline** | `chimera/core/budget.py` — per-cycle, rolling-60m, and per-task caps (v4.53/0072 + v4.57/0076 + v4.60/0079); `chimera cost` retrospective + `chimera estimate` prospective CLI verbs |
+| **Providers** | Anthropic + OpenRouter; tier ladder (haiku → sonnet → opus); v4.53 ladder inversion → opus tier defaults to deepseek-v4-pro (34× cheaper); cross-provider witnesses; `chimera tiers --json` price sync |
+| **Tools** | shell, code_exec, http_fetch, web_search, **mind_search** (FTS5), mcp_client, spawn_sub_agent, plus dynamic skills loaded from `chimera/tools/dynamic/` |
+| **Memory** | SQLite (entities, transitions, mutations, api_calls, activity log, task_escalations, wiki_fts) + opt-in Kuzu graph projection (`CHIMERA_GRAPH_ENABLED=1`) |
+| **Task shape** | Heuristic splitter (`chimera split`) detects multi-section / fanout shapes; research-tier floor; per-task budget |
 | **A2A** | MCP server (stdio + HTTP/SSE w/ bearer auth), peer registry, trust policy with ALLOW/DEGRADE/REFUSE, protocol journal |
 | **Engines** | Discovery / Curiosity / Reflection — chronicle writers + mutation proposers, env-gated kill-switch |
 | **Drift** | Composite score with semantic + behavioral + stagnation; demote-plan policy; per-cycle time series |
@@ -83,7 +89,9 @@ theme, four view presets (Operator / Cost / Debug / Federation).
 ## Documentation
 
 - **PLAN** — [PLAN.md](PLAN.md)
-- **ADRs** — [docs/adr/README.md](docs/adr/README.md) (72 decision records)
+- **ADRs** — [docs/adr/README.md](docs/adr/README.md) (84 decision records)
+- **Operator runbook** — [docs/runbook.md](docs/runbook.md) — three modes, dashboard widget guide, cost CLI, task splitter, escalations
+- **AI-helper orientation** — [AGENTS.md](AGENTS.md) — for AI assistants editing this repo
 - **Research bundle** — [docs/research/best-of-breed.md](docs/research/best-of-breed.md)
 
 ## Layout
@@ -103,15 +111,16 @@ control-plane/        # Next.js dashboard
 mind/                 # narrative state (HEARTBEAT, INBOX, CHRONICLE, wiki)
 state/                # SQLite + Kuzu graph + journals (gitignored)
 docs/
-  adr/                # 72 architecture decision records
+  adr/                # 84 architecture decision records
   research/           # best-of-breed survey, deliverables
-tests/                # 576 passing, 5 skipped
+  runbook.md          # operator runbook
+tests/                # 706 passing, 5 skipped
 ```
 
 ## Tests
 
 ```bash
-uv run pytest -q          # full suite (~10s; 576 passing, 5 skipped)
+uv run pytest -q          # full suite (~10s; 706 passing, 5 skipped)
 uv run pytest -m slow     # also runs federation/HTTP drills (~10s extra)
 ```
 

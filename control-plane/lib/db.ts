@@ -574,8 +574,12 @@ export function modelUtilization(opts?: {
           ") " +
           "SELECT a.model_id, " +
           "  COUNT(*) AS total, " +
-          "  SUM(CASE WHEN a.created_at >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS last_24h, " +
-          "  SUM(CASE WHEN a.created_at >= datetime('now', '-1 hour') THEN 1 ELSE 0 END) AS last_hour, " +
+          // v4.64: wrap created_at in datetime() — same fix as
+          // apiCallTokenRowsLastMinutes (ADR 0076). Raw string compare
+          // against datetime('now', ...) silently overcounts because
+          // 'T' (84) > space (32) at position 10 of the ISO timestamp.
+          "  SUM(CASE WHEN datetime(a.created_at) >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS last_24h, " +
+          "  SUM(CASE WHEN datetime(a.created_at) >= datetime('now', '-1 hour') THEN 1 ELSE 0 END) AS last_hour, " +
           "  COALESCE((SELECT MAX(n) FROM per_cycle p WHERE p.model_id = a.model_id), 0) AS peak_per_cycle " +
           "FROM api_calls a " +
           "GROUP BY a.model_id " +

@@ -44,9 +44,14 @@ def test_haiku_sonnet_ladders_end_with_anthropic_safety_net():
     assert TIER_LADDERS["sonnet"][-1].config is SONNET
 
 
-def test_opus_ladder_starts_with_anthropic_opus_after_v4_8():
-    """v4.8: opus reordered so Anthropic is first (strongest baseline for code-gen)."""
-    assert TIER_LADDERS["opus"][0].config is OPUS
+def test_opus_ladder_inverted_in_v4_53():
+    """v4.53 (ADR 0072): the v4.8 ordering put Anthropic OPUS first;
+    after the 2026-05-19 cost burn we inverted the ladder so the
+    cheapest qualifying rung (deepseek-v4-pro) is the default and
+    claude-opus-4-7 is the last-rung safety net. This is the
+    direction that ``select_rung('opus')`` actually picks."""
+    assert TIER_LADDERS["opus"][0].config.model_id == "deepseek/deepseek-v4-pro"
+    assert TIER_LADDERS["opus"][-1].config is OPUS
 
 
 def test_haiku_sonnet_ladders_start_with_openrouter():

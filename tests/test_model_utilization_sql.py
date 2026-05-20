@@ -27,6 +27,12 @@ def db(tmp_path: Path):
 
 
 # Verbatim mirror of the TS query in control-plane/lib/db.ts (modelUtilization).
+# v4.57 fix (ADR 0076 §"Timestamp normalization"): wrap created_at in
+# datetime() on both sides so the ISO-T-separator format that
+# record_api_call writes string-compares correctly against SQLite's
+# datetime('now', ...) output (which uses space separator + no tz).
+# Raw string compare put 'T' (84) > space (32) at position 10, so
+# old rows leaked into the window. Mirrors the fix in control-plane/lib/db.ts.
 MODEL_UTILIZATION_SQL = (
     "WITH per_cycle AS ( "
     "  SELECT model_id, cycle, COUNT(*) AS n "
@@ -34,8 +40,8 @@ MODEL_UTILIZATION_SQL = (
     ") "
     "SELECT a.model_id, "
     "  COUNT(*) AS total, "
-    "  SUM(CASE WHEN a.created_at >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS last_24h, "
-    "  SUM(CASE WHEN a.created_at >= datetime('now', '-1 hour') THEN 1 ELSE 0 END) AS last_hour, "
+    "  SUM(CASE WHEN datetime(a.created_at) >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS last_24h, "
+    "  SUM(CASE WHEN datetime(a.created_at) >= datetime('now', '-1 hour') THEN 1 ELSE 0 END) AS last_hour, "
     "  COALESCE((SELECT MAX(n) FROM per_cycle p WHERE p.model_id = a.model_id), 0) AS peak_per_cycle "
     "FROM api_calls a "
     "GROUP BY a.model_id "

@@ -39,9 +39,13 @@ def _ok(text: str) -> AssembledSkill:
     )
 
 
-def test_opus_ladder_starts_with_anthropic_opus():
-    """v4.8: Anthropic OPUS is the first rung after the reorder."""
-    assert OPUS_LADDER[0].config is OPUS
+def test_opus_ladder_starts_with_deepseek_pro():
+    """v4.53 (ADR 0072): the ladder was INVERTED. deepseek-v4-pro is
+    now the cheapest-qualifying default; claude-opus-4-7 is the
+    last-rung safety net. This is the reverse of v4.8's ordering
+    and was a direct response to the 2026-05-19 cost burn."""
+    assert OPUS_LADDER[0].config.model_id == "deepseek/deepseek-v4-pro"
+    assert OPUS_LADDER[-1].config is OPUS
 
 
 def test_default_witnesses_span_three_providers():
