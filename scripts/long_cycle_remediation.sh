@@ -88,19 +88,32 @@ if ! command -v sqlite3 >/dev/null 2>&1; then
     log "FATAL: sqlite3 not on PATH"; exit 2
 fi
 
+# If WORKTREE env was set explicitly to an existing dir, reuse it
+# (e.g. after a failed bootstrap when we want to recover without
+# re-paying the uv install). Otherwise demand a fresh path.
 if [ -d "$WORKTREE" ]; then
-    log "FATAL: $WORKTREE already exists. Remove it (git worktree remove) before re-running."
-    exit 2
+    if [ -d "$WORKTREE/.git" ] || [ -f "$WORKTREE/.git" ]; then
+        log "reusing existing worktree at $WORKTREE"
+        BRANCH="$(cd "$WORKTREE" && git branch --show-current)"
+        log "  branch picked up from worktree: $BRANCH"
+    else
+        log "FATAL: $WORKTREE exists but is not a git worktree."
+        exit 2
+    fi
+else
+    # ── set up worktree ────────────────────────────────────────
+    log "creating worktree on branch $BRANCH from main…"
+    git worktree add -b "$BRANCH" "$WORKTREE" main 2>&1 | tee -a "$LOG"
 fi
-
-# ── set up worktree ────────────────────────────────────────────
-log "creating worktree on branch $BRANCH from main…"
-git worktree add -b "$BRANCH" "$WORKTREE" main 2>&1 | tee -a "$LOG"
 
 cd "$WORKTREE" || { log "FATAL: cd to worktree failed"; exit 2; }
 
-log "removing 'origin' remote in worktree (no push possible)…"
-git remote remove origin 2>&1 | tee -a "$LOG" || true
+if git remote | grep -q '^origin$'; then
+    log "removing 'origin' remote in worktree (no push possible)…"
+    git remote remove origin 2>&1 | tee -a "$LOG" || true
+else
+    log "origin already removed (worktree reuse)"
+fi
 
 # Fresh state dir for the run.
 WORKTREE_STATE="$WORKTREE/state"
@@ -108,7 +121,28 @@ WORKTREE_DB="$WORKTREE_STATE/chimera.db"
 mkdir -p "$WORKTREE_STATE"
 # Don't carry the previous run's escalations/scoring/proposer_status —
 # fresh start so the test exercises the backfill paths cleanly.
-rm -f "$WORKTREE_DB" "$WORKTREE_STATE"/*.json
+# BUT preserve trust_state.json — a fresh agent at T0 sits in observer
+# mode (ACT: LOCKED) burning watchdog iters doing nothing. Carry the
+# main repo's earned-T5 trust state so the agent can actually work.
+# Surfaced as a soak finding by an earlier run attempt; see post-mortem.
+# Only wipe a stale DB if there's no real api_calls history yet (preserves
+# the data from an in-progress run when the script is restarted).
+if [ -f "$WORKTREE_DB" ]; then
+    EXISTING_ROWS="$(sqlite3 "$WORKTREE_DB" "SELECT COUNT(*) FROM api_calls;" 2>/dev/null || echo 0)"
+    if [ "${EXISTING_ROWS:-0}" -lt 5 ]; then
+        log "wiping nascent worktree DB ($EXISTING_ROWS rows) for a clean start"
+        rm -f "$WORKTREE_DB" "$WORKTREE_STATE"/chimera.graph.snapshot.json
+    else
+        log "preserving existing worktree DB ($EXISTING_ROWS api_calls rows)"
+    fi
+fi
+if [ ! -f "$WORKTREE_STATE/trust_state.json" ] && [ -f "$REPO_ROOT/state/trust_state.json" ]; then
+    cp "$REPO_ROOT/state/trust_state.json" "$WORKTREE_STATE/trust_state.json"
+    log "seeded trust state from main (T5)"
+fi
+if [ ! -f "$WORKTREE_STATE/tiers.json" ] && [ -f "$REPO_ROOT/state/tiers.json" ]; then
+    cp "$REPO_ROOT/state/tiers.json" "$WORKTREE_STATE/tiers.json"
+fi
 
 export CHIMERA_STATE_DIR="$WORKTREE_STATE"
 export CHIMERA_MIND_DIR="$WORKTREE/mind"
