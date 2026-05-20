@@ -16,6 +16,7 @@ import yaml
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 _INBOX_TASK_RE = re.compile(r"^(\s*)-\s+\[(?P<mark>[ xX])\]\s+(?P<text>.+?)\s*$")
+_INBOX_SRC_RE = re.compile(r"<!--\s*src:\s*(?P<src>[\w-]+)\s*-->")
 
 
 @dataclass
@@ -64,6 +65,7 @@ class InboxTask:
     text: str
     done: bool
     line_index: int  # 0-based index in the file's lines
+    source: str | None = None  # provenance tag from `<!-- src: X -->`; None = operator
 
 
 def load_heartbeat(path: Path) -> tuple[HeartbeatState, str]:
@@ -97,11 +99,14 @@ def parse_inbox(path: Path) -> list[InboxTask]:
         m = _INBOX_TASK_RE.match(line)
         if not m:
             continue
+        text = m.group("text")
+        src_match = _INBOX_SRC_RE.search(text)
         tasks.append(
             InboxTask(
-                text=m.group("text"),
+                text=text,
                 done=m.group("mark").lower() == "x",
                 line_index=idx,
+                source=src_match.group("src") if src_match else None,
             )
         )
     return tasks

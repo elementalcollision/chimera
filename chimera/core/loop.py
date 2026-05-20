@@ -462,10 +462,22 @@ class ChimeraLoop:
 
     async def _phase_assess(self) -> None:
         tasks = mind.parse_inbox(self._inbox_path)
-        self._tasks = [t for t in tasks if not t.done]
+        open_tasks = [t for t in tasks if not t.done]
+        # v4.78 (ADR 0094): operator-authored rows (source is None) sort
+        # ahead of agent-proposed rows (source is "planner" / engine name)
+        # so engine-appended tasks never preempt the operator's INBOX.
+        # `sorted` is stable, so file order is preserved within each group.
+        self._tasks = sorted(open_tasks, key=lambda t: t.source is not None)
         assert self._report is not None
         self._report.tasks_seen = len(self._tasks)
-        self._record_phase_activity("assess", details={"open_tasks": len(self._tasks)})
+        self._record_phase_activity(
+            "assess",
+            details={
+                "open_tasks": len(self._tasks),
+                "operator_tasks": sum(1 for t in self._tasks if t.source is None),
+                "agent_tasks": sum(1 for t in self._tasks if t.source is not None),
+            },
+        )
         self._log_phase(f"ASSESS: {len(self._tasks)} open task(s)")
 
     async def _phase_plan(self) -> None:
@@ -571,13 +583,21 @@ class ChimeraLoop:
         engine = self._engines[name]
         return await engine.run(cycle=cycle)  # type: ignore[attr-defined]
 
-    def _append_proposals_to_inbox(self, proposals: list) -> None:
-        """Append proposals to mind/INBOX.md as new `- [ ]` lines."""
+    def _append_proposals_to_inbox(
+        self, proposals: list, *, source: str = "planner"
+    ) -> None:
+        """Append proposals to mind/INBOX.md as new `- [ ]` lines.
+
+        Each row is tagged with `<!-- src: {source} -->` so ASSESS can sort
+        operator-authored rows (no tag) ahead of agent-proposed ones (ADR 0094).
+        """
         if not proposals:
             return
+        src_tag = f"  <!-- src: {source} -->"
         new_block = "\n".join(
             f"- [ ] {p.text}"
             + (f"  <!-- {p.rationale} -->" if p.rationale else "")
+            + src_tag
             for p in proposals
         )
         with self._inbox_path.open("a", encoding="utf-8") as f:
