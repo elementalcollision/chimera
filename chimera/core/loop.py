@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import os
+import signal
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -226,6 +227,8 @@ class ChimeraLoop:
                     chronicle=self._chronicle,
                 ),
             }
+        # v4.75: install signal handlers so SIGTERM checkpoints WAL.
+        self._install_signal_handlers()
 
     @property
     def drift_detector(self) -> DriftDetector:
@@ -236,10 +239,56 @@ class ChimeraLoop:
         return self._db
 
     def close(self) -> None:
-        """Release the SQLite connection. Safe to call multiple times."""
+        """Release the SQLite connection. Safe to call multiple times.
+
+        v4.75: checkpoints the WAL on close so a clean shutdown leaves
+        chimera.db-wal empty. Prevents the orphan-WAL footgun where a
+        second reader (the Next.js dashboard's better-sqlite3) reports
+        "file is not a database" against a perfectly intact main DB.
+        """
         if self._db is not None:
+            try:
+                self._db.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception:  # noqa: BLE001
+                logger.exception("wal_checkpoint on close failed; continuing")
             self._db.close()
             self._db = None  # type: ignore[assignment]
+
+    def _install_signal_handlers(self) -> None:
+        """Register SIGTERM/SIGINT handlers that checkpoint + close the DB.
+
+        v4.75: the soak-test runner sends SIGTERM (or SIGINT) before
+        escalating to SIGKILL. Catching the signal lets us run a single
+        ``PRAGMA wal_checkpoint(TRUNCATE)`` before exiting, so the next
+        reader sees a clean DB. SIGKILL bypasses this — which is the
+        documented limitation and the reason ``chimera doctor`` still
+        needs the orphan-WAL check.
+
+        Idempotent. Skipped when not running in the main thread (some
+        test harnesses import ChimeraLoop from a worker thread, where
+        ``signal.signal`` raises ``ValueError``).
+        """
+        import threading
+        if threading.current_thread() is not threading.main_thread():
+            return
+
+        def _handler(signum, _frame):  # noqa: ANN001
+            logger.warning("received signal %s; checkpointing WAL and exiting", signum)
+            try:
+                self.close()
+            finally:
+                # Re-raise with the default disposition so the process exits
+                # with the conventional 128+signum status.
+                signal.signal(signum, signal.SIG_DFL)
+                os.kill(os.getpid(), signum)
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, _handler)
+            except (ValueError, OSError):
+                # Already replaced by something else (e.g. asyncio), or
+                # not supported on this platform. Best-effort only.
+                pass
 
     # ── Public entry point ──────────────────────────────────
 

@@ -14,7 +14,13 @@ from .kfm import (
     check_transition,
 )
 from .loop import ChimeraLoop, CycleReport, LoopConfig
-from .doctor import CheckResult, ConfigError, assert_no_errors, run_checks
+from .doctor import (
+    CheckResult,
+    ConfigError,
+    assert_no_errors,
+    checkpoint_wal,
+    run_checks,
+)
 from .observability import configure_logging, phase_timer
 from .mind import (
     HeartbeatState,
@@ -33,6 +39,7 @@ __all__ = [
     "CheckResult",
     "ConfigError",
     "assert_no_errors",
+    "checkpoint_wal",
     "configure_logging",
     "phase_timer",
     "run_checks",
