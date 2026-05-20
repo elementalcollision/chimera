@@ -214,6 +214,30 @@ class TrustManager:
         self.save()
         return True
 
+    def set_tier(
+        self,
+        tier: TrustTier | int,
+        *,
+        reason: str,
+        kind: str = "operator",
+    ) -> bool:
+        """Jump directly to ``tier`` (operator escape hatch / revoke).
+
+        Returns True if the tier changed. Records a history event tagged
+        ``kind`` (e.g. ``"operator"``, ``"revoke"``). Always persists, even
+        on no-op, so the audit trail captures the operator action.
+        """
+        target = int(tier)
+        if not 0 <= target <= TrustTier.T5.value:
+            raise ValueError(f"tier out of range: {target}")
+        if target == self._state.current_tier:
+            return False
+        self._record_event(kind, target, reason)
+        self._state.current_tier = target
+        self._state.tier_entered_at = _utc_now_iso()
+        self.save()
+        return True
+
     def maybe_autopromote(
         self,
         *,

@@ -74,6 +74,81 @@ def _check_sqlite(state_dir: Path) -> CheckResult:
     return CheckResult("chimera.db", "ok", str(path))
 
 
+# v4.75: orphan-WAL detection — a SIGKILL'd writer leaves chimera.db-wal
+# uncheckpointed. better-sqlite3 (the dashboard) then reads stale pages
+# from the main db and reports "file is not a database". The fix is a
+# single WAL checkpoint; doctor surfaces it so the operator doesn't
+# have to chase the misleading error.
+_ORPHAN_WAL_THRESHOLD = 1 * 1024 * 1024  # 1 MiB — normal WAL stays well below
+
+
+def _has_active_writer(db_path: Path) -> bool:
+    """Best-effort: use ``lsof`` to detect any process holding the DB open
+    for write. Returns ``False`` if lsof is unavailable or finds nothing."""
+    import shutil
+    import subprocess
+    lsof = shutil.which("lsof")
+    if not lsof:
+        return False
+    try:
+        out = subprocess.run(  # noqa: S603
+            [lsof, "-Fn", "--", str(db_path)],
+            capture_output=True, text=True, timeout=2.0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return False
+    # lsof prints one line per fd holder; non-empty stdout = at least one.
+    return bool(out.stdout.strip())
+
+
+def _check_orphan_wal(state_dir: Path) -> CheckResult:
+    db_path = state_dir / "chimera.db"
+    wal_path = state_dir / "chimera.db-wal"
+    if not wal_path.exists():
+        return CheckResult("wal", "ok", "no WAL file")
+    size = wal_path.stat().st_size
+    if size == 0:
+        return CheckResult("wal", "ok", "WAL present but empty")
+    if _has_active_writer(db_path):
+        return CheckResult(
+            "wal", "ok",
+            f"WAL {size} bytes; writer is active (normal)",
+        )
+    if size >= _ORPHAN_WAL_THRESHOLD:
+        return CheckResult(
+            "wal", "warn",
+            f"orphan WAL detected ({size} bytes, no active writer). "
+            f"Run `chimera doctor --fix` or "
+            f"`sqlite3 {db_path} 'PRAGMA wal_checkpoint(TRUNCATE);'`",
+        )
+    return CheckResult(
+        "wal", "ok",
+        f"WAL {size} bytes; below orphan threshold",
+    )
+
+
+def checkpoint_wal(state_dir: Path) -> tuple[bool, str]:
+    """Run ``PRAGMA wal_checkpoint(TRUNCATE)`` on the chimera DB.
+
+    Returns ``(ok, message)``. Safe to call even when there is no WAL;
+    the pragma is a no-op in that case. Used by ``chimera doctor --fix``
+    and by :class:`ChimeraLoop.close` on graceful shutdown.
+    """
+    db_path = state_dir / "chimera.db"
+    if not db_path.exists():
+        return True, f"no chimera.db at {db_path}; nothing to do"
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE);").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        return False, f"checkpoint failed: {exc}"
+    # row format: (busy, log_pages, checkpointed_pages)
+    return True, f"checkpoint ok: {row}"
+
+
 def _check_graph_dependency() -> CheckResult:
     try:
         import kuzu  # noqa: F401
@@ -158,6 +233,66 @@ def _check_cost_caps(state_dir: Path) -> CheckResult:
     return CheckResult("cost_caps", "ok", msg)
 
 
+def _check_trust_state(state_dir: Path, mind_dir: Path) -> CheckResult:
+    """v4.75: warn when the agent is stuck in observer mode.
+
+    A fresh worktree with no ``state/trust_state.json`` starts at T0
+    (LOCKED) and burns cycles in observer mode until auto-promotion fires
+    — but auto-promotion needs ≥3600s of dwell, so the agent can spin for
+    hours without executing any ACT tasks. This check surfaces that.
+    """
+    trust_path = state_dir / "trust_state.json"
+    heartbeat_path = mind_dir / "HEARTBEAT.md"
+
+    cycle = 0
+    if heartbeat_path.exists():
+        try:
+            text = heartbeat_path.read_text()
+            if text.startswith("---"):
+                end = text.find("\n---", 3)
+                if end > 0:
+                    for line in text[3:end].splitlines():
+                        if ":" in line:
+                            k, _, v = line.partition(":")
+                            if k.strip() == "cycle":
+                                cycle = int(v.strip() or 0)
+                                break
+        except (OSError, ValueError):
+            cycle = 0
+
+    if not trust_path.exists():
+        if cycle >= 5:
+            return CheckResult(
+                "trust_state", "warn",
+                f"no trust_state.json but heartbeat cycle={cycle}; agent is "
+                f"at T0 (observer mode). Run `chimera trust promote --tier T1` "
+                f"to unlock ACT, or copy state/trust_state.json from main.",
+            )
+        return CheckResult(
+            "trust_state", "ok",
+            f"no trust_state.json yet (cycle={cycle}); fresh install.",
+        )
+    try:
+        data = json.loads(trust_path.read_text())
+        tier = int(data.get("current_tier", 0))
+    except (json.JSONDecodeError, OSError, ValueError, TypeError) as exc:
+        return CheckResult(
+            "trust_state", "warn",
+            f"could not parse {trust_path}: {exc}",
+        )
+    if tier == 0 and cycle >= 5:
+        return CheckResult(
+            "trust_state", "warn",
+            f"agent is at T0 (LOCKED / observer mode) after {cycle} cycle(s); "
+            f"ACT is skipping all tasks. Run `chimera trust promote --tier T1` "
+            f"to allow execution, or wait for auto-promotion.",
+        )
+    return CheckResult(
+        "trust_state", "ok",
+        f"tier=T{tier}, cycle={cycle}",
+    )
+
+
 def run_checks() -> list[CheckResult]:
     """Run every check. Pure: writes nothing (beyond creating state/mind dirs)."""
     state_dir = Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
@@ -165,12 +300,16 @@ def run_checks() -> list[CheckResult]:
     results: list[CheckResult] = [
         _check_writable_dir("state_dir", state_dir),
         _check_writable_dir("mind_dir", mind_dir),
+        # WAL check runs BEFORE sqlite open: opening the DB auto-rolls a
+        # valid WAL forward, which would mask the orphan condition.
+        _check_orphan_wal(state_dir),
         _check_sqlite(state_dir),
         _check_graph_dependency(),
         _check_json_env("CHIMERA_MCP_SERVERS"),
         _check_json_env("CHIMERA_PEER_TOKENS"),
         _check_http_server_token(),
         _check_cost_caps(state_dir),
+        _check_trust_state(state_dir, mind_dir),
         *_check_provider_keys(),
     ]
     return results

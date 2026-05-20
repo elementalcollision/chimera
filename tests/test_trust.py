@@ -132,6 +132,47 @@ def test_autopromote_fires_when_both_satisfied(trust_path):
     assert "test cycle" in tm.state.history[-1].reason
 
 
+# ── operator set_tier escape hatch (v4.75) ──────────────────
+
+
+def test_set_tier_jumps_directly(trust_path):
+    tm = TrustManager(trust_path)
+    assert tm.set_tier(TrustTier.T5, reason="operator promotion") is True
+    assert tm.tier is TrustTier.T5
+    assert tm.state.history[-1].kind == "operator"
+    assert tm.state.history[-1].from_tier == 0
+    assert tm.state.history[-1].to_tier == 5
+
+
+def test_set_tier_revoke_kind_recorded(trust_path):
+    tm = TrustManager(trust_path)
+    tm.set_tier(4, reason="bootstrap")
+    assert tm.set_tier(0, reason="drift incident", kind="revoke") is True
+    assert tm.tier is TrustTier.T0
+    assert tm.state.history[-1].kind == "revoke"
+
+
+def test_set_tier_noop_returns_false(trust_path):
+    tm = TrustManager(trust_path)
+    assert tm.set_tier(0, reason="already there") is False
+    assert tm.state.history == []
+
+
+def test_set_tier_rejects_out_of_range(trust_path):
+    tm = TrustManager(trust_path)
+    with pytest.raises(ValueError):
+        tm.set_tier(9, reason="bogus")
+    with pytest.raises(ValueError):
+        tm.set_tier(-1, reason="bogus")
+
+
+def test_set_tier_persists(trust_path):
+    tm1 = TrustManager(trust_path)
+    tm1.set_tier(TrustTier.T3, reason="operator")
+    tm2 = TrustManager(trust_path)
+    assert tm2.tier is TrustTier.T3
+
+
 def test_autopromote_capped_at_t5(trust_path):
     tm = TrustManager(trust_path, promotion_threshold=0.0, min_dwell_seconds=0)
     for _ in range(10):

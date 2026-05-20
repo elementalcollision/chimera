@@ -158,6 +158,126 @@ def test_cost_caps_warn_when_rolling_cap_disabled(monkeypatch, tmp_path):
     assert "disabled" in r.message.lower()
 
 
+# ── v4.75: trust_state observer-mode warning ───────────────────────
+
+
+def _write_heartbeat(mind_dir: Path, cycle: int) -> None:
+    mind_dir.mkdir(parents=True, exist_ok=True)
+    (mind_dir / "HEARTBEAT.md").write_text(
+        f"---\ncycle: {cycle}\ntrust_tier: T0\nstatus: dormant\n---\nbody\n"
+    )
+
+
+def test_trust_state_ok_when_fresh_no_cycles(tmp_path):
+    # No trust_state.json, no heartbeat → fresh install → ok.
+    r = _by_name(run_checks(), "trust_state")
+    assert r.status == "ok"
+
+
+def test_trust_state_warn_when_missing_after_cycles(monkeypatch, tmp_path):
+    state_dir = tmp_path / "state_t0"
+    mind_dir = tmp_path / "mind_t0"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    _write_heartbeat(mind_dir, cycle=7)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind_dir))
+    r = _by_name(run_checks(), "trust_state")
+    assert r.status == "warn"
+    assert "trust promote" in r.message
+
+
+def test_trust_state_warn_when_t0_after_cycles(monkeypatch, tmp_path):
+    import json as _json
+    state_dir = tmp_path / "state_locked"
+    mind_dir = tmp_path / "mind_locked"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "trust_state.json").write_text(_json.dumps({
+        "current_tier": 0,
+        "tier_entered_at": "2026-05-20T00:00:00+00:00",
+        "last_readiness": 0.0,
+        "history": [],
+    }))
+    _write_heartbeat(mind_dir, cycle=10)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind_dir))
+    r = _by_name(run_checks(), "trust_state")
+    assert r.status == "warn"
+    assert "observer mode" in r.message
+
+
+def test_trust_state_ok_when_promoted(monkeypatch, tmp_path):
+    import json as _json
+    state_dir = tmp_path / "state_unlocked"
+    mind_dir = tmp_path / "mind_unlocked"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "trust_state.json").write_text(_json.dumps({
+        "current_tier": 2,
+        "tier_entered_at": "2026-05-20T00:00:00+00:00",
+        "last_readiness": 0.7,
+        "history": [],
+    }))
+    _write_heartbeat(mind_dir, cycle=10)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind_dir))
+    r = _by_name(run_checks(), "trust_state")
+    assert r.status == "ok"
+    assert "T2" in r.message
+
+
+# ── v4.75: orphan WAL detection + checkpoint ───────────────────────
+
+
+def test_wal_check_ok_when_no_wal_file(tmp_path, monkeypatch):
+    """Fresh DB with no WAL → ok."""
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(tmp_path / "state_nowal"))
+    r = _by_name(run_checks(), "wal")
+    assert r.status == "ok"
+
+
+def test_wal_check_warns_on_large_orphan_wal(tmp_path, monkeypatch):
+    """Simulate a SIGKILL'd writer: a ≥1 MiB WAL with no live DB writer."""
+    state_dir = tmp_path / "state_orphan"
+    state_dir.mkdir(parents=True)
+    db_path = state_dir / "chimera.db"
+    import sqlite3
+    sqlite3.connect(str(db_path)).close()
+    (state_dir / "chimera.db-wal").write_bytes(b"\0" * (2 * 1024 * 1024))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    from chimera.core import doctor as _doctor
+    monkeypatch.setattr(_doctor, "_has_active_writer", lambda _p: False)
+    r = _by_name(run_checks(), "wal")
+    assert r.status == "warn"
+    assert "orphan WAL" in r.message
+    assert "wal_checkpoint" in r.message
+
+
+def test_checkpoint_wal_truncates_dirty_wal(tmp_path):
+    """checkpoint_wal() leaves the WAL file at 0 bytes after committed writes."""
+    from chimera.core import checkpoint_wal
+    from chimera.memory import open_and_init, record_api_call
+    state_dir = tmp_path / "state_fix"
+    state_dir.mkdir(parents=True)
+    conn = open_and_init(state_dir / "chimera.db")
+    record_api_call(
+        conn, cycle=1, provider="anthropic",
+        model_id="claude-opus-4-7", input_tokens=100, output_tokens=10,
+    )
+    conn.commit()
+    conn.close()
+    ok, msg = checkpoint_wal(state_dir)
+    assert ok, msg
+    wal = state_dir / "chimera.db-wal"
+    if wal.exists():
+        assert wal.stat().st_size == 0, f"WAL not truncated: {wal.stat().st_size}"
+
+
+def test_checkpoint_wal_noop_when_db_missing(tmp_path):
+    from chimera.core import checkpoint_wal
+    ok, msg = checkpoint_wal(tmp_path / "does_not_exist")
+    assert ok is True
+    assert "nothing to do" in msg
+
+
 def test_cost_caps_never_returns_error(monkeypatch, tmp_path):
     """Cost-cap state is operational, not config — even absurd spend
     should warn, not error."""

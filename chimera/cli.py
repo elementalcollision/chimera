@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,9 +21,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     sub.add_parser("status", help="Show current cycle and trust state (stub).")
-    sub.add_parser(
+    doctor_p = sub.add_parser(
         "doctor",
         help="Validate config / env / state — boot-time preflight (v3.6+).",
+    )
+    doctor_p.add_argument(
+        "--fix", action="store_true",
+        help="Apply remediations for fixable findings "
+             "(currently: checkpoint orphan WAL).",
     )
     sub.add_parser(
         "fragmentation",
@@ -296,11 +302,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Inspect and adjust trust tier (T0..T5).",
     )
     trust_sub = trust.add_subparsers(dest="trust_command", metavar="<trust-cmd>")
-    trust_sub.add_parser("show", help="Show current tier + recent history.")
-    trust_promote = trust_sub.add_parser("promote", help="Promote one tier.")
+    trust_show = trust_sub.add_parser("show", help="Show current tier + recent history.")
+    trust_show.add_argument("--json", action="store_true")
+    trust_promote = trust_sub.add_parser(
+        "promote",
+        help="Promote one tier, or jump to --tier T<N> (operator escape hatch).",
+    )
+    trust_promote.add_argument(
+        "--tier", default=None,
+        help="Target tier T0..T5. Omit to promote one step.",
+    )
     trust_promote.add_argument("--reason", default="manual promotion")
     trust_demote = trust_sub.add_parser("demote", help="Demote one tier.")
     trust_demote.add_argument("--reason", default="manual demotion")
+    trust_revoke = trust_sub.add_parser(
+        "revoke",
+        help="Operator-revoke tier (defaults to T0 / observer; --tier T<N> to jump).",
+    )
+    trust_revoke.add_argument(
+        "--tier", default=None,
+        help="Target tier T0..T5. Omit to drop straight to T0.",
+    )
+    trust_revoke.add_argument("--reason", default="operator revoke")
     trust_lock = trust_sub.add_parser("lockdown", help="Immediate T0 lockdown.")
     trust_lock.add_argument("--reason", default="manual lockdown")
 
@@ -1024,7 +1047,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         parser.error(f"unknown escalations subcommand: {sub_cmd}")
     if args.command == "doctor":
-        from .core import run_checks
+        from pathlib import Path as _Path
+        from .core import checkpoint_wal, run_checks
+        if getattr(args, "fix", False):
+            state_dir = _Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
+            ok, msg = checkpoint_wal(state_dir)
+            marker = "✓" if ok else "✗"
+            print(f"chimera doctor --fix: [{marker}] wal_checkpoint {msg}")
         results = run_checks()
         rc = 0
         print("chimera doctor:")
@@ -1059,7 +1088,12 @@ def main(argv: list[str] | None = None) -> int:
                     fh.write("# Inbox\n")
                 fh.write(f"- [ ] {args.prompt}\n")
             print(f"chimera run: enqueued task to {inbox}")
-        report = asyncio.run(ChimeraLoop().run_one_cycle())
+        _loop = ChimeraLoop()
+        try:
+            report = asyncio.run(_loop.run_one_cycle())
+        finally:
+            # v4.75: ensure WAL is checkpointed at the end of every cycle.
+            _loop.close()
         for line in report.phase_log:
             print(f"  {line}")
         if report.phase_times_ms:
@@ -1194,13 +1228,30 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"unknown a2a subcommand: {sub_cmd}")
         return 2
     if args.command == "trust":
+        import json as _json
         from .core import LoopConfig
         from .trust import TrustManager
 
         cfg = LoopConfig.from_env()
         tm = TrustManager(cfg.state_dir / "trust_state.json")
         sub_cmd = args.trust_command or "show"
+
+        def _parse_tier(value: str) -> int:
+            v = value.strip().upper()
+            if v.startswith("T"):
+                v = v[1:]
+            try:
+                n = int(v)
+            except ValueError:
+                parser.error(f"invalid --tier {value!r}; expected T0..T5")
+            if not 0 <= n <= 5:
+                parser.error(f"--tier out of range: {value!r} (T0..T5)")
+            return n
+
         if sub_cmd == "show":
+            if getattr(args, "json", False):
+                print(_json.dumps(tm.state.to_dict(), indent=2, sort_keys=True))
+                return 0
             print(f"chimera trust: {tm.tier.name} ({tm.tier.label})")
             print(f"  hours_in_tier: {tm.hours_in_current_tier():.2f}")
             print(f"  last_readiness: {tm.state.last_readiness:.2f}")
@@ -1214,13 +1265,36 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
         if sub_cmd == "promote":
-            ok = tm.promote(reason=args.reason)
-            print(f"chimera trust: {'promoted' if ok else 'no-op'} → {tm.tier.name}")
-            return 0 if ok else 1
+            from_tier = tm.tier
+            if getattr(args, "tier", None) is None:
+                ok = tm.promote(reason=args.reason)
+            else:
+                target = _parse_tier(args.tier)
+                ok = tm.set_tier(target, reason=args.reason, kind="operator")
+            if not ok:
+                print(f"chimera trust: no-op → {tm.tier.name}")
+                return 1
+            print(
+                f"chimera trust: promoted {from_tier.name} → {tm.tier.name} "
+                f"({tm.tier.label})  reason={args.reason!r}"
+            )
+            return 0
         if sub_cmd == "demote":
             ok = tm.demote(reason=args.reason)
             print(f"chimera trust: {'demoted' if ok else 'no-op'} → {tm.tier.name}")
             return 0 if ok else 1
+        if sub_cmd == "revoke":
+            from_tier = tm.tier
+            target = _parse_tier(args.tier) if getattr(args, "tier", None) is not None else 0
+            ok = tm.set_tier(target, reason=args.reason, kind="revoke")
+            if not ok:
+                print(f"chimera trust: no-op (already at {tm.tier.name})")
+                return 1
+            print(
+                f"chimera trust: revoked {from_tier.name} → {tm.tier.name} "
+                f"({tm.tier.label})  reason={args.reason!r}"
+            )
+            return 0
         if sub_cmd == "lockdown":
             ok = tm.lockdown(reason=args.reason)
             print(f"chimera trust: {'locked down' if ok else 'no-op (already T0)'}")
