@@ -314,7 +314,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=(
             "drift", "research", "two_chimera", "multi_host",
             "federation_drill", "federation_trust_drill",
-            "federation_http_drill",
+            "federation_http_drill", "cost_runaway_drill",
         ),
         help="Which scenario to run.",
     )
@@ -1619,6 +1619,15 @@ def main(argv: list[str] | None = None) -> int:
                 for f in result.failures:
                     print(f"    - {f}")
             print(f"  ok: {result.ok}")
+            return 0 if result.ok else 1
+        if args.name == "cost_runaway_drill":
+            # v4.66 (ADR 0085): hermetic regression of the v4.53–v4.60
+            # cost-discipline arc.
+            from .scenarios import (
+                format_cost_runaway_result, run_cost_runaway_drill,
+            )
+            result = run_cost_runaway_drill(cfg.state_dir)
+            print(format_cost_runaway_result(result))
             return 0 if result.ok else 1
         if args.name == "federation_trust_drill":
             from .scenarios import run_federation_trust_drill as _ftd

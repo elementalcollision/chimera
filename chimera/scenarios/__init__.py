@@ -13,13 +13,23 @@ from .federation_drill import (
     run_federation_trust_drill,
 )
 from .graph_stress import GraphStressResult, QueryTiming, run_graph_stress
+from .cost_runaway_drill import (
+    CapTripCheck,
+    CostRunawayResult,
+    format_result as format_cost_runaway_result,
+    run_cost_runaway_drill,
+)
 
 __all__ = [
+    "CapTripCheck",
+    "CostRunawayResult",
     "FederationDrillResult",
     "FederationHttpDrillResult",
     "FederationTrustDrillResult",
     "GraphStressResult",
     "QueryTiming",
+    "format_cost_runaway_result",
+    "run_cost_runaway_drill",
     "run_federation_http_drill",
     "run_federation_trust_drill",
     "run_graph_stress",
