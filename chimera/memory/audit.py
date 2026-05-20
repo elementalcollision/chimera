@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import contextmanager
 from typing import Any
 
 
@@ -29,6 +30,46 @@ logger = logging.getLogger(__name__)
 
 
 _TERMINAL_STATES = ("ARCHIVED", "KILLED")
+
+
+# v4.55 (ADR 0074): batch-scope context manager for archive/kill loops.
+#
+# Pre-v4.55 the audit functions had no enclosing scope around their
+# batch loops; the overnight code review (mind/overnight/code-review-audit.md
+# §c) called the absence of one out as the audit module's weakest
+# design choice. This context manager IS that scope — but it's an
+# OBSERVATION boundary, not a true atomic-batch boundary.
+#
+# Why not a true batch transaction? Because ``transition_entity()``
+# already issues its own BEGIN/COMMIT per entity. Wrapping the loop
+# in an outer BEGIN nests illegally in SQLite. The only way to get
+# real batch atomicity is to refactor ``transition_entity`` to be
+# transaction-context-aware; that's its own ADR.
+#
+# What this DOES give us:
+#   * a single visible call site for "the batch starts here / ends here"
+#   * a place to add batch-level logging (entry/exit, total time)
+#   * a place to count + report partial-failure stats in one go
+#   * a sentinel re-raise on any non-transition_entity crash
+@contextmanager
+def _batch_transaction(conn: sqlite3.Connection):
+    """Scope a batch loop. Re-raises on any non-handled exception.
+
+    Per-entity atomicity is the strongest guarantee available — each
+    inner ``transition_entity()`` already opens + commits its own
+    transaction. A crash mid-batch leaves the entities that already
+    succeeded committed and the rest un-touched; the operator
+    inspects the returned list to see what got through. The audit
+    module's caller pattern already swallows + logs each iteration's
+    exception, so this context's re-raise only fires on bookkeeping
+    errors (dict allocation, logger failure, etc.).
+    """
+    try:
+        yield
+    except Exception:
+        # No transaction to roll back; just propagate so the operator sees it.
+        logger.exception("audit batch scope hit an unhandled exception")
+        raise
 
 
 def audit_ontology(
@@ -57,7 +98,57 @@ def audit_ontology(
         (STABLE → DEPRECATED).
     max_listed:
         Cap on number of entities returned in each list field.
+
+    On a missing/incomplete schema (e.g. a test fixture without the
+    ``entity_transitions`` or ``agent_activity_log`` tables), returns
+    a structured ``{"error": "schema_missing", "detail": ...}``
+    instead of raising — the housekeeping loop calls this each cycle
+    and must not crash on a partial DB. v4.55 (ADR 0074).
     """
+    try:
+        return _audit_ontology_inner(
+            conn,
+            current_cycle=current_cycle,
+            stale_after_cycles=stale_after_cycles,
+            activity_window_cycles=activity_window_cycles,
+            reanchor_window_cycles=reanchor_window_cycles,
+            max_listed=max_listed,
+        )
+    except sqlite3.OperationalError as exc:
+        logger.warning("audit_ontology: schema not ready (%s)", exc)
+        return {
+            "error": "schema_missing",
+            "detail": str(exc),
+            "current_cycle": current_cycle,
+            "total_entities": 0,
+            "by_kind": {},
+            "by_state": {},
+            "stale_entities": [],
+            "stale_count": 0,
+            "dead_entities": [],
+            "dead_count": 0,
+            "deprecated_unarchived": 0,
+            "reanchor_events_in_window": 0,
+            "reanchor_window_cycles": reanchor_window_cycles,
+            "thresholds": {
+                "stale_after_cycles": stale_after_cycles,
+                "activity_window_cycles": activity_window_cycles,
+            },
+        }
+
+
+def _audit_ontology_inner(
+    conn: sqlite3.Connection,
+    *,
+    current_cycle: int,
+    stale_after_cycles: int,
+    activity_window_cycles: int,
+    reanchor_window_cycles: int,
+    max_listed: int,
+) -> dict[str, Any]:
+    """Audit body. Separated so the public ``audit_ontology`` can catch
+    schema-missing errors uniformly without bleeding the try/except
+    across all the SELECT statements."""
     total = int(
         conn.execute("SELECT COUNT(*) AS n FROM entities").fetchone()["n"]
     )
@@ -210,34 +301,44 @@ def auto_archive_stale_deprecated(
     ).fetchall()
 
     archived: list[dict[str, Any]] = []
-    for r in rows:
-        record = {
-            "id": r["id"],
-            "kind": r["kind"],
-            "name": r["name"],
-            "cycles_in_state": current_cycle - int(r["state_entered_at_cycle"]),
-        }
-        if dry_run:
-            archived.append(record)
-            continue
-        try:
-            transition_entity(
-                conn,
-                r["id"],
-                "ARCHIVED",
-                "k",
-                cycle=current_cycle,
-                reason=(
-                    f"auto-archive: DEPRECATED for {record['cycles_in_state']} "
-                    f"cycles (>= {archive_after_cycles})"
-                ),
-            )
-            archived.append(record)
-        except Exception:
-            logger.exception(
-                "auto-archive: failed to transition %s (%s/%s)",
-                r["id"], r["kind"], r["name"],
-            )
+    # v4.55 (ADR 0074): wrap the batch so a partial failure rolls back.
+    # Individual transition_entity exceptions are still swallowed
+    # (logged) — the wrapper exists for unexpected failures (e.g.
+    # disk-full, schema mismatch) that should not leave a half-archived
+    # state on disk. dry_run skips the wrapper since no writes happen.
+    if dry_run:
+        for r in rows:
+            archived.append({
+                "id": r["id"], "kind": r["kind"], "name": r["name"],
+                "cycles_in_state": current_cycle - int(r["state_entered_at_cycle"]),
+            })
+        return archived
+    with _batch_transaction(conn):
+        for r in rows:
+            record = {
+                "id": r["id"],
+                "kind": r["kind"],
+                "name": r["name"],
+                "cycles_in_state": current_cycle - int(r["state_entered_at_cycle"]),
+            }
+            try:
+                transition_entity(
+                    conn,
+                    r["id"],
+                    "ARCHIVED",
+                    "k",
+                    cycle=current_cycle,
+                    reason=(
+                        f"auto-archive: DEPRECATED for {record['cycles_in_state']} "
+                        f"cycles (>= {archive_after_cycles})"
+                    ),
+                )
+                archived.append(record)
+            except Exception:
+                logger.exception(
+                    "auto-archive: failed to transition %s (%s/%s)",
+                    r["id"], r["kind"], r["name"],
+                )
     return archived
 
 
@@ -330,32 +431,36 @@ def apply_approved_kills(
         m for m in list_mutations(conn, type="kill_entity", status="approved")
     ][:max_per_run]
     killed: list[dict[str, Any]] = []
-    for m in pending:
-        eid = m.payload.get("entity_id") if isinstance(m.payload, dict) else None
-        if not isinstance(eid, str):
-            mark_failed(conn, m.id, reason="kill_entity payload missing entity_id")
-            continue
-        try:
-            transition_entity(
-                conn, eid, "KILLED", "k",
-                cycle=current_cycle,
-                reason=f"approved kill (mutation #{m.id})",
-            )
-            mark_applied(conn, m.id, reason="killed")
-            killed.append(
-                {
-                    "mutation_id": m.id,
-                    "entity_id": eid,
-                    "kind": m.payload.get("kind"),
-                    "name": m.payload.get("name"),
-                }
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "failed to apply kill_entity mutation #%s for entity %s",
-                m.id, eid,
-            )
-            mark_failed(conn, m.id, reason=f"transition error: {exc}")
+    # v4.55 (ADR 0074): batch-wrap the kill loop. Same rationale as
+    # auto_archive_stale_deprecated — a partial failure should not
+    # leave the mutation queue + entity state out of sync.
+    with _batch_transaction(conn):
+        for m in pending:
+            eid = m.payload.get("entity_id") if isinstance(m.payload, dict) else None
+            if not isinstance(eid, str):
+                mark_failed(conn, m.id, reason="kill_entity payload missing entity_id")
+                continue
+            try:
+                transition_entity(
+                    conn, eid, "KILLED", "k",
+                    cycle=current_cycle,
+                    reason=f"approved kill (mutation #{m.id})",
+                )
+                mark_applied(conn, m.id, reason="killed")
+                killed.append(
+                    {
+                        "mutation_id": m.id,
+                        "entity_id": eid,
+                        "kind": m.payload.get("kind"),
+                        "name": m.payload.get("name"),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "failed to apply kill_entity mutation #%s for entity %s",
+                    m.id, eid,
+                )
+                mark_failed(conn, m.id, reason=f"transition error: {exc}")
     return killed
 
 

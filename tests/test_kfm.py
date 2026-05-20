@@ -85,11 +85,33 @@ def test_check_transition(frm, to, op, ok):
     assert result.allowed is ok
 
 
-def test_bootstrap_bypasses_operator_authority():
-    """Bootstrap is the privileged escape for initial entity creation."""
+def test_bootstrap_string_no_longer_accepted():
+    """v4.55 (ADR 0074): "bootstrap" was removed from OperatorType.
+    check_transition now rejects it like any other unknown operator."""
     result = check_transition("NEW", "EXPERIMENTAL", "bootstrap")
+    assert not result.allowed
+    assert result.reason == "unknown_operator"
+
+
+def test_check_transition_unrestricted_skips_authority():
+    """v4.55 (ADR 0074): the named-hatch replacement for the
+    "bootstrap"-string escape. Still validates legal transitions; just
+    skips the operator-authority check."""
+    from chimera.core.kfm import check_transition_unrestricted
+    result = check_transition_unrestricted("NEW", "EXPERIMENTAL")
     assert result.allowed
+    # Reports who WOULD have been authorised under normal rules.
     assert result.authorized_operator == "f"
+
+
+def test_check_transition_unrestricted_still_rejects_illegal_transitions():
+    """The unrestricted hatch isn't a wild card — illegal transitions
+    are still rejected. It only bypasses operator-authority."""
+    from chimera.core.kfm import check_transition_unrestricted
+    # NEW → STABLE is not a legal transition (must go through EXPERIMENTAL/CANDIDATE).
+    result = check_transition_unrestricted("NEW", "STABLE")
+    assert not result.allowed
+    assert result.reason == "illegal_transition"
 
 
 # ── SQLite store + entity CRUD ───────────────────────────────

@@ -32,10 +32,15 @@ KFM_STATES: tuple[str, ...] = (
     "KILLED",
 )
 
-#: Operator labels. ``bootstrap`` is the privileged escape hatch used at
-#: agent creation; it is never a legal request value on a state-change
-#: endpoint outside the bootstrap path.
-OperatorType = Literal["f", "m", "k", "bootstrap"]
+#: Operator labels. v4.55 (ADR 0074) removes ``bootstrap`` from this
+#: literal — the overnight code review (mind/overnight/code-review-kfm.md)
+#: flagged that any caller could smuggle "bootstrap" through the type
+#: system to bypass authority checks. In practice no caller did; the
+#: production bootstrap path is :func:`chimera.memory.entities.ensure_current_plan`
+#: which calls ``create_entity(initial_state="STABLE")`` directly,
+#: never going through ``check_transition`` at all. Removing the
+#: literal makes that contract explicit.
+OperatorType = Literal["f", "m", "k"]
 
 #: Map of from_state → frozenset of legal to_states. Linear today; later
 #: extensions (e.g. ARCHIVED → EXPERIMENTAL revival) require their own ADR.
@@ -81,19 +86,52 @@ def check_transition(
     """Is this a legal KFM transition by an authorised operator?
 
     Returns a :class:`TransitionResult`. Never raises. Never touches a DB.
+
+    v4.55 (ADR 0074): no longer accepts ``"bootstrap"`` — the bootstrap
+    path uses :func:`check_transition_unrestricted` (or, in practice,
+    creates entities directly without going through the state-machine
+    check at all).
     """
     if from_state not in KFM_STATES:
         return TransitionResult(False, "unknown_from_state")
     if to_state not in KFM_STATES:
         return TransitionResult(False, "unknown_to_state")
-    if operator_type not in ("f", "m", "k", "bootstrap"):
+    if operator_type not in ("f", "m", "k"):
         return TransitionResult(False, "unknown_operator")
     legal = LEGAL_TRANSITIONS.get(from_state, frozenset())
     if to_state not in legal:
         return TransitionResult(False, "illegal_transition")
     authorized = TRANSITION_AUTHORITY[(from_state, to_state)]
-    if operator_type != authorized and operator_type != "bootstrap":
+    if operator_type != authorized:
         return TransitionResult(
             False, "operator_not_authorized", authorized_operator=authorized
         )
+    return TransitionResult(True, "ok", authorized_operator=authorized)
+
+
+def check_transition_unrestricted(
+    from_state: str,
+    to_state: str,
+) -> TransitionResult:
+    """Legal-transition check that skips operator authority.
+
+    v4.55 (ADR 0074): the explicit bootstrap-style hatch. Callers that
+    legitimately need to move an entity outside the normal operator
+    rules (e.g. a session bootstrap that places a plan directly in
+    STABLE) use this instead of smuggling ``"bootstrap"`` through
+    :func:`check_transition`. The function name makes the privilege
+    explicit at the call site.
+
+    Returns a :class:`TransitionResult` whose ``authorized_operator``
+    field reports who *would have been* required under the normal
+    rules, for audit-log purposes.
+    """
+    if from_state not in KFM_STATES:
+        return TransitionResult(False, "unknown_from_state")
+    if to_state not in KFM_STATES:
+        return TransitionResult(False, "unknown_to_state")
+    legal = LEGAL_TRANSITIONS.get(from_state, frozenset())
+    if to_state not in legal:
+        return TransitionResult(False, "illegal_transition")
+    authorized = TRANSITION_AUTHORITY[(from_state, to_state)]
     return TransitionResult(True, "ok", authorized_operator=authorized)
