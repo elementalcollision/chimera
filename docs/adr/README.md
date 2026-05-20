@@ -96,3 +96,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0088-engine-telemetry.md](./0088-engine-telemetry.md) | ADR 0088 — Engine telemetry: `engine_runs` table + `caller` column (v4.69) | Accepted (2026-05-20) |
 | [0089-engine-signal-density-gates.md](./0089-engine-signal-density-gates.md) | ADR 0089 — Engine signal-density gates (v4.70) | Accepted (2026-05-20) |
 | [0090-proposer-acceptance-scoring.md](./0090-proposer-acceptance-scoring.md) | ADR 0090 — Proposer acceptance-rate scoring → demotion (v4.71) | Accepted (2026-05-20) |
+| [0091-selective-engine-enable.md](./0091-selective-engine-enable.md) | ADR 0091 — Selective per-engine enable (v4.72) | Accepted (2026-05-20) |

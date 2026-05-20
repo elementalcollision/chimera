@@ -25,6 +25,27 @@ def _utc_now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def _engine_individually_enabled(name: EngineName) -> bool:
+    """v4.72 (ADR 0091, P5): selective per-engine enable.
+
+    Default ON; an operator opts out of a specific engine with
+    e.g. ``CHIMERA_DISCOVERY_ENABLED=0``. Useful when one engine is
+    producing low-value chronicle entries while the other two are
+    pulling their weight (the post-mortem's typical failure mode).
+    """
+    key = f"CHIMERA_{name.upper()}_ENABLED"
+    return os.environ.get(key, "1") not in ("0", "false", "False")
+
+
+def engine_enable_snapshot() -> dict[str, bool]:
+    """Operator-facing view of which engines are currently enabled."""
+    return {
+        "discovery": _engine_individually_enabled("discovery"),
+        "curiosity": _engine_individually_enabled("curiosity"),
+        "reflection": _engine_individually_enabled("reflection"),
+    }
+
+
 class EngineScheduler:
     """Persists per-engine last-fire dates and decides what's due."""
 
@@ -97,6 +118,11 @@ class EngineScheduler:
             candidate = "curiosity"
         else:
             candidate = "reflection"
+        # v4.72 (ADR 0091, P5): selective per-engine enable. The
+        # global switch above stays as a coarse kill; this is granular.
+        # Default ON for each — opt-out by setting `CHIMERA_<NAME>_ENABLED=0`.
+        if not _engine_individually_enabled(candidate):
+            return None
         if self._last_runs.get(candidate) == today:
             return None
         return candidate
