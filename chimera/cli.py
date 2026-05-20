@@ -83,6 +83,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cycle number to report on (default: most recent).",
     )
 
+    split = sub.add_parser(
+        "split",
+        help="Preview a task splitter call. Heuristic + optional model.",
+    )
+    split.add_argument(
+        "task",
+        help="Task text to evaluate (quote the whole string).",
+    )
+    split.add_argument(
+        "--no-model", action="store_true",
+        help="Skip the model call; show heuristic only.",
+    )
+    split.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of formatted text.",
+    )
+
     search = sub.add_parser(
         "search",
         help="Full-text search over mind/wiki/ (FTS5).",
@@ -556,6 +573,94 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  ⚠️  cycle spend OVER per-cycle cap (${cycle_cap:.2f})")
             if hour_cap > 0 and spend_60m >= hour_cap:
                 print(f"  ⚠️  60m spend OVER rolling-hour cap (${hour_cap:.2f})")
+        return 0
+
+    if args.command == "split":
+        # v4.63 (ADR 0082): task splitter preview.
+        from .core.task_splitter import (
+            is_splittable_shape,
+            split_task as _split_task,
+        )
+
+        signal = is_splittable_shape(args.task)
+        subtasks: list[str] = []
+        provider_used = ""
+
+        if not args.no_model and signal.splittable:
+            # Resolve a sonnet-tier provider+model. Skip silently if no
+            # API keys are available.
+            from .providers import (
+                AnthropicProvider, OpenRouterProvider,
+            )
+            from .providers import Provider as ProviderKind
+            from .providers import select_rung
+            providers: dict[ProviderKind, Any] = {}
+            try:
+                providers[ProviderKind.ANTHROPIC] = AnthropicProvider()
+            except RuntimeError:
+                pass
+            try:
+                providers[ProviderKind.OPENROUTER] = OpenRouterProvider()
+            except RuntimeError:
+                pass
+            rung = select_rung("sonnet", requires_tools=False)
+            provider = providers.get(rung.config.provider)
+            if provider is not None:
+                model_id = (
+                    rung.config.model_id
+                    if rung.config.provider is ProviderKind.ANTHROPIC
+                    else rung.config.openrouter_model_id
+                )
+                provider_used = model_id
+                import asyncio as _asyncio
+                subtasks = _asyncio.run(_split_task(
+                    args.task, provider=provider, model_id=model_id,
+                ))
+
+        if args.json:
+            import json as _json
+            print(_json.dumps({
+                "task": args.task[:200],
+                "splittable": signal.splittable,
+                "confidence": signal.confidence,
+                "reasons": signal.reasons,
+                "model_used": provider_used,
+                "subtasks": subtasks,
+            }, indent=2))
+            return 0
+
+        print(
+            f"chimera split  heuristic="
+            f"{'SPLITTABLE' if signal.splittable else 'keep-as-one'}  "
+            f"confidence={signal.confidence:.2f}"
+        )
+        for r in signal.reasons:
+            print(f"  • {r}")
+        if not signal.splittable:
+            print("\n  No model call (heuristic says keep as one).")
+            return 0
+        if args.no_model:
+            print("\n  --no-model: skipped model call.")
+            return 0
+        if not provider_used:
+            print(
+                "\n  No provider available (set ANTHROPIC_API_KEY or "
+                "OPENROUTER_API_KEY); heuristic-only result above."
+            )
+            return 0
+        if not subtasks:
+            print(
+                f"\n  Model ({provider_used}) declined to split or returned "
+                "unparseable output. Keep as one."
+            )
+            return 0
+        print(f"\n  Model ({provider_used}) proposed {len(subtasks)} sub-task(s):")
+        for i, s in enumerate(subtasks, 1):
+            print(f"\n  [{i}] {s}")
+        print(
+            "\n  To apply: manually edit mind/INBOX.md, mark the original "
+            "task `[-]`, and add the sub-tasks as new `[ ]` lines."
+        )
         return 0
 
     if args.command == "search":

@@ -115,6 +115,23 @@ chimera escalations summary             # which signatures have failed at which 
 chimera escalations clear --grep foo    # forget specific learning
 ```
 
+### Preview a task split
+
+```bash
+chimera split "Research and write the FOUR sections, each with citations..."
+chimera split "<long task text>" --no-model       # heuristic only
+chimera split "<long task text>" --json
+```
+
+Heuristic detects multi-section / multi-deliverable / fanout shapes;
+a sonnet-tier provider (deepseek-v4-pro post-v4.53) proposes
+independent sub-tasks. The verb does NOT auto-rewrite INBOX —
+operator decides whether to apply by manually editing `mind/INBOX.md`
+(mark original `[-]`, append sub-tasks as `[ ]`).
+
+Use this before a long-horizon run when a task signature keeps
+showing up in `chimera escalations summary` under ⚠️ HOT SIGNATURES.
+
 ### Search the wiki
 
 ```bash
