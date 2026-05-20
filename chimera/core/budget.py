@@ -318,3 +318,102 @@ def check_rolling_hour_cost_cap(db: sqlite3.Connection) -> None:
         raise RollingHourCostCapExceeded(
             spend_usd=spend, cap_usd=cap, window_minutes=60,
         )
+
+
+# ── v4.60 (ADR 0079): per-task budget cap ──────────────────────────
+#
+# The cycle cap stops one runaway cycle. The rolling-hour cap stops a
+# slow burn across cycles. Neither stops a single STUCK TASK that
+# keeps getting promoted by escalation memory and burning a fresh
+# per-cycle cap on every retry. The 2026-05-19 burn was exactly this
+# pattern: one task (dashboard honesty audit) re-attempted across 5+
+# cycles, each cycle blowing well past the eventual $2 cap. A
+# per-task budget makes "this task is too expensive — abandon it"
+# an explicit, machine-enforced condition.
+#
+# Default $5/task = ~2.5× the per-cycle cap; legitimate multi-cycle
+# tasks (e.g. tier-promoted research from haiku → sonnet) fit; tasks
+# that keep failing don't.
+
+_DEFAULT_TASK_BUDGET_USD = 5.00
+
+
+class TaskBudgetExceeded(Exception):
+    """Raised when a task has accumulated more than the per-task budget."""
+
+    def __init__(self, *, spend_usd: float, budget_usd: float, signature: str):
+        self.spend_usd = spend_usd
+        self.budget_usd = budget_usd
+        self.signature = signature
+        sig_preview = signature[:60] + ("…" if len(signature) > 60 else "")
+        super().__init__(
+            f"task signature spend ${spend_usd:.2f} "
+            f"exceeds budget ${budget_usd:.2f} (sig: {sig_preview})"
+        )
+
+
+def task_budget_usd() -> float:
+    """Per-task USD budget, honoring CHIMERA_TASK_BUDGET_USD.
+
+    Default: $5.00. Set to 0 to disable.
+    """
+    raw = os.environ.get("CHIMERA_TASK_BUDGET_USD", "").strip()
+    if not raw:
+        return _DEFAULT_TASK_BUDGET_USD
+    try:
+        v = float(raw)
+    except ValueError:
+        return _DEFAULT_TASK_BUDGET_USD
+    if v < 0:
+        return 0.0
+    return v
+
+
+def task_spend_usd(db: sqlite3.Connection, *, task_signature: str) -> float:
+    """Sum spend across all cycles that ran this task signature.
+
+    Errored rows excluded. Token-driven recompute (same as cycle and
+    rolling helpers) so a tier-price update applies retroactively
+    when read.
+    """
+    if not task_signature:
+        return 0.0
+    try:
+        cur = db.execute(
+            "SELECT model_id, "
+            "  COALESCE(SUM(input_tokens), 0), "
+            "  COALESCE(SUM(output_tokens), 0) "
+            "FROM api_calls "
+            "WHERE error IS NULL AND task_signature = ? "
+            "GROUP BY model_id",
+            (task_signature,),
+        )
+    except sqlite3.OperationalError:
+        # task_signature column missing — caller is on a pre-v4.60 DB.
+        return 0.0
+    table = _price_table()
+    total = 0.0
+    for model_id, in_tok, out_tok in cur.fetchall():
+        in_price, out_price = table.get(model_id, (0.0, 0.0))
+        total += (in_tok / 1_000_000.0) * in_price
+        total += (out_tok / 1_000_000.0) * out_price
+    return total
+
+
+def check_task_budget(db: sqlite3.Connection, *, task_signature: str) -> None:
+    """Raise :class:`TaskBudgetExceeded` if this task has spent over its budget.
+
+    No-op when the budget is 0 (disabled) or the signature is empty.
+    Called by ACT at the top of each round alongside the cycle and
+    rolling-hour caps.
+    """
+    if not task_signature:
+        return
+    budget = task_budget_usd()
+    if budget <= 0:
+        return
+    spend = task_spend_usd(db, task_signature=task_signature)
+    if spend >= budget:
+        raise TaskBudgetExceeded(
+            spend_usd=spend, budget_usd=budget, signature=task_signature,
+        )

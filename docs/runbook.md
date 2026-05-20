@@ -34,6 +34,10 @@ export CHIMERA_CYCLE_COST_CAP_USD=${CHIMERA_CYCLE_COST_CAP_USD:-2.00}
 # Catches a sequence of cycles each staying just under the per-cycle
 # cap. Set to 0 to disable.
 export CHIMERA_ROLLING_HOUR_CAP_USD=${CHIMERA_ROLLING_HOUR_CAP_USD:-20.00}
+# v4.60 (ADR 0079): per-task $ cap — defaults to $5.00 if unset.
+# Stops a single stuck task from being re-promoted across cycles
+# each blowing past the per-cycle cap. Set to 0 to disable.
+export CHIMERA_TASK_BUDGET_USD=${CHIMERA_TASK_BUDGET_USD:-5.00}
 
 for i in $(seq 1 "$SEQ"); do
   echo "=== cycle $i @ $(date +%H:%M:%S) ==="

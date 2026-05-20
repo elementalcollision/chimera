@@ -298,6 +298,7 @@ def record_api_call(
     error: str | None = None,
     tool_uses_count: int | None = None,
     round_boundary_latency_ms: int | None = None,
+    task_signature: str | None = None,
 ) -> int:
     """Insert an api_calls row. Returns the row id.
 
@@ -310,12 +311,17 @@ def record_api_call(
     NULL on the first round of a task. Helps answer "is the round
     boundary the bottleneck?" before any cross-round speculative
     refactor (ADR 0061).
+
+    v4.60: ``task_signature`` is the signature of the in-flight INBOX
+    task. Lets task_spend_usd() sum spend across cycles for the
+    per-task budget cap (ADR 0079).
     """
     cursor = conn.execute(
         "INSERT INTO api_calls (cycle, provider, model_id, input_tokens, "
         "output_tokens, cost_usd, latency_ms, finish_reason, error, "
-        "created_at, tool_uses_count, round_boundary_latency_ms) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "created_at, tool_uses_count, round_boundary_latency_ms, "
+        "task_signature) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             cycle,
             provider,
@@ -329,6 +335,7 @@ def record_api_call(
             _utc_now_iso(),
             tool_uses_count,
             round_boundary_latency_ms,
+            task_signature,
         ),
     )
     return cursor.lastrowid

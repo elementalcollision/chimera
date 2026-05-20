@@ -83,7 +83,12 @@ CREATE TABLE IF NOT EXISTS api_calls (
     -- and the moment this provider call was dispatched. NULL on the
     -- first round of a task (no prior round to measure from). Helps
     -- diagnose where ACT actually spends its wall-clock.
-    round_boundary_latency_ms  INTEGER
+    round_boundary_latency_ms  INTEGER,
+    -- v4.60 (ADR 0079): signature of the INBOX task that triggered
+    -- this call. Lets task_spend_usd() sum spend across cycles for
+    -- the per-task budget cap. Same Jaccard-friendly token-bag
+    -- format as task_escalations.signature.
+    task_signature  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_calls_cycle ON api_calls(cycle);
 
@@ -176,6 +181,18 @@ def init_schema(conn: sqlite3.Connection) -> None:
     try:
         conn.execute(
             "ALTER TABLE api_calls ADD COLUMN round_boundary_latency_ms INTEGER"
+        )
+    except sqlite3.OperationalError:
+        pass
+    # v4.60 (ADR 0079): task_signature additive migration for per-task budget.
+    try:
+        conn.execute("ALTER TABLE api_calls ADD COLUMN task_signature TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_api_calls_task_signature "
+            "ON api_calls(task_signature)"
         )
     except sqlite3.OperationalError:
         pass

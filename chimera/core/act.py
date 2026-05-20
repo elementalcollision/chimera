@@ -345,7 +345,7 @@ class ActExecutor:
         # just burn the cap faster on the next attempt. The cycle
         # rotates and the task gets a fresh budget on the next cycle.
         if not result.completed and result.finish_reason not in (
-            "cost_cap", "rolling_hour_cap",
+            "cost_cap", "rolling_hour_cap", "task_budget",
         ):
             try:
                 record_failure(
@@ -427,17 +427,29 @@ class ActExecutor:
         from .budget import (
             check_cycle_cost_cap,
             check_rolling_hour_cost_cap,
+            check_task_budget,
             CycleCostCapExceeded,
             RollingHourCostCapExceeded,
+            TaskBudgetExceeded,
         )
+        from .escalation import _signature as _task_signature
+        # v4.60: signature for this task — used by the per-task budget
+        # cap AND persisted on every api_calls row so future cycles can
+        # sum cross-cycle spend for the same task.
+        task_sig = _task_signature(task_text)
         for round_idx in range(effective_max_rounds):
             # v4.53: hard-stop if this cycle has spent over the cap.
             # v4.57: also hard-stop if rolling-60m spend exceeds cap.
-            # Both checked BEFORE the provider call so a tripping cycle
-            # exits cleanly without one final expensive request.
+            # v4.60: also hard-stop if THIS TASK has exceeded its budget
+            # across cycles (catches the stuck-task pattern from the
+            # 2026-05-19 burn where escalation re-promoted the same
+            # task across 5+ cycles each blowing past the per-cycle cap).
+            # All three checked BEFORE the provider call so a tripping
+            # cycle exits cleanly without one final expensive request.
             try:
                 check_cycle_cost_cap(self._db, cycle)
                 check_rolling_hour_cost_cap(self._db)
+                check_task_budget(self._db, task_signature=task_sig)
             except CycleCostCapExceeded as exc:
                 logger.warning(
                     "act: cycle %d cost cap tripped at $%.2f (cap $%.2f); "
@@ -466,6 +478,21 @@ class ActExecutor:
                     failure_reason=str(exc),
                     api_call_count=api_call_count,
                 )
+            except TaskBudgetExceeded as exc:
+                logger.warning(
+                    "act: task budget exhausted at $%.2f (budget $%.2f); "
+                    "abandoning this task — escalation memory will not "
+                    "re-promote",
+                    exc.spend_usd, exc.budget_usd,
+                )
+                return ActResult(
+                    task_text=task_text,
+                    completed=False,
+                    rounds=round_idx,
+                    finish_reason="task_budget",
+                    failure_reason=str(exc),
+                    api_call_count=api_call_count,
+                )
             round_boundary_ms: int | None = None
             if prior_tools_done_at is not None:
                 round_boundary_ms = int(
@@ -486,6 +513,7 @@ class ActExecutor:
                     provider=provider.name,
                     model_id=self._model_id_for(rung),
                     error=str(exc),
+                    task_signature=task_sig,
                 )
                 record_ladder_outcome(
                     self._db,
@@ -538,6 +566,8 @@ class ActExecutor:
                 tool_uses_count=len(response.tool_uses or []),
                 # v4.50: time between prior tool completion and this call.
                 round_boundary_latency_ms=round_boundary_ms,
+                # v4.60: in-flight task signature for per-task budget.
+                task_signature=task_sig,
             )
             record_ladder_outcome(
                 self._db,
