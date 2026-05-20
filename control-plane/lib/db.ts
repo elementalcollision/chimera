@@ -139,6 +139,76 @@ export function apiCallTokenRowsLastMinutes(minutes: number): Array<{
     }>;
 }
 
+// v4.68 (ADR 0087): hot signatures — task_escalations grouped by
+// signature with ≥ threshold failures. Mirrors the Python
+// chimera.core.escalation.hot_signatures helper. The Python suite
+// is the source of truth for the SQL shape; this TS query is the
+// dashboard's mirror and the Python tests pin both.
+export interface HotSignatureRow {
+  signature: string;
+  total_failures: number;
+  tiers: string;       // comma-separated unique tier names
+  first_cycle: number;
+  last_cycle: number;
+  last_finish_reason: string;
+  excerpt: string;     // up to 120 chars of the most-recent task_text
+}
+
+export function hotSignatures(opts?: { threshold?: number; limit?: number }): HotSignatureRow[] {
+  const db = getDb();
+  if (!db) return [];
+  const threshold = Math.max(1, opts?.threshold ?? 2);
+  const limit = Math.max(1, Math.min(50, opts?.limit ?? 10));
+  // Defensive: task_escalations exists from v4.46 onward; on older
+  // DBs the query throws OperationalError, caught and returned [].
+  try {
+    const rows = db
+      .prepare(
+        `SELECT
+            signature,
+            COUNT(*) AS total_failures,
+            GROUP_CONCAT(DISTINCT tier) AS tiers,
+            MIN(cycle) AS first_cycle,
+            MAX(cycle) AS last_cycle
+         FROM task_escalations
+         GROUP BY signature
+         HAVING total_failures >= ?
+         ORDER BY total_failures DESC, last_cycle DESC
+         LIMIT ?`
+      )
+      .all(threshold, limit) as Array<{
+        signature: string;
+        total_failures: number;
+        tiers: string | null;
+        first_cycle: number;
+        last_cycle: number;
+      }>;
+    if (rows.length === 0) return [];
+    // For each signature, fetch the most-recent excerpt + finish_reason.
+    const detailStmt = db.prepare(
+      "SELECT finish_reason, task_text FROM task_escalations " +
+      "WHERE signature = ? ORDER BY cycle DESC LIMIT 1"
+    );
+    return rows.map((r) => {
+      const detail = detailStmt.get(r.signature) as
+        | { finish_reason: string | null; task_text: string | null }
+        | undefined;
+      const text = (detail?.task_text ?? "").replace(/\n/g, " ");
+      return {
+        signature: r.signature,
+        total_failures: r.total_failures,
+        tiers: r.tiers ?? "",
+        first_cycle: r.first_cycle,
+        last_cycle: r.last_cycle,
+        last_finish_reason: detail?.finish_reason ?? "",
+        excerpt: text.slice(0, 120),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export function pendingMutations(): Mutation[] {
   const db = getDb();
   if (!db) return [];

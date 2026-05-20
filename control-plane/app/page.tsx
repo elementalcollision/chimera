@@ -6,6 +6,7 @@ import {
   listEntities,
   ontologyAudit,
   queueHealth,
+  hotSignatures,
   reanchorHistory,
   recentApiCalls,
   fanoutCostRows,
@@ -32,6 +33,7 @@ import { readHeartbeat, readMindFile, readTrustState } from "@/lib/mind";
 
 import CanvasShell, { ViewPreset, WidgetDef } from "@/components/CanvasShell";
 import CostAlarmWidget from "@/components/widgets/CostAlarmWidget";
+import HotSignaturesWidget from "@/components/widgets/HotSignaturesWidget";
 import CostOverTimeWidget from "@/components/widgets/CostOverTimeWidget";
 import StatusWidget from "@/components/widgets/StatusWidget";
 import TokenCostWidget from "@/components/widgets/TokenCostWidget";
@@ -86,6 +88,9 @@ export default async function HomePage() {
   const qHealth = queueHealth();
   const audit = ontologyAudit();
   const reanchors = reanchorHistory();
+  // v4.68 (ADR 0087): passive surface for escalation memory's hot
+  // signatures (≥ 2 task_escalations failures on the same signature).
+  const hotSigs = hotSignatures({ threshold: 2, limit: 8 });
   const fanout = toolFanout();
   const fanoutByModel = toolFanoutByModel();
   const fanoutHistory = toolFanoutHistory();
@@ -113,6 +118,16 @@ export default async function HomePage() {
       group: "cost", layout: { x: 0, y: 16, w: 4, h: 4 },
       minW: 3, minH: 4,
       body: <CostAlarmWidget rate={costRate} />,
+    },
+    {
+      // v4.68 (ADR 0087): hot signatures — passive surface of the
+      // ≥2-failure signatures that `chimera escalations summary` lists
+      // under ⚠️ HOT SIGNATURES.
+      id: "hot_signatures", title: "Hot signatures", eyebrow: "escalations",
+      icon: "list",
+      group: "agent", layout: { x: 4, y: 16, w: 8, h: 4 },
+      minW: 5, minH: 4,
+      body: <HotSignaturesWidget rows={hotSigs} />,
     },
     {
       id: "cost_history", title: "Cost over time", eyebrow: "last 24h", icon: "coins",

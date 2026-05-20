@@ -70,7 +70,7 @@ exists, a long-horizon run is in flight. Stick to docs.
 - **Storage version bumps** when the canvas widget set or dashboard
   layout changes: increment `STORAGE_LAYOUT` + `STORAGE_PINS` in
   [control-plane/components/CanvasShell.tsx](control-plane/components/CanvasShell.tsx).
-  We're currently at v14.
+  We're currently at v15.
 - **Task-text shape conventions** (v4.56 / [ADR 0075](docs/adr/0075-task-conventions-and-tier-floor.md)):
   - **Code-review tasks must NAME the modules.** "Pick TWO modules
     from `chimera/core/`" forces the agent to spend rounds on
@@ -138,7 +138,7 @@ cd control-plane && npm run dev  # → http://127.0.0.1:3000
 
 Widgets are SSR React reading directly from `state/chimera.db`. The
 canvas layout persists in localStorage under
-`chimera-canvas-layout-v14`. If a widget looks misplaced, hit
+`chimera-canvas-layout-v15`. If a widget looks misplaced, hit
 **Reset** in the top bar. Each widget has a corresponding reader in
 [control-plane/lib/db.ts](control-plane/lib/db.ts).
 
