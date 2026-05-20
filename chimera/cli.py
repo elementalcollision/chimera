@@ -57,6 +57,28 @@ def _build_parser() -> argparse.ArgumentParser:
         "--all", action="store_true",
         help="Required with no --grep — confirms a full wipe.",
     )
+    proposers = sub.add_parser(
+        "proposers",
+        help="Score / demote / promote mutation proposers (v4.71 ADR 0090).",
+    )
+    p_sub = proposers.add_subparsers(
+        dest="proposers_command", metavar="<prop-cmd>",
+    )
+    p_list = p_sub.add_parser(
+        "list", help="Show acceptance rate + status per proposer.",
+    )
+    p_list.add_argument("--json", action="store_true")
+    p_promote = p_sub.add_parser(
+        "promote", help="Clear degraded/paused state, allow proposals again.",
+    )
+    p_promote.add_argument("proposer", help="mutation.type to promote")
+    p_promote.add_argument("--reason", default=None)
+    p_pause = p_sub.add_parser(
+        "pause", help="Operator-pause a proposer (sticky until promote).",
+    )
+    p_pause.add_argument("proposer", help="mutation.type to pause")
+    p_pause.add_argument("--reason", default=None)
+
     tiers = sub.add_parser(
         "tiers",
         help="Show every model rung in every tier ladder (v4.8+).",
@@ -869,6 +891,68 @@ def main(argv: list[str] | None = None) -> int:
                 f"{preview}…"
             )
         return 0
+    if args.command == "proposers":
+        import json as _json
+        from .core import LoopConfig
+        from .core.proposer_scoring import (
+            all_scores,
+            get_status,
+            list_statuses,
+            pause,
+            promote,
+        )
+        from .memory import open_and_init
+
+        cfg = LoopConfig.from_env()
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+        sub_cmd = args.proposers_command or "list"
+        if sub_cmd == "list":
+            scores = all_scores(conn)
+            statuses = {s.proposer: s for s in list_statuses(conn)}
+            if args.json:
+                print(_json.dumps(
+                    [
+                        {
+                            "proposer": s.proposer,
+                            "accepted": s.accepted,
+                            "rejected": s.rejected,
+                            "decided": s.decided,
+                            "rate": s.rate,
+                            "window": s.window,
+                            "status": (statuses.get(s.proposer).status
+                                       if statuses.get(s.proposer) else "active"),
+                        }
+                        for s in scores
+                    ],
+                    indent=2,
+                ))
+                return 0
+            if not scores:
+                print("chimera proposers: (no mutations yet)")
+                return 0
+            print(f"chimera proposers: {len(scores)} type(s)")
+            for s in scores:
+                st = statuses.get(s.proposer)
+                status_str = st.status if st else "active"
+                rate_str = f"{s.rate:.0%}" if s.rate is not None else "--"
+                print(
+                    f"  {s.proposer:24s} {status_str:8s} "
+                    f"rate={rate_str:>4s} ({s.accepted}/{s.decided} in last {s.window})"
+                )
+                if st and st.reason and st.status != "active":
+                    print(f"    └─ {st.reason}")
+            return 0
+        if sub_cmd == "promote":
+            st = promote(conn, args.proposer, reason=args.reason)
+            print(f"chimera proposers: {st.proposer} → {st.status}")
+            return 0
+        if sub_cmd == "pause":
+            st = pause(conn, args.proposer, reason=args.reason)
+            print(f"chimera proposers: {st.proposer} → {st.status}")
+            return 0
+        print(f"chimera proposers: unknown subcommand {sub_cmd!r}")
+        return 2
+
     if args.command == "escalations":
         from .core import LoopConfig
         from .core.escalation import (

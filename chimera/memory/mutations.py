@@ -66,6 +66,15 @@ def create_mutation(
     payload: dict[str, Any],
     reason: str | None = None,
 ) -> Mutation:
+    # v4.71 (ADR 0090): proposer-scoring gate. Refuse to enqueue when
+    # the proposer is in degraded/paused state — the operator has to
+    # `chimera proposers promote <type>` first.
+    from ..core.proposer_scoring import ProposerDegradedError, check_can_propose
+
+    allow, deny_reason = check_can_propose(conn, type)
+    if not allow:
+        raise ProposerDegradedError(type, deny_reason)
+
     cursor = conn.execute(
         "INSERT INTO mutations (type, payload, status, reason, created_at) "
         "VALUES (?, ?, 'pending', ?, ?)",
@@ -134,7 +143,9 @@ def reject_mutation(
         "UPDATE mutations SET status = 'rejected', reason = ? WHERE id = ?",
         (reason or m.reason, mid),
     )
-    return get_mutation(conn, mid)
+    out = get_mutation(conn, mid)
+    _reeval_proposer(conn, out)
+    return out
 
 
 def mark_applied(
@@ -145,7 +156,9 @@ def mark_applied(
         "WHERE id = ?",
         (_utc_now_iso(), reason, mid),
     )
-    return get_mutation(conn, mid)
+    m = get_mutation(conn, mid)
+    _reeval_proposer(conn, m)
+    return m
 
 
 def mark_failed(
@@ -155,7 +168,22 @@ def mark_failed(
         "UPDATE mutations SET status = 'failed', reason = ? WHERE id = ?",
         (reason, mid),
     )
-    return get_mutation(conn, mid)
+    m = get_mutation(conn, mid)
+    _reeval_proposer(conn, m)
+    return m
+
+
+def _reeval_proposer(conn: sqlite3.Connection, m: Mutation | None) -> None:
+    """v4.71 (ADR 0090): after a terminal state transition, recompute the
+    proposer acceptance rate so the next ``create_mutation`` sees the
+    updated status. Best-effort; never blocks the underlying write."""
+    if m is None:
+        return
+    try:
+        from ..core.proposer_scoring import evaluate_and_update
+        evaluate_and_update(conn, m.type)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def bump_recurrence(conn: sqlite3.Connection, mid: int) -> Mutation | None:

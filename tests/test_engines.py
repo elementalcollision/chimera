@@ -38,6 +38,14 @@ class _ScriptedProvider(Provider):
         return self._responses.pop(0)
 
 
+@pytest.fixture(autouse=True)
+def _disable_v470_gates(monkeypatch):
+    """These legacy engine tests pre-date the v4.70 signal-density gates
+    and don't seed enough api_calls or chronicle to pass them. Disable
+    the master switch for this module so they test engine mechanics."""
+    monkeypatch.setenv("CHIMERA_ENGINE_GATES_ENABLED", "0")
+
+
 @pytest.fixture
 def mind_dir(tmp_path: Path) -> Path:
     d = tmp_path / "mind"

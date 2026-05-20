@@ -172,6 +172,19 @@ CREATE TABLE IF NOT EXISTS task_escalations (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_task_escalations_signature ON task_escalations(signature);
+
+-- v4.71 (ADR 0090, P3): persistent demote/promote state per proposer
+-- (mutation.type). When the rolling acceptance rate drops below the
+-- threshold the row is upserted with status='degraded'; operator runs
+-- `chimera proposers promote <type>` to restore.
+CREATE TABLE IF NOT EXISTS proposer_status (
+    proposer        TEXT PRIMARY KEY,         -- mutation.type
+    status          TEXT NOT NULL,            -- 'active' | 'degraded' | 'paused'
+    reason          TEXT,
+    last_rate       REAL,                     -- last computed acceptance rate
+    last_decided    INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL
+);
 """
 
 
