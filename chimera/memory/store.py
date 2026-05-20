@@ -88,9 +88,16 @@ CREATE TABLE IF NOT EXISTS api_calls (
     -- this call. Lets task_spend_usd() sum spend across cycles for
     -- the per-task budget cap. Same Jaccard-friendly token-bag
     -- format as task_escalations.signature.
-    task_signature  TEXT
+    task_signature  TEXT,
+    -- v4.69 (ADR 0088 §P4): who made this call. "act" for ActExecutor,
+    -- "discovery"/"curiosity"/"reflection" for the engines, "splitter"
+    -- for the v4.63 task-splitter helper, etc. Lets cost queries
+    -- separate ACT spend from engine spend without guessing from
+    -- model_id. NULL on pre-v4.69 rows.
+    caller          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_calls_cycle ON api_calls(cycle);
+CREATE INDEX IF NOT EXISTS idx_api_calls_caller ON api_calls(caller);
 
 CREATE TABLE IF NOT EXISTS ladder_outcomes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +109,36 @@ CREATE TABLE IF NOT EXISTS ladder_outcomes (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ladder_outcomes_tier ON ladder_outcomes(tier);
+
+-- v4.69 (ADR 0088 §P1): unified engine telemetry.
+--
+-- Pre-v4.69 the three engines (Discovery / Curiosity / Reflection)
+-- left three different signals — a row in api_calls, a row in
+-- ladder_outcomes with task_type set, and a section in
+-- mind/CHRONICLE.md — and an out-of-band ``state/engines/last_runs.json``
+-- date file. None agreed. This table is the single source of truth:
+-- one row per engine firing, with status, cost, and effect counters.
+CREATE TABLE IF NOT EXISTS engine_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    engine              TEXT NOT NULL,        -- discovery|curiosity|reflection
+    cycle               INTEGER NOT NULL,
+    started_at          TEXT NOT NULL,
+    finished_at         TEXT,
+    -- success: engine fired AND wrote chronicle / proposed mutation
+    -- skipped: engine declined to fire (gate, env, missing provider)
+    -- failed: engine threw or the model errored
+    status              TEXT NOT NULL,
+    skip_reason         TEXT,
+    api_calls           INTEGER NOT NULL DEFAULT 0,
+    tokens_in           INTEGER NOT NULL DEFAULT 0,
+    tokens_out          INTEGER NOT NULL DEFAULT 0,
+    cost_usd            REAL,
+    chronicle_added     INTEGER NOT NULL DEFAULT 0,    -- lines appended
+    mutations_proposed  INTEGER NOT NULL DEFAULT 0,
+    summary             TEXT                            -- 200-char excerpt
+);
+CREATE INDEX IF NOT EXISTS idx_engine_runs_engine ON engine_runs(engine);
+CREATE INDEX IF NOT EXISTS idx_engine_runs_cycle ON engine_runs(cycle);
 
 -- v1.2: mutation queue for "Chimera proposes, operator disposes".
 CREATE TABLE IF NOT EXISTS mutations (
@@ -204,6 +241,20 @@ def init_schema(conn: sqlite3.Connection) -> None:
     except Exception:  # noqa: BLE001
         # Don't let a missing FTS5 module break the rest of init.
         pass
+    # v4.69 (ADR 0088 §P4): caller column on api_calls.
+    try:
+        conn.execute("ALTER TABLE api_calls ADD COLUMN caller TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_api_calls_caller ON api_calls(caller)"
+        )
+    except sqlite3.OperationalError:
+        pass
+    # v4.69 (ADR 0088 §P1): engine_runs is in the CREATE block above and
+    # the standard CREATE TABLE IF NOT EXISTS handles the migration —
+    # no separate ALTER needed.
     conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
 
 

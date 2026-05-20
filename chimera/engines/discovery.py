@@ -62,15 +62,24 @@ class DiscoveryEngine(EngineBase):
 
     async def run(self, *, cycle: int) -> EngineResult:
         from ..core.mind import utc_now_iso
+        from ..memory import finish_engine_run, start_engine_run
+
+        # v4.69 (ADR 0088 §P1): open the unified engine_runs row first
+        # so a crash still leaves a visible "running" row.
+        run_id = start_engine_run(self._db, engine=self.name, cycle=cycle)
 
         rung = select_rung(self._tier)
         provider = self._providers.get(rung.config.provider)
         if provider is None:
+            reason = f"no provider for {rung.config.provider}"
+            finish_engine_run(
+                self._db, run_id, status="skipped", skip_reason=reason,
+            )
             return EngineResult(
                 engine=self.name,
                 skipped=True,
                 fired_at=utc_now_iso(),
-                failure_reason=f"no provider for {rung.config.provider}",
+                failure_reason=reason,
             )
 
         model_id = (
@@ -97,6 +106,7 @@ class DiscoveryEngine(EngineBase):
                 provider=provider.name,
                 model_id=model_id,
                 error=str(exc),
+                caller=self.name,
             )
             record_ladder_outcome(
                 self._db,
@@ -105,6 +115,10 @@ class DiscoveryEngine(EngineBase):
                 rung_model_id=rung.label,
                 outcome="non_retriable",
                 task_type="discovery",
+            )
+            finish_engine_run(
+                self._db, run_id, status="failed", skip_reason=str(exc),
+                api_calls=1,
             )
             return EngineResult(
                 engine=self.name,
@@ -122,6 +136,7 @@ class DiscoveryEngine(EngineBase):
             output_tokens=response.output_tokens,
             latency_ms=response.latency_ms,
             finish_reason=response.stop_reason,
+            caller=self.name,
         )
         record_ladder_outcome(
             self._db,
@@ -134,6 +149,14 @@ class DiscoveryEngine(EngineBase):
 
         body = response.text.strip() or "(no observations)"
         self._chronicle.upsert_section(section_name="Morning Discovery", body=body)
+        finish_engine_run(
+            self._db, run_id, status="success",
+            api_calls=1,
+            tokens_in=response.input_tokens or 0,
+            tokens_out=response.output_tokens or 0,
+            chronicle_added=len(body.splitlines()),
+            summary=body[:200],
+        )
         return EngineResult(
             engine=self.name,
             skipped=False,

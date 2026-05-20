@@ -27,6 +27,13 @@ from .audit import (
     propose_kill_archived,
     reanchor_history,
 )
+from .engine_runs import (
+    EngineRunRecord,
+    engine_runs_summary,
+    finish_engine_run,
+    list_engine_runs,
+    start_engine_run,
+)
 from .mutations import (
     Mutation,
     approve_mutation,
@@ -87,6 +94,11 @@ __all__ = [
     "reanchor_history",
     "bump_recurrence",
     "queue_health",
+    "EngineRunRecord",
+    "engine_runs_summary",
+    "finish_engine_run",
+    "list_engine_runs",
+    "start_engine_run",
     "GRAPH_SCHEMA_VERSION",
     "GraphQueryResult",
     "GraphStore",

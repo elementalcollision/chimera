@@ -299,6 +299,7 @@ def record_api_call(
     tool_uses_count: int | None = None,
     round_boundary_latency_ms: int | None = None,
     task_signature: str | None = None,
+    caller: str | None = None,
 ) -> int:
     """Insert an api_calls row. Returns the row id.
 
@@ -315,13 +316,19 @@ def record_api_call(
     v4.60: ``task_signature`` is the signature of the in-flight INBOX
     task. Lets task_spend_usd() sum spend across cycles for the
     per-task budget cap (ADR 0079).
+
+    v4.69: ``caller`` identifies the subsystem that made this call —
+    "act" for ActExecutor, "discovery"/"curiosity"/"reflection" for
+    the engines, "splitter" for the v4.63 task splitter, etc. Lets
+    cost queries separate ACT spend from engine spend without
+    guessing from model_id. NULL on pre-v4.69 rows (ADR 0088 §P4).
     """
     cursor = conn.execute(
         "INSERT INTO api_calls (cycle, provider, model_id, input_tokens, "
         "output_tokens, cost_usd, latency_ms, finish_reason, error, "
         "created_at, tool_uses_count, round_boundary_latency_ms, "
-        "task_signature) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "task_signature, caller) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             cycle,
             provider,
@@ -336,6 +343,7 @@ def record_api_call(
             tool_uses_count,
             round_boundary_latency_ms,
             task_signature,
+            caller,
         ),
     )
     return cursor.lastrowid

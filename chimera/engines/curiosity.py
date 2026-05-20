@@ -77,6 +77,15 @@ class CuriosityEngine(EngineBase):
     async def run(self, *, cycle: int) -> EngineResult:
         from ..core.act import ActExecutor
         from ..core.mind import utc_now_iso
+        from ..memory import finish_engine_run, start_engine_run
+
+        # v4.69 (ADR 0088 §P1): unified engine_runs row wraps the whole
+        # firing. Curiosity calls ActExecutor internally, so the
+        # api_calls themselves get caller="act" — we report the
+        # nested-call count from result.api_call_count below. Exact
+        # ACT-vs-engine attribution for those calls is a documented
+        # gap (ADR 0088 §"Non-goals").
+        run_id = start_engine_run(self._db, engine=self.name, cycle=cycle)
 
         seed = self._seed_topic or self._derive_seed_from_chronicle()
         brief = (
@@ -133,6 +142,18 @@ class CuriosityEngine(EngineBase):
         )
         self._chronicle.upsert_section(section_name="Midday Curiosity", body=body)
 
+        # v4.69: close the engine_runs row. Status reflects whether
+        # the underlying ACT call completed; failure_reason is
+        # propagated from result.failure_reason.
+        status = "success" if result.completed else "failed"
+        finish_engine_run(
+            self._db, run_id,
+            status=status,
+            skip_reason=result.failure_reason,
+            api_calls=result.api_call_count,
+            chronicle_added=len(body.splitlines()),
+            summary=f"q{q_num:03d}: {seed[:160]}",
+        )
         return EngineResult(
             engine=self.name,
             skipped=False,

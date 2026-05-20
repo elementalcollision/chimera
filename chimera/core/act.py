@@ -514,6 +514,7 @@ class ActExecutor:
                     model_id=self._model_id_for(rung),
                     error=str(exc),
                     task_signature=task_sig,
+                    caller="act",
                 )
                 record_ladder_outcome(
                     self._db,
@@ -568,6 +569,10 @@ class ActExecutor:
                 round_boundary_latency_ms=round_boundary_ms,
                 # v4.60: in-flight task signature for per-task budget.
                 task_signature=task_sig,
+                # v4.69: caller scope. The CuriosityEngine wraps an
+                # ActExecutor — those nested calls still get "act"
+                # here; the engine_runs row tracks the count.
+                caller="act",
             )
             record_ladder_outcome(
                 self._db,
