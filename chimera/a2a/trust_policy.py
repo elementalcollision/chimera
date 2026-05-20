@@ -28,7 +28,10 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -45,16 +48,43 @@ def is_always_allowed_peer_tool(tool_name: str) -> bool:
     return any(tool_name.endswith(s) for s in _ALWAYS_ALLOWED_SUFFIXES)
 
 
-def peer_name_from_tool(tool_name: str) -> str | None:
-    """Extract the ``<peer>`` segment from ``mcp-<peer>-<rest>``."""
+def peer_name_from_tool(
+    tool_name: str,
+    *,
+    registry: "ToolRegistry | None" = None,
+) -> str | None:
+    """Extract the ``<peer>`` segment from ``mcp-<peer>-<rest>``.
+
+    v4.27: peer names containing hyphens (e.g. ``chimera-a``) used to
+    silently bypass the trust gate because we split on the first
+    hyphen after ``mcp-``. When the caller supplies a ``registry``,
+    we now resolve the longest prefix whose ``mcp-<prefix>-chimera-identity``
+    tool is actually registered — identity is always exposed, so this
+    is the canonical signal that a name is a real peer. Without a
+    registry we fall back to the first-segment heuristic (back-compat
+    for unit-test callers).
+    """
     if not tool_name.startswith("mcp-"):
         return None
     body = tool_name[len("mcp-"):]
-    # The peer name ends at the next '-' that's followed by the tool body.
-    # We can't disambiguate "mcp-a-b-c" cleanly without context; we adopt the
-    # convention that the FIRST segment after "mcp-" is the server name. This
-    # matches how the MCP loader registers them (``mcp-<server>-<tool>``).
     if "-" not in body:
+        return None
+    if registry is not None:
+        parts = body.split("-")
+        # Try longest peer-name prefix first; ``mcp-chimera-a-shell`` →
+        # candidates "chimera-a-shell" (no), "chimera-a" (yes), "chimera" (yes
+        # only if a peer literally named "chimera" is registered). Longest
+        # match wins so hyphenated peers don't collide with a single-segment
+        # prefix.
+        for i in range(len(parts) - 1, 0, -1):
+            candidate = "-".join(parts[:i])
+            # Either always-allowed peer tool (identity or kfm-state) being
+            # registered is a sufficient signal that ``candidate`` is a real peer.
+            if (
+                registry.get(f"mcp-{candidate}-chimera-identity") is not None
+                or registry.get(f"mcp-{candidate}-chimera-kfm-state") is not None
+            ):
+                return candidate
         return None
     return body.split("-", 1)[0]
 

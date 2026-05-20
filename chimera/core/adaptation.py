@@ -151,11 +151,16 @@ def count_similar(
 
 def _already_proposed(
     conn: sqlite3.Connection, *, task_signature: frozenset[str]
-) -> bool:
-    """Check whether we've already emitted a proposal for this signature."""
+) -> int | None:
+    """If a near-identical proposal exists, return its mutation id.
+
+    Matches by Jaccard overlap (≥0.5) on the ``signature_tokens`` payload
+    field. Restricted to ``status='pending'`` so a once-rejected proposal
+    can be re-emitted if the failure keeps recurring.
+    """
     rows = conn.execute(
-        "SELECT payload FROM mutations WHERE type='skill_proposal' "
-        "AND reason LIKE ?",
+        "SELECT id, payload FROM mutations WHERE type='skill_proposal' "
+        "AND status = 'pending' AND reason LIKE ?",
         (f"{_PROPOSED_REASON_PREFIX}%",),
     ).fetchall()
     for r in rows:
@@ -168,8 +173,8 @@ def _already_proposed(
             continue
         union = task_signature | existing_sig
         if union and len(task_signature & existing_sig) / len(union) >= 0.5:
-            return True
-    return False
+            return int(r["id"])
+    return None
 
 
 def maybe_propose_synthesis_skill(
@@ -186,14 +191,19 @@ def maybe_propose_synthesis_skill(
 
     Returns the new mutation id, or None if no proposal was emitted.
     """
-    from ..memory import create_mutation
+    from ..memory import bump_recurrence, create_mutation
 
     similar = count_similar(task_text, path=path)
     if similar < threshold:
         return None
     sig = signature(task_text)
-    if _already_proposed(conn, task_signature=sig):
-        return None
+    existing = _already_proposed(conn, task_signature=sig)
+    if existing is not None:
+        # v4.19: bump recurrence on the existing pending row instead of
+        # enqueueing a duplicate. Returns the existing id so callers can
+        # tell something happened.
+        bump_recurrence(conn, existing)
+        return existing
     skill_name = "synthesize_to_file"
     payload = {
         "name": skill_name,

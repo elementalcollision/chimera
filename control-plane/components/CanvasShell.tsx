@@ -24,6 +24,9 @@ export interface WidgetDef {
   chip?: { tone: "ok" | "warn" | "danger" | "info" | "mint"; text: string };
   group: "agent" | "cost" | "skills" | "federation" | "mind";
   layout: { x: number; y: number; w: number; h: number };
+  /** Minimum cell footprint react-grid-layout will allow on resize. */
+  minW?: number;
+  minH?: number;
   defaultStatic?: boolean;
   body: ReactNode;
 }
@@ -39,8 +42,8 @@ export interface ViewPreset {
 type ThemePref = "system" | "light" | "slate";
 type Density = "compact" | "cozy" | "spacious";
 
-const STORAGE_LAYOUT = "chimera-canvas-layout-v5";
-const STORAGE_PINS = "chimera-canvas-pinned-v5";
+const STORAGE_LAYOUT = "chimera-canvas-layout-v13";
+const STORAGE_PINS = "chimera-canvas-pinned-v13";
 const STORAGE_THEME = "chimera-canvas-theme-v1";
 const STORAGE_DENSITY = "chimera-canvas-density-v1";
 const STORAGE_CATALOGUE = "chimera-canvas-catalogue-v1";
@@ -49,13 +52,30 @@ const STORAGE_AUTOREFRESH = "chimera-canvas-autorefresh-v1";
 
 const AUTO_REFRESH_INTERVAL_MS = 30_000;
 
+interface LayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  minH?: number;
+  static?: boolean;
+}
+
 interface PersistedLayouts {
-  [breakpoint: string]: { i: string; x: number; y: number; w: number; h: number; static?: boolean }[];
+  [breakpoint: string]: LayoutItem[];
 }
 
 function defaultLayout(widgets: WidgetDef[]): PersistedLayouts {
   return {
-    lg: widgets.map((w) => ({ i: w.id, ...w.layout, static: !!w.defaultStatic })),
+    lg: widgets.map((w) => ({
+      i: w.id,
+      ...w.layout,
+      minW: w.minW,
+      minH: w.minH,
+      static: !!w.defaultStatic,
+    })),
   };
 }
 
@@ -195,10 +215,33 @@ export default function CanvasShell({
     _: unknown,
     all: PersistedLayouts,
   ) => {
-    setLayouts(all);
-    try {
-      localStorage.setItem(STORAGE_LAYOUT, JSON.stringify(all));
-    } catch { /* */ }
+    // v4.36 fix: react-grid-layout's callback only carries the currently
+    // VISIBLE items, so naively persisting it drops any hidden widget's
+    // layout entry. Next time the user re-adds the widget from the
+    // catalogue, RGL has no record and falls back to a 1×1 default tile
+    // (the "chip" bug). Merge: keep entries for hidden ids from the
+    // previous layouts, replace entries for visible ids with the
+    // callback's fresh values.
+    setLayouts((curr) => {
+      const merged: PersistedLayouts = {};
+      const bps = new Set([
+        ...Object.keys(all || {}),
+        ...Object.keys(curr || {}),
+      ]);
+      for (const bp of bps) {
+        const fresh = (all && all[bp]) || [];
+        const prior = (curr && curr[bp]) || [];
+        const freshIds = new Set(fresh.map((it) => it.i));
+        const hiddenEntries = prior.filter(
+          (it) => !freshIds.has(it.i) && hidden.has(it.i),
+        );
+        merged[bp] = [...fresh, ...hiddenEntries];
+      }
+      try {
+        localStorage.setItem(STORAGE_LAYOUT, JSON.stringify(merged));
+      } catch { /* */ }
+      return merged;
+    });
   };
 
   const togglePin = (id: string) => {
@@ -206,6 +249,17 @@ export default function CanvasShell({
       const next = { ...p, [id]: !p[id] };
       try { localStorage.setItem(STORAGE_PINS, JSON.stringify(next)); } catch { /* */ }
       return next;
+    });
+    setLayouts((curr) => {
+      if (!curr) return curr;
+      const out: PersistedLayouts = {};
+      for (const [bp, arr] of Object.entries(curr)) {
+        out[bp] = arr.map((it) =>
+          it.i === id ? { ...it, static: !it.static } : it,
+        );
+      }
+      try { localStorage.setItem(STORAGE_LAYOUT, JSON.stringify(out)); } catch { /* */ }
+      return out;
     });
   };
 
@@ -217,6 +271,39 @@ export default function CanvasShell({
     setHidden((h) => {
       const next = new Set(h);
       next.delete(id);
+      return next;
+    });
+    // v4.36 fix: if the layout was previously persisted WITHOUT this
+    // widget (pre-fix corruption, or user added a brand-new widget def),
+    // restore its default layout entry so RGL doesn't fall back to a
+    // 1×1 chip. No-op when an entry already exists.
+    const def = widgets.find((w) => w.id === id);
+    if (!def) return;
+    setLayouts((curr) => {
+      if (!curr) return curr;
+      const next: PersistedLayouts = {};
+      let mutated = false;
+      for (const [bp, arr] of Object.entries(curr)) {
+        if (arr.some((it) => it.i === id)) {
+          next[bp] = arr;
+          continue;
+        }
+        mutated = true;
+        next[bp] = [
+          ...arr,
+          {
+            i: def.id,
+            ...def.layout,
+            minW: def.minW,
+            minH: def.minH,
+            static: !!pinned[def.id],
+          },
+        ];
+      }
+      if (!mutated) return curr;
+      try {
+        localStorage.setItem(STORAGE_LAYOUT, JSON.stringify(next));
+      } catch { /* */ }
       return next;
     });
   };
@@ -232,7 +319,13 @@ export default function CanvasShell({
         .filter((w) => visible.has(w.id))
         .map((w) => {
           const ov = p.layout[w.id] ?? w.layout;
-          return { i: w.id, ...ov, static: !!pinned[w.id] };
+          return {
+            i: w.id,
+            ...ov,
+            minW: w.minW,
+            minH: w.minH,
+            static: !!pinned[w.id],
+          };
         }),
     };
     setLayouts(next);
@@ -374,7 +467,7 @@ export default function CanvasShell({
             className="layout"
             layouts={renderLayouts}
             breakpoints={{ lg: 1200, md: 960, sm: 720, xs: 480 }}
-            cols={{ lg: 12, md: 12, sm: 6, xs: 4 }}
+            cols={{ lg: 12, md: 12, sm: 12, xs: 12 }}
             rowHeight={56}
             draggableHandle=".tile__header"
             onLayoutChange={onLayoutChange}
@@ -395,7 +488,11 @@ export default function CanvasShell({
                         {w.chip.text}
                       </span>
                     )}
-                    <div className="tile__menu">
+                    <div
+                      className="tile__menu"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
                       <button
                         className="iconbtn"
                         data-active={pinned[w.id] ? "true" : "false"}

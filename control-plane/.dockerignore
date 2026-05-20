@@ -1,0 +1,9 @@
+.next
+node_modules
+npm-debug.log*
+.next/cache
+.git
+.env*
+.DS_Store
+*.log
+README.md

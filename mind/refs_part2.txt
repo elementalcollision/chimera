@@ -1,0 +1,33 @@
+
+### Section 3: Named antagonists in the agonistic arena
+- WGA (2023). "WGA Negotiations — Tentative Agreement." Writers Guild of America. https://www.wgacontract2023.org/WGAContract/files/WGA-Negotiations-Tentative-Agreement.pdf
+- WGA (2023). "Artificial Intelligence — Know Your Rights." https://www.wga.org/contracts/know-your-rights/artificial-intelligence
+- Hollywood Reporter (2023). "Writers Guild Strike Ends with Agreement on AI." https://www.hollywoodreporter.com/business/business-news/wga-strike-ends-writers-guild-deal-ai-1235600987/
+- Labor Notes (2025). "Longshore Deal Secures New Automation Language and Big Pay Bump." https://labornotes.org/2025/01/longshore-deal-secures-new-automation-language-and-big-pay-bump
+- Labor Notes (2024). "Port Strike Ends, Workers Win $24 Wage Increase." https://www.labornotes.org/2024/10/port-strike-ends-workers-win-24-wage-increase
+- CNBC (2024). "Port strike: ILA union rejects 50% wage hike offer as shutdown nears." https://www.cnbc.com/2024/09/30/ports-strike-truckers-rails-billions-in-cargo-shutdown.html
+- Maritime Executive (2024). "ILA Breaks Off Negotiations Over Automation Issues for East Coast Ports." https://maritime-executive.com/article/ila-breaks-off-negotiations-over-automation-issues-for-east-coast-ports
+- AWU-CWA (2024). "AWU-CWA files two Unfair Labor Practice charges against Google Data Center contractors." https://www.alphabetworkersunion.org/press/awu-cwa-files-two-unfair-labor-practice-charges-against-google-data-center-contractors
+- Run on Climate (2025). "A Very Bad Deal: How local organizing halted a massive data center development — for now." https://runonclimate.org/stories/a-very-bad-deal-how-local-organizing-halted-a-massive-data-center-development-for-nownbsp
+- AZ Luminaria (2025). "The Project Blue data center proposal sprang up fast — so did the organizing." https://azluminaria.org/2025/07/21/the-project-blue-data-center-sprang-up-fast-so-did-the-organizing/
+- E&E News (2025). "Arizona city rejects data center after AI lobbying push." https://www.eenews.net/articles/arizona-city-rejects-data-center-after-ai-lobbying-push/
+- Deseret News (2026). "Chandler, Arizona rejects data center proposal." https://www.deseret.com/
+- Watkins, J. (2026). "Datacenter Opposition." The Infinite Unknown. https://www.jaredwatkins.com/research/datacenter-opposition/
+- Mongabay (2024). "As lithium mining bleeds Atacama salt flat dry, Indigenous communities hit back." https://news.mongabay.com/2024/12/as-lithium-mining-bleeds-atacama-salt-flat-dry-indigenous-communities-hit-back/
+- Rest of World / Hao, K. (2025). "The real cost of AI is being paid in deserts far from Silicon Valley." https://restofworld.org/2025/ai-resource-extraction-chile-indigenous-communities/
+- Madani, K., Nunbogu, A., Farsi, A., & Matin, M. (2026). "Critical Minerals, Water Insecurity and Injustice." United Nations University Institute for Water, Environment, and Health (UNU-INWEH). https://unu.edu/inweh/collection/unu-inweh-report-critical-minerals-water-insecurity-and-injustice
+- The Conversation / Madani, K. (2026). "The race to mine critical minerals for AI and clean energy is creating 'sacrifice zones'." https://theconversation.com/the-race-to-mine-critical-minerals-for-ai-and-clean-energy-is-creating-sacrifice-zones-that-harm-water-and-health-of-worlds-poor-281524
+
+### Section 4: Structural omissions
+- US Department of Defense (2025). "Chief Digital and Artificial Intelligence Office." https://www.ai.mil
+- Defense News (2024). "Pentagon to oversee $3 billion effort to strengthen microchip supply." https://www.defensenews.com/pentagon/2024/09/16/pentagon-to-oversee-3-billion-effort-to-strengthen-microchip-supply/
+- ODNI (2025). "ICD-505: Artificial Intelligence." Office of the Director of National Intelligence. https://www.dni.gov/files/documents/ICD/ICD-505-Artificial-Intelligence.pdf
+- CRS (2023). "Semiconductors and the CHIPS Act: The Global Context." Congressional Research Service, R47558. https://www.congress.gov/crs-product/R47558
+- Tom's Hardware (2024). "Intel cleared to get $3.5 billion to make advanced chips for Pentagon — Secure Enclave program." https://www.tomshardware.com/tech-industry/intel-cleared-to-get-dollar35-billion-to-make-advanced-chips-for-pentagon-secure-enclave-program-ushers-leading-edge-cpus-to-the-military
+- US Congress (2025). "National Defense Authorization Act for Fiscal Year 2026." Pub. L. 119-60. https://www.govinfo.gov/content/pkg/PLAW-119publ60/html/PLAW-119publ60.htm
+- EveryCRSReport (2026). "Cyber and Artificial Intelligence Provisions in the FY2026 NDAA." IF13197. https://www.everycrsreport.com/reports/IF13197.html
+- Variety (2023). "WGA AI Deal Explained." https://variety.com/2023/biz/news/wga-ai-deal-explained-writers-strike-1235748567/
+- Data Center Watch (2025). "$64 billion of data center projects have been blocked or delayed amid local opposition." https://www.datacenterwatch.org/report
+- Data Center Frontier (2025). "Community Opposition Emerges as New Gatekeeper for AI Data Center Expansion." https://www.datacenterfrontier.com/site-selection/article/55359925/community-opposition-emerges-as-new-gatekeeper-for-ai-data-center-expansion
+- Bloomberg (2025). "AI Is Draining Water From Areas That Need It Most." https://www.bloomberg.com/graphics/2025-ai-impacts-data-centers-water-data/
+- Colorado River Basin post-2026 operating guidelines (2024). Bureau of Reclamation. https://www.usbr.gov/ColoradoRiverBasin/

@@ -133,39 +133,56 @@ class GraphStore:
                 pass
 
     def rebuild_from_sqlite(self, sqlite_conn) -> dict[str, int]:
-        """Project SQLite rows into the graph. Returns counts per node/rel type."""
+        """Project SQLite rows into the graph. Returns counts per node/rel type.
+
+        v4.23: per-table UNWIND batching — one driver call per table
+        instead of one per row. Drops 500-entity rebuild from ~12s to
+        sub-second on dev hardware.
+        """
         self.init_schema()
         self.clear_all()
         counts: dict[str, int] = {}
 
-        # Entities.
+        # Entities — single UNWIND.
         entity_rows = sqlite_conn.execute(
             "SELECT id, kind, name, kfm_state, state_entered_at_cycle, created_at FROM entities"
         ).fetchall()
-        for r in entity_rows:
-            self._conn.execute(
-                "CREATE (e:Entity {id: $id, kind: $kind, name: $name, "
-                "kfm_state: $st, state_entered_at_cycle: $cyc, created_at: $ts})",
-                parameters={
+        if entity_rows:
+            payload = [
+                {
                     "id": r["id"], "kind": r["kind"], "name": r["name"],
-                    "st": r["kfm_state"], "cyc": int(r["state_entered_at_cycle"]),
+                    "st": r["kfm_state"],
+                    "cyc": int(r["state_entered_at_cycle"]),
                     "ts": r["created_at"],
-                },
+                }
+                for r in entity_rows
+            ]
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "CREATE (:Entity {id: row.id, kind: row.kind, name: row.name, "
+                "kfm_state: row.st, state_entered_at_cycle: row.cyc, "
+                "created_at: row.ts})",
+                parameters={"rows": payload},
             )
         counts["Entity"] = len(entity_rows)
 
-        # Mutations.
+        # Mutations — single UNWIND.
         mut_rows = sqlite_conn.execute(
             "SELECT id, type, status, reason, created_at FROM mutations"
         ).fetchall()
-        for r in mut_rows:
-            self._conn.execute(
-                "CREATE (m:Mutation {id: $id, type: $type, status: $st, "
-                "reason: $reason, created_at: $ts})",
-                parameters={
+        if mut_rows:
+            payload = [
+                {
                     "id": int(r["id"]), "type": r["type"], "st": r["status"],
                     "reason": r["reason"] or "", "ts": r["created_at"],
-                },
+                }
+                for r in mut_rows
+            ]
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "CREATE (:Mutation {id: row.id, type: row.type, status: row.st, "
+                "reason: row.reason, created_at: row.ts})",
+                parameters={"rows": payload},
             )
         counts["Mutation"] = len(mut_rows)
 
@@ -174,38 +191,45 @@ class GraphStore:
             "SELECT id, cycle, provider, model_id, finish_reason, created_at "
             "FROM api_calls ORDER BY id DESC LIMIT 1000"
         ).fetchall()
-        for r in api_rows:
+        if api_rows:
+            payload = [
+                {
+                    "id": int(r["id"]), "cyc": int(r["cycle"]),
+                    "p": r["provider"], "m": r["model_id"],
+                    "fr": r["finish_reason"] or "", "ts": r["created_at"],
+                }
+                for r in api_rows
+            ]
             self._conn.execute(
-                "CREATE (a:ApiCall {id: $id, cycle: $cyc, provider: $p, "
-                "model_id: $m, finish_reason: $fr, created_at: $ts})",
-                parameters={
-                    "id": int(r["id"]), "cyc": int(r["cycle"]), "p": r["provider"],
-                    "m": r["model_id"], "fr": r["finish_reason"] or "",
-                    "ts": r["created_at"],
-                },
+                "UNWIND $rows AS row "
+                "CREATE (:ApiCall {id: row.id, cycle: row.cyc, provider: row.p, "
+                "model_id: row.m, finish_reason: row.fr, created_at: row.ts})",
+                parameters={"rows": payload},
             )
         counts["ApiCall"] = len(api_rows)
 
-        # TRANSITIONED_TO edges (entity self-loops in the lifecycle).
+        # TRANSITIONED_TO edges — single MATCH/UNWIND/CREATE.
         trans_rows = sqlite_conn.execute(
             "SELECT entity_id, from_state, to_state, operator_type, reason, "
             "cycle, created_at FROM entity_transitions"
         ).fetchall()
-        for r in trans_rows:
-            # KFM transitions are A→A on the same entity over time;
-            # for a useful provenance graph we connect the entity to itself
-            # with one edge per transition.
-            self._conn.execute(
-                "MATCH (e:Entity {id: $eid}) "
-                "CREATE (e)-[t:TRANSITIONED_TO {"
-                " from_state: $fs, to_state: $ts, operator_type: $op,"
-                " reason: $reason, cycle: $cyc, created_at: $at}]->(e)",
-                parameters={
+        if trans_rows:
+            payload = [
+                {
                     "eid": r["entity_id"], "fs": r["from_state"],
                     "ts": r["to_state"], "op": r["operator_type"],
                     "reason": r["reason"] or "", "cyc": int(r["cycle"]),
                     "at": r["created_at"],
-                },
+                }
+                for r in trans_rows
+            ]
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (e:Entity {id: row.eid}) "
+                "CREATE (e)-[:TRANSITIONED_TO {"
+                " from_state: row.fs, to_state: row.ts, operator_type: row.op,"
+                " reason: row.reason, cycle: row.cyc, created_at: row.at}]->(e)",
+                parameters={"rows": payload},
             )
         counts["TRANSITIONED_TO"] = len(trans_rows)
 
@@ -213,16 +237,22 @@ class GraphStore:
         peer_count = 0
         try:
             from ..a2a import list_peers
-            for p in list_peers():
-                self._conn.execute(
-                    "CREATE (p:Peer {agent_id: $id, version: $v, host: $h, "
-                    "registered_at: $ra})",
-                    parameters={
+            peers = list(list_peers())
+            if peers:
+                payload = [
+                    {
                         "id": p.agent_id, "v": p.version, "h": p.host,
                         "ra": p.registered_at,
-                    },
+                    }
+                    for p in peers
+                ]
+                self._conn.execute(
+                    "UNWIND $rows AS row "
+                    "CREATE (:Peer {agent_id: row.id, version: row.v, "
+                    "host: row.h, registered_at: row.ra})",
+                    parameters={"rows": payload},
                 )
-                peer_count += 1
+            peer_count = len(peers)
         except Exception:
             logger.exception("failed to project peers; continuing")
         counts["Peer"] = peer_count
@@ -232,8 +262,288 @@ class GraphStore:
         counts.update(self._project_trust_edges())
         return counts
 
+    def update_from_sqlite(
+        self,
+        sqlite_conn,
+        *,
+        include_mutations: bool = True,
+        include_peers: bool = True,
+        include_skills_wiki: bool = True,
+    ) -> dict[str, int]:
+        """v4.31 / v4.35: incremental projection.
+
+        Append-only for the volume-dominant tables:
+
+        - **Entity**: diff graph ids vs SQLite, UNWIND only the missing.
+        - **TRANSITIONED_TO**: diff (entity_id, cycle, from_state,
+          to_state) keys, UNWIND only the missing.
+
+        Replace-in-place for the mutating tables (v4.35):
+
+        - **Mutation** + **PROPOSED** + **ACTIVATED**: detach-delete all
+          :Mutation nodes (cheap — small table) then re-project from
+          SQLite. Captures status flips (pending → applied) without
+          a full clear+rebuild.
+        - **Peer** + **TRUSTED**: same shape — detach-delete + re-project
+          from the filesystem registry.
+
+        Skills, WikiDocs, DEPENDS_ON, USES_TOOL, REFERENCES are NOT
+        touched here — those are filesystem-scan-heavy and change
+        rarely. Operator runs ``chimera graph rebuild`` when those
+        need to refresh.
+
+        Returns counts of rows **added or replaced** per table.
+        Idempotent — running with no SQLite changes adds zero entities
+        and zero new transitions, and re-creates the same mutation/peer
+        rows in place.
+        """
+        self.init_schema()
+        counts: dict[str, int] = {"Entity": 0, "TRANSITIONED_TO": 0}
+
+        # ── Entity diff ──────────────────────────────────────
+        existing_ids: set[str] = {
+            str(row[0])
+            for row in self.query("MATCH (e:Entity) RETURN e.id").rows
+        }
+
+        entity_rows = sqlite_conn.execute(
+            "SELECT id, kind, name, kfm_state, state_entered_at_cycle, created_at "
+            "FROM entities"
+        ).fetchall()
+        new_entities = [r for r in entity_rows if r["id"] not in existing_ids]
+        if new_entities:
+            payload = [
+                {
+                    "id": r["id"], "kind": r["kind"], "name": r["name"],
+                    "st": r["kfm_state"],
+                    "cyc": int(r["state_entered_at_cycle"]),
+                    "ts": r["created_at"],
+                }
+                for r in new_entities
+            ]
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "CREATE (:Entity {id: row.id, kind: row.kind, name: row.name, "
+                "kfm_state: row.st, state_entered_at_cycle: row.cyc, "
+                "created_at: row.ts})",
+                parameters={"rows": payload},
+            )
+            counts["Entity"] = len(new_entities)
+
+        # ── Transition diff ──────────────────────────────────
+        # Existing edges keyed by (entity_id, cycle, from_state, to_state).
+        existing_edges: set[tuple[str, int, str, str]] = set()
+        for row in self.query(
+            "MATCH (e:Entity)-[t:TRANSITIONED_TO]->(e) "
+            "RETURN e.id, t.cycle, t.from_state, t.to_state"
+        ).rows:
+            existing_edges.add(
+                (str(row[0]), int(row[1]), str(row[2]), str(row[3]))
+            )
+
+        trans_rows = sqlite_conn.execute(
+            "SELECT entity_id, from_state, to_state, operator_type, reason, "
+            "cycle, created_at FROM entity_transitions"
+        ).fetchall()
+        new_transitions = [
+            r for r in trans_rows
+            if (
+                str(r["entity_id"]),
+                int(r["cycle"]),
+                str(r["from_state"]),
+                str(r["to_state"]),
+            ) not in existing_edges
+        ]
+        if new_transitions:
+            payload = [
+                {
+                    "eid": r["entity_id"], "fs": r["from_state"],
+                    "ts": r["to_state"], "op": r["operator_type"],
+                    "reason": r["reason"] or "", "cyc": int(r["cycle"]),
+                    "at": r["created_at"],
+                }
+                for r in new_transitions
+            ]
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (e:Entity {id: row.eid}) "
+                "CREATE (e)-[:TRANSITIONED_TO {"
+                " from_state: row.fs, to_state: row.ts, operator_type: row.op,"
+                " reason: row.reason, cycle: row.cyc, created_at: row.at}]->(e)",
+                parameters={"rows": payload},
+            )
+            counts["TRANSITIONED_TO"] = len(new_transitions)
+
+        # ── Mutations (v4.35) ─────────────────────────────────
+        if include_mutations:
+            counts.update(self._replace_mutations(sqlite_conn))
+        # ── Peers (v4.35) ────────────────────────────────────
+        if include_peers:
+            counts.update(self._replace_peers())
+        # ── Skills / Wiki (v4.38, mtime-gated) ───────────────
+        if include_skills_wiki:
+            counts.update(self._incremental_skills_wiki())
+
+        return counts
+
+    # ── v4.38: skill/wiki mtime gate ─────────────────────────
+
+    def _fingerprint_path(self) -> Path:
+        # v4.43 fix: newer Kuzu versions store the DB as a single FILE,
+        # not a directory. Putting the fingerprint inside ``self.path``
+        # tried to write inside the DB file and threw FileExistsError on
+        # every cycle. Use a sibling sidecar instead.
+        return self.path.with_suffix(self.path.suffix + ".fingerprint")
+
+    def _compute_skills_wiki_fingerprint(
+        self,
+        skills_dir: Path,
+        mind_dir: Path,
+    ) -> str:
+        """Hash of (filepath, mtime_ns) tuples covering every input to
+        the skill/wiki projection. Stable, cheap, no content read."""
+        import hashlib
+
+        paths: list[Path] = []
+        if skills_dir.exists():
+            paths.extend(p for p in skills_dir.glob("*.py") if p.stem != "__init__")
+        if mind_dir.exists():
+            paths.extend(mind_dir.rglob("*.md"))
+        entries: list[tuple[str, int]] = []
+        for p in paths:
+            try:
+                entries.append((str(p), p.stat().st_mtime_ns))
+            except OSError:
+                continue
+        entries.sort()
+        h = hashlib.sha1()
+        for path, mtime in entries:
+            h.update(path.encode("utf-8"))
+            h.update(b"\0")
+            h.update(str(mtime).encode("ascii"))
+            h.update(b"\n")
+        return h.hexdigest()
+
+    def _incremental_skills_wiki(self) -> dict[str, int]:
+        """Mtime-gated replace-in-place for skills + wiki projections.
+
+        If no skill or mind file has changed since the last projection,
+        returns ``{}`` (a true no-op). On change, detach-deletes all
+        Skill + WikiDoc nodes (drops DEPENDS_ON/USES_TOOL/REFERENCES
+        automatically), re-projects via the existing scanner, and
+        writes the fresh fingerprint to disk.
+        """
+        from ..skills import dynamic_skills_dir
+        skills_dir = dynamic_skills_dir().resolve()
+        mind_dir = Path("mind").resolve()
+
+        fp_now = self._compute_skills_wiki_fingerprint(skills_dir, mind_dir)
+        fp_path = self._fingerprint_path()
+        fp_cached: str | None = None
+        if fp_path.exists():
+            try:
+                fp_cached = fp_path.read_text(encoding="utf-8").strip() or None
+            except OSError:
+                fp_cached = None
+        if fp_cached == fp_now:
+            return {}
+
+        # Files changed (or no cache): drop existing projection and rescan.
+        for node in ("Skill", "WikiDoc"):
+            try:
+                self._conn.execute(f"MATCH (n:{node}) DETACH DELETE n")
+            except Exception:
+                logger.exception("failed to clear %s nodes; continuing", node)
+        counts = self._project_skills_and_wiki(
+            skills_dir=skills_dir, mind_dir=mind_dir,
+        )
+        # v4.38 fix: fp_path.parent IS the graph dir (already a Kuzu store);
+        # `mkdir(exist_ok=True)` still raises FileExistsError on macOS when the
+        # target is a regular directory. Use is_dir() guard instead.
+        try:
+            if not fp_path.parent.is_dir():
+                fp_path.parent.mkdir(parents=True, exist_ok=True)
+            fp_path.write_text(fp_now, encoding="utf-8")
+        except OSError:
+            logger.exception("failed to persist skills/wiki fingerprint")
+        return counts
+
+    def _replace_mutations(self, sqlite_conn) -> dict[str, int]:
+        """v4.35: detach-delete all :Mutation nodes (drops PROPOSED +
+        ACTIVATED edges automatically) and re-project from SQLite.
+
+        Cheap because the mutations table is small (operator-approved
+        proposals; never thousands). Captures status changes that the
+        append-only Entity path can't.
+        """
+        try:
+            self._conn.execute("MATCH (m:Mutation) DETACH DELETE m")
+        except Exception:
+            logger.exception("failed to clear Mutation nodes; continuing")
+            return {"Mutation": 0, "PROPOSED": 0, "ACTIVATED": 0}
+
+        counts: dict[str, int] = {"Mutation": 0, "PROPOSED": 0, "ACTIVATED": 0}
+        mut_rows = sqlite_conn.execute(
+            "SELECT id, type, status, reason, created_at FROM mutations"
+        ).fetchall()
+        if mut_rows:
+            payload = [
+                {
+                    "id": int(r["id"]), "type": r["type"], "st": r["status"],
+                    "reason": r["reason"] or "", "ts": r["created_at"],
+                }
+                for r in mut_rows
+            ]
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "CREATE (:Mutation {id: row.id, type: row.type, status: row.st, "
+                "reason: row.reason, created_at: row.ts})",
+                parameters={"rows": payload},
+            )
+        counts["Mutation"] = len(mut_rows)
+        edge_counts = self._project_mutation_edges(sqlite_conn)
+        counts["PROPOSED"] = edge_counts.get("PROPOSED", 0)
+        counts["ACTIVATED"] = edge_counts.get("ACTIVATED", 0)
+        return counts
+
+    def _replace_peers(self) -> dict[str, int]:
+        """v4.35: detach-delete all :Peer nodes + re-project from the
+        filesystem registry. Drops TRUSTED edges and re-projects them."""
+        try:
+            self._conn.execute("MATCH (p:Peer) DETACH DELETE p")
+        except Exception:
+            logger.exception("failed to clear Peer nodes; continuing")
+            return {"Peer": 0, "TRUSTED": 0}
+
+        counts: dict[str, int] = {"Peer": 0, "TRUSTED": 0}
+        try:
+            from ..a2a import list_peers
+            peers = list(list_peers())
+            if peers:
+                payload = [
+                    {
+                        "id": p.agent_id, "v": p.version, "h": p.host,
+                        "ra": p.registered_at,
+                    }
+                    for p in peers
+                ]
+                self._conn.execute(
+                    "UNWIND $rows AS row "
+                    "CREATE (:Peer {agent_id: row.id, version: row.v, "
+                    "host: row.h, registered_at: row.ra})",
+                    parameters={"rows": payload},
+                )
+            counts["Peer"] = len(peers)
+        except Exception:
+            logger.exception("failed to project peers; continuing")
+        counts.update(self._project_trust_edges())
+        return counts
+
     def _project_mutation_edges(self, sqlite_conn) -> dict[str, int]:
-        """PROPOSED (Mutation→Entity) + ACTIVATED (Mutation→Skill)."""
+        """PROPOSED (Mutation→Entity) + ACTIVATED (Mutation→Skill).
+
+        v4.23: payload parsed in Python, then two UNWIND batches.
+        """
         import json
 
         counts = {"PROPOSED": 0, "ACTIVATED": 0}
@@ -244,6 +554,8 @@ class GraphStore:
         mut_rows = sqlite_conn.execute(
             "SELECT id, type, status, payload FROM mutations"
         ).fetchall()
+        proposed_rows: list[dict[str, Any]] = []
+        activated_rows: list[dict[str, Any]] = []
         for r in mut_rows:
             try:
                 payload = json.loads(r["payload"]) if r["payload"] else {}
@@ -256,23 +568,32 @@ class GraphStore:
                     target_name = v
                     break
             if target_name is not None:
-                self._conn.execute(
-                    "MATCH (m:Mutation {id: $mid}), (e:Entity {id: $eid}) "
-                    "CREATE (m)-[:PROPOSED]->(e)",
-                    parameters={"mid": int(r["id"]), "eid": entity_by_name[target_name]},
+                proposed_rows.append(
+                    {"mid": int(r["id"]), "eid": entity_by_name[target_name]}
                 )
-                counts["PROPOSED"] += 1
             if (
                 r["type"] == "skill_proposal"
                 and r["status"] == "applied"
                 and isinstance(payload.get("name"), str)
             ):
-                self._conn.execute(
-                    "MATCH (m:Mutation {id: $mid}), (s:Skill {name: $sn}) "
-                    "CREATE (m)-[:ACTIVATED]->(s)",
-                    parameters={"mid": int(r["id"]), "sn": payload["name"]},
-                )
-                counts["ACTIVATED"] += 1
+                activated_rows.append({"mid": int(r["id"]), "sn": payload["name"]})
+
+        if proposed_rows:
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (m:Mutation {id: row.mid}), (e:Entity {id: row.eid}) "
+                "CREATE (m)-[:PROPOSED]->(e)",
+                parameters={"rows": proposed_rows},
+            )
+            counts["PROPOSED"] = len(proposed_rows)
+        if activated_rows:
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (m:Mutation {id: row.mid}), (s:Skill {name: row.sn}) "
+                "CREATE (m)-[:ACTIVATED]->(s)",
+                parameters={"rows": activated_rows},
+            )
+            counts["ACTIVATED"] = len(activated_rows)
         return counts
 
     def _project_trust_edges(self) -> dict[str, int]:
@@ -305,22 +626,29 @@ class GraphStore:
             for key in (p.agent_id.split(":")[-1], p.agent_id):
                 peer_id_by_name.setdefault(key, p.agent_id)
 
+        trust_rows: list[dict[str, Any]] = []
         for peer_name, rec in latest.items():
             target_id = peer_id_by_name.get(peer_name)
             if target_id is None:
                 continue
-            self._conn.execute(
-                "MATCH (a:Peer {agent_id: $a}), (b:Peer {agent_id: $b}) "
-                "CREATE (a)-[:TRUSTED {drift_score: $d, verdict: $v, recorded_at: $t}]->(b)",
-                parameters={
+            trust_rows.append(
+                {
                     "a": self_id,
                     "b": target_id,
                     "d": float(rec.drift_score) if rec.drift_score is not None else 0.0,
                     "v": rec.decision,
                     "t": rec.recorded_at,
-                },
+                }
             )
-            counts["TRUSTED"] += 1
+        if trust_rows:
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (a:Peer {agent_id: row.a}), (b:Peer {agent_id: row.b}) "
+                "CREATE (a)-[:TRUSTED {drift_score: row.d, verdict: row.v, "
+                "recorded_at: row.t}]->(b)",
+                parameters={"rows": trust_rows},
+            )
+            counts["TRUSTED"] = len(trust_rows)
         return counts
 
     def _project_skills_and_wiki(
@@ -342,10 +670,13 @@ class GraphStore:
             p for p in skills_dir.glob("*.py") if p.stem != "__init__"
         ]
         skill_names = {p.stem for p in skill_files}
-        for p in skill_files:
+        if skill_files:
             self._conn.execute(
-                "CREATE (s:Skill {name: $n, source_path: $sp})",
-                parameters={"n": p.stem, "sp": str(p)},
+                "UNWIND $rows AS row "
+                "CREATE (:Skill {name: row.n, source_path: row.sp})",
+                parameters={
+                    "rows": [{"n": p.stem, "sp": str(p)} for p in skill_files]
+                },
             )
         counts["Skill"] = len(skill_files)
 
@@ -360,6 +691,8 @@ class GraphStore:
             tool_names = set()
 
         # AST scan each skill for imports (DEPENDS_ON) and tool calls (USES_TOOL).
+        dep_rows: list[dict[str, Any]] = []
+        use_rows: list[dict[str, Any]] = []
         for p in skill_files:
             try:
                 tree = ast.parse(p.read_text(encoding="utf-8"))
@@ -377,33 +710,46 @@ class GraphStore:
                     if node.value in tool_names:
                         uses.add(node.value)
             for d in deps:
-                self._conn.execute(
-                    "MATCH (a:Skill {name: $a}), (b:Skill {name: $b}) "
-                    "CREATE (a)-[:DEPENDS_ON]->(b)",
-                    parameters={"a": p.stem, "b": d},
-                )
-                counts["DEPENDS_ON"] += 1
+                dep_rows.append({"a": p.stem, "b": d})
             for t in uses:
-                self._conn.execute(
-                    "MATCH (s:Skill {name: $s}), (e:Entity {name: $t, kind: 'tool'}) "
-                    "CREATE (s)-[:USES_TOOL]->(e)",
-                    parameters={"s": p.stem, "t": t},
-                )
-                # Edge may not be created if the tool isn't in the Entity table;
-                # count optimistically — query result tells us the real count.
-                counts["USES_TOOL"] += 1
+                use_rows.append({"s": p.stem, "t": t})
+
+        if dep_rows:
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (a:Skill {name: row.a}), (b:Skill {name: row.b}) "
+                "CREATE (a)-[:DEPENDS_ON]->(b)",
+                parameters={"rows": dep_rows},
+            )
+            counts["DEPENDS_ON"] = len(dep_rows)
+        if use_rows:
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (s:Skill {name: row.s}), (e:Entity {name: row.t, kind: 'tool'}) "
+                "CREATE (s)-[:USES_TOOL]->(e)",
+                parameters={"rows": use_rows},
+            )
+            # Edge may not be created if the tool isn't in the Entity table;
+            # count optimistically — query result tells us the real count.
+            counts["USES_TOOL"] = len(use_rows)
 
         # WikiDocs + REFERENCES from markdown links.
         md_link_re = re.compile(r"\[[^\]]*\]\(([^)]+\.md)(?:#[^)]*)?\)")
         if mind_dir.exists():
             md_files = [p for p in mind_dir.rglob("*.md")]
             doc_paths = {str(p.relative_to(mind_dir)) for p in md_files}
-            for p in md_files:
+            if md_files:
                 self._conn.execute(
-                    "CREATE (d:WikiDoc {path: $p})",
-                    parameters={"p": str(p.relative_to(mind_dir))},
+                    "UNWIND $rows AS row CREATE (:WikiDoc {path: row.p})",
+                    parameters={
+                        "rows": [
+                            {"p": str(p.relative_to(mind_dir))} for p in md_files
+                        ]
+                    },
                 )
             counts["WikiDoc"] = len(md_files)
+
+            ref_rows: list[dict[str, Any]] = []
             for p in md_files:
                 rel = str(p.relative_to(mind_dir))
                 try:
@@ -417,11 +763,14 @@ class GraphStore:
                     target = str((p.parent / target_raw).resolve().relative_to(mind_dir)) \
                         if (p.parent / target_raw).exists() else target_raw
                     if target in doc_paths and target != rel:
-                        self._conn.execute(
-                            "MATCH (a:WikiDoc {path: $a}), (b:WikiDoc {path: $b}) "
-                            "CREATE (a)-[:REFERENCES]->(b)",
-                            parameters={"a": rel, "b": target},
-                        )
-                        counts["REFERENCES"] += 1
+                        ref_rows.append({"a": rel, "b": target})
+            if ref_rows:
+                self._conn.execute(
+                    "UNWIND $rows AS row "
+                    "MATCH (a:WikiDoc {path: row.a}), (b:WikiDoc {path: row.b}) "
+                    "CREATE (a)-[:REFERENCES]->(b)",
+                    parameters={"rows": ref_rows},
+                )
+                counts["REFERENCES"] = len(ref_rows)
 
         return counts

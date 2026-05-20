@@ -1,5 +1,19 @@
 # Chimera — Implementation Plan
 
+> **Status (2026-05-19):** *Historical.* This document captured the
+> research-spike-first plan that took Chimera from concept through
+> Phase 0–4 into v1.0, then v2.0 (federation), v3.0 (graph-backed
+> memory), and v4.0 (post-mortem polish + the v4.x learning loop).
+> All phases here are complete.
+>
+> **For the live system record**, see:
+> - [docs/adr/README.md](docs/adr/README.md) — every architectural
+>   decision since Phase 0, 72 ADRs and counting.
+> - [README.md](README.md) — current production-shape (v4.52),
+>   container + dashboard + CLI surfaces.
+>
+> This file is preserved as the design narrative.
+
 ## Overview
 Chimera is a containerized, tools-capable agent built as a **chimera orchestrator** — a thin Python core that selectively pulls best-of-breed components from multiple agent SDKs, routes across OpenRouter + Anthropic models, and exposes a concentrically-expanding tool surface (shell → web → code-exec → MCP/sub-agents).
 

@@ -152,3 +152,68 @@ def test_bearer_middleware_logs_warning_when_constructed_with_empty_token(caplog
     with caplog.at_level("WARNING", logger="chimera.server.http_server"):
         _BearerAuthMiddleware(app=lambda *a: None, expected_token="")
     assert any("PEER_TOKEN" in r.message for r in caplog.records)
+
+
+# ── v4.52: non-loopback bind requires auth ──────────────────
+
+
+def test_is_loopback_recognises_common_loopback_hosts():
+    from chimera.server.http_server import _is_loopback
+    assert _is_loopback("127.0.0.1")
+    assert _is_loopback("::1")
+    assert _is_loopback("localhost")
+    assert _is_loopback("LOCALHOST")  # case-insensitive
+    assert not _is_loopback("0.0.0.0")
+    assert not _is_loopback("192.168.1.10")
+    assert not _is_loopback("chimera.example.com")
+    assert not _is_loopback("")
+
+
+def test_check_bind_security_refuses_non_loopback_without_token(monkeypatch):
+    from chimera.server.http_server import (
+        InsecureHttpBindError, _check_bind_security,
+    )
+
+    monkeypatch.delenv("CHIMERA_PEER_TOKEN", raising=False)
+    monkeypatch.delenv("CHIMERA_PEER_TOKENS", raising=False)
+    monkeypatch.delenv("CHIMERA_ALLOW_INSECURE_HTTP", raising=False)
+
+    with pytest.raises(InsecureHttpBindError) as exc_info:
+        _check_bind_security("0.0.0.0")
+    msg = str(exc_info.value)
+    assert "refusing to bind" in msg
+    assert "CHIMERA_PEER_TOKEN" in msg
+
+
+def test_check_bind_security_allows_non_loopback_with_token(monkeypatch):
+    from chimera.server.http_server import _check_bind_security
+    monkeypatch.setenv("CHIMERA_PEER_TOKEN", "tok-abc")
+    # Should not raise.
+    _check_bind_security("0.0.0.0")
+
+
+def test_check_bind_security_allows_non_loopback_with_token_map(monkeypatch):
+    from chimera.server.http_server import _check_bind_security
+    monkeypatch.delenv("CHIMERA_PEER_TOKEN", raising=False)
+    monkeypatch.setenv("CHIMERA_PEER_TOKENS", '{"t1": "peerA"}')
+    _check_bind_security("0.0.0.0")
+
+
+def test_check_bind_security_override_with_allow_insecure(monkeypatch):
+    from chimera.server.http_server import _check_bind_security
+    monkeypatch.delenv("CHIMERA_PEER_TOKEN", raising=False)
+    monkeypatch.delenv("CHIMERA_PEER_TOKENS", raising=False)
+    monkeypatch.setenv("CHIMERA_ALLOW_INSECURE_HTTP", "1")
+    _check_bind_security("0.0.0.0")
+
+
+def test_check_bind_security_allows_loopback_without_token(monkeypatch):
+    """Loopback bind without a token is still permitted (local-dev
+    convenience)."""
+    from chimera.server.http_server import _check_bind_security
+    monkeypatch.delenv("CHIMERA_PEER_TOKEN", raising=False)
+    monkeypatch.delenv("CHIMERA_PEER_TOKENS", raising=False)
+    monkeypatch.delenv("CHIMERA_ALLOW_INSECURE_HTTP", raising=False)
+    _check_bind_security("127.0.0.1")
+    _check_bind_security("::1")
+    _check_bind_security("localhost")

@@ -34,6 +34,48 @@ _sub_agent_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
 )
 
 
+class SubAgentFailed(Exception):
+    """v4.49: surfaces a sub-agent's non-completion to the parent ACT
+    loop. The dispatcher's generic exception path converts this into a
+    structured ``is_error=True`` tool_result that the parent model can
+    pattern-match and react to (escalate tier, change strategy, give up).
+
+    Without this, the runner used to swallow the failure and return a
+    benign ``(sub-agent finished without text; finish_reason=X)`` string
+    as a successful tool result — the parent had no signal to retry."""
+
+    def __init__(
+        self,
+        *,
+        finish_reason: str,
+        failure_reason: str | None,
+        tier: str,
+        rounds_used: int,
+        api_call_count: int,
+        final_text: str,
+    ) -> None:
+        self.finish_reason = finish_reason
+        self.failure_reason = failure_reason
+        self.tier = tier
+        self.rounds_used = rounds_used
+        self.api_call_count = api_call_count
+        self.final_text = final_text
+        # The string we want the model to see — concise but actionable.
+        msg_parts = [
+            f"sub-agent FAILED on tier={tier!r}",
+            f"finish_reason={finish_reason}",
+            f"rounds={rounds_used}",
+            f"api_calls={api_call_count}",
+        ]
+        if failure_reason:
+            msg_parts.append(f"detail={failure_reason!r}")
+        if final_text:
+            # First 120 chars of whatever it managed to say.
+            preview = final_text.strip().splitlines()[0][:120]
+            msg_parts.append(f"last_text={preview!r}")
+        super().__init__("; ".join(msg_parts))
+
+
 @dataclass
 class SubAgentConfig:
     max_depth: int = 2
@@ -79,9 +121,22 @@ class SubAgentRunner:
             allow=frozenset(allowed_tools) if allowed_tools else frozenset(),
         )
         result = await executor.execute(brief, cycle=cycle, context=context)
+        # v4.49: surface sub-agent failure clearly. The dispatcher
+        # converts the raised exception into an is_error=True tool_result
+        # so the parent model sees this as a failure, not a quiet success.
+        if not result.completed:
+            raise SubAgentFailed(
+                finish_reason=result.finish_reason,
+                failure_reason=result.failure_reason,
+                tier=tier or self._config.default_tier,
+                rounds_used=result.rounds,
+                api_call_count=result.api_call_count,
+                final_text=result.final_text,
+            )
         if result.final_text:
             return result.final_text
-        return f"(sub-agent finished without text; finish_reason={result.finish_reason})"
+        # Completed cleanly but emitted no text — rare but legal.
+        return "(sub-agent completed without final text)"
 
 
 SPAWN_SUB_AGENT_SCHEMA: dict[str, Any] = {

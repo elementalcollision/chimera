@@ -58,7 +58,9 @@ class PeerAwareDispatcher(Dispatcher):
         args: dict[str, Any],
         context: DispatchContext | None = None,
     ) -> str:
-        peer_name = peer_name_from_tool(tool_name)
+        # v4.27: pass our own registry so hyphenated peer names resolve via
+        # longest-prefix match instead of silently bypassing the gate.
+        peer_name = peer_name_from_tool(tool_name, registry=self._registry)
         # Non-peer tool, OR always-allowed peer tool → unchanged.
         if peer_name is None or is_always_allowed_peer_tool(tool_name):
             return await super().dispatch(tool_name, args, context)

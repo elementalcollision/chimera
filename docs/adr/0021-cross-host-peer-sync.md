@@ -5,12 +5,12 @@
 
 ## Context
 
-ADR 0007 made the peer registry filesystem-local. ADR 0014 explicitly
+[ADR 0007](./0007-peer-registry.md) made the peer registry filesystem-local. [ADR 0014](./0014-emergence-protocol-journal.md) explicitly
 called cross-host registry sync a v3 non-goal. v3.7 closes that gap.
 
 A single-host swarm (multiple Chimeras under one home dir) already works
 — they share `~/.chimera/peers/`. A multi-host swarm has no shared
-filesystem, and HTTP-reachable Chimeras (ADR 0011) have no way to
+filesystem, and HTTP-reachable Chimeras ([ADR 0011](./0011-http-transport.md)) have no way to
 discover each other.
 
 ## Decision
@@ -30,7 +30,7 @@ Pull-based sync over the existing `/healthz` JSON endpoint.
   - `sweep_remote_stale(*, max_age_hours=24, dir=None, now=None)`
     removes only entries whose `reach.transport == "http"` and whose
     `registered_at` is older than the cutoff. Local stdio entries are
-    untouched (ADR 0007's pid-based sweep still handles those).
+    untouched ([ADR 0007](./0007-peer-registry.md)'s pid-based sweep still handles those).
 - CLI: `chimera peers sync [--urls ...]` and `chimera peers sweep-remote
   [--max-age-hours N]`.
 

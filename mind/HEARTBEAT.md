@@ -1,18 +1,10 @@
 ---
-cycle: 0
-session_started_at: null
-trust_tier: T0
-status: dormant
+cycle: 37
+session_started_at: '2026-05-20T04:08:33+00:00'
+trust_tier: T5
+status: running
 model_usage:
   anthropic_calls: 0
   openrouter_calls: 0
 last_drift_score: null
 ---
-
-# Chimera — Heartbeat
-
-The current operational state of Chimera. Frontmatter is the canonical record;
-narrative below is human-facing.
-
-This file is the source of truth for cycle state. The WRITE phase updates the
-frontmatter every cycle; WAKE restores it on container restart.

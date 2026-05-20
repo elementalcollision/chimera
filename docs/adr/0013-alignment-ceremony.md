@@ -77,7 +77,7 @@ reads is Chimera-native (identity payload, kfm-state payload).
   agreeing to upgrade their wire shape together) stays v2.9.
 - **No cryptographic attestation.** Signed identity claims would
   strengthen ``capability_alignment`` and the inbound attestation in
-  ADR 0012. Both block on a peer-registry-as-authority that doesn't
+  [ADR 0012](./0012-inbound-attestation.md). Both block on a peer-registry-as-authority that doesn't
   exist yet.
 - **No periodic auto-run.** Callers run the ceremony when they want.
   A future hook could schedule one per cycle's FLUSH phase.

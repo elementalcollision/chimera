@@ -1,27 +1,66 @@
-# Chimera development compose.
+# Chimera production-ish compose — v4.45.
 #
-# Volumes:
-#   ./state  → /state   (SQLite, drift JSON; gitignored)
-#   ./mind   → /mind    (HEARTBEAT.md, INBOX.md, SESSION_LOG.md, wiki/)
+# Services:
+#   chimera     — the agent (long-running OR one-shot via `docker compose run`)
+#   dashboard   — Next.js control plane on :3000
 #
-# Env:
-#   .env at the repo root provides ANTHROPIC_API_KEY, OPENROUTER_API_KEY, etc.
-#   Loaded automatically by docker compose.
+# Volumes (host bind):
+#   ./mind   → /mind        narrative state (HEARTBEAT, INBOX, wiki, CHRONICLE)
+#   ./state  → /state       SQLite, Kuzu graph, journals
+#   ./peers  → /peers       peer registry (optional, for federation)
+#
+# Env: .env at the repo root provides ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
+# and any CHIMERA_* overrides. Loaded automatically by docker compose.
 
 services:
   chimera:
     build:
       context: .
       dockerfile: Dockerfile
-    image: chimera:dev
+    image: chimera:v4.45
     container_name: chimera
     env_file:
       - .env
     environment:
       CHIMERA_STATE_DIR: /state
       CHIMERA_MIND_DIR: /mind
+      CHIMERA_PEER_REGISTRY_DIR: /peers
     volumes:
-      - ./state:/state
       - ./mind:/mind
+      - ./state:/state
+      - ./peers:/peers
+    # Long-running mode: serve as an MCP HTTP peer. v4.52 requires
+    # CHIMERA_PEER_TOKEN to be set in .env when binding to 0.0.0.0
+    # (the guard refuses to start without it). For local-loopback-only
+    # development, change --host to 127.0.0.1 and the guard relaxes.
+    command: ["serve", "--http", "--host", "0.0.0.0", "--port", "8765"]
+    ports:
+      - "127.0.0.1:8765:8765"
     restart: unless-stopped
-    # Override CMD via `docker compose run chimera <args>`
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8765/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  dashboard:
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile
+    image: chimera-dashboard:v4.45
+    container_name: chimera-dashboard
+    environment:
+      CHIMERA_STATE_DIR: /state
+      CHIMERA_MIND_DIR: /mind
+      PORT: "3000"
+    volumes:
+      # Read-only mounts — the dashboard never writes.
+      - ./mind:/mind:ro
+      - ./state:/state:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      chimera:
+        condition: service_started
+    restart: unless-stopped

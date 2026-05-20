@@ -5,7 +5,7 @@
 
 ## Context
 
-ADR 0014 shipped emergence as observation-only with an explicit v3 list of
+[ADR 0014](./0014-emergence-protocol-journal.md) shipped emergence as observation-only with an explicit v3 list of
 non-goals: auto-record on MCP discovery, and cross-host journal sync.
 v3.8 closes both.
 

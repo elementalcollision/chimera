@@ -4,7 +4,7 @@
 
 ## Context
 
-The ADR 0002 drift composite is the single highest-signal "is the
+The [ADR 0002](./0002-memory-strategy.md) drift composite is the single highest-signal "is the
 agent healthy?" number. Until v4.15 only the **last** composite was
 recorded — in `HEARTBEAT.md` frontmatter — so the dashboard could
 show the current value but never the trend. A 0.31 reading is

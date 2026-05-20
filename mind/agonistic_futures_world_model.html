@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Agonistic Futures — World Model</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+
+<style>
+:root{--bg:#0f1117;--text:#e1e4eb;--mat:#ff6b6b;--hum:#4ecdc4;--ai:#a78bfa;--conf:#fbbf24;--gov:#60a5fa;--agon:#f472b6}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;padding:2rem}
+h1{text-align:center;font-weight:600;font-size:2rem;margin-bottom:.25rem}
+h1 .m{color:var(--mat)}h1 .h{color:var(--hum)}h1 .a{color:var(--ai)}
+.subtitle{text-align:center;color:#888;margin-bottom:2rem;font-size:.9rem}
+.legend{display:flex;flex-wrap:wrap;justify-content:center;gap:1.5rem;margin-bottom:2rem;font-size:.85rem}
+.legend-item{display:flex;align-items:center;gap:.5rem}
+.swatch{width:14px;height:14px;border-radius:4px;flex-shrink:0}
+.mc{background:#1a1c24;border-radius:16px;padding:2rem;margin-bottom:2rem;border:1px solid #2a2d3a;overflow-x:auto}
+.mermaid svg{max-width:100%;height:auto;display:block;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;margin-top:1.5rem}
+.card{background:#1a1c24;border:1px solid #2a2d3a;border-radius:12px;padding:1.25rem;transition:border-color .2s}
+.card:hover{border-color:#555}
+.card h3{font-size:.9rem;font-weight:600;margin-bottom:.5rem}
+.card p{font-size:.8rem;color:#aaa;line-height:1.5}
+.cm h3{color:var(--mat)}.ch h3{color:var(--hum)}.ca h3{color:var(--ai)}
+.cc h3{color:var(--conf)}.cg h3{color:var(--gov)}
+.st{font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:#555;margin:2rem 0 .5rem;font-weight:600}
+.ann{text-align:center;margin:2rem 0;padding:1.25rem;background:#1a1c24;border:1px solid #2a2d3a;border-radius:12px;font-size:.85rem;color:#999;line-height:1.6}
+.ann em{color:var(--agon);font-style:normal;font-weight:600}
+</style>
+
+</head>
+<body>
+
+<h1><span class="m">⚡</span> <span class="h">Human</span> ↔ <span class="a">Agentic</span> ↔ <span class="m">Material</span></h1>
+<p class="subtitle">Agonistic Futures — World Model · Graham (2024) · Annotated</p>
+
+<div class="legend">
+  <div class="legend-item"><span class="swatch" style="background:#4ecdc4"></span> Human societies</div>
+  <div class="legend-item"><span class="swatch" style="background:#a78bfa"></span> Agentic AI</div>
+  <div class="legend-item"><span class="swatch" style="background:#ff6b6b"></span> Material flows</div>
+  <div class="legend-item"><span class="swatch" style="background:#fbbf24"></span> Conflict zones</div>
+  <div class="legend-item"><span class="swatch" style="background:#60a5fa"></span> Governance</div>
+  <div class="legend-item"><span class="swatch" style="background:#f472b6"></span> Agonistic arena</div>
+</div>
+
+<div class="mc">
+<div class="mermaid">
+flowchart LR
+  subgraph Trinity["Trinity of Forces"]
+    direction TB
+    H["Human Societies<br/>[labour, attention, regulation]"]
+    A["Agentic AI Systems<br/>[computation, automation, curation]"]
+    M["Material Base<br/>[energy, water, minerals, land]"]
+  end
+
+  H -- "labour &amp; attention" --> A
+  A -- "automation &amp; curation" --> H
+  H -- "extraction rights &amp; land use" --> M
+  M -- "resource constraints &amp; sinks" --> H
+  A -- "TWh demand &amp; water withdrawal" --> M
+  M -- "mineral supply bottlenecks" --> A
+
+  subgraph Clusters["Conflict Clusters"]
+    direction TB
+    DC["Data Centres"]
+    WEC["Water/Energy Commons"]
+    LM["Labour Markets"]
+    APS["Algorithmic Public Sphere"]
+    MSC["Mineral Supply Chains"]
+    GOV["Governance Regimes"]
+    AA["Agonistic Arena"]
+  end
+
+  DC -- "2-3x energy demand by 2030" --> WEC
+  DC -- "e-waste: 1.2-5.0 Mt/yr" --> MSC
+  DC -- "compute substrate" --> A
+  WEC -- "water curtailments &amp; grid strain" --> AA
+  LM -- "cognitive labour displacement" --> H
+  LM -- "routine automation frontier" --> A
+  APS -- "algorithmic curation" --> H
+  APS -- "feedback-loop training data" --> A
+  GOV -- "grid permits &amp; emission caps" --> DC
+  GOV -- "agonistic deliberation" --> AA
+  MSC -- "geopolitical leverage" --> AA
+  AA -- "counter-hegemonic contestation" --> GOV
+</div>
+</div>
+
+<div class="st">◆ NODES</div>
+<div class="grid">
+
+<div class="card cc">
+<h3>⚡ Data Centres</h3>
+<p>The physical compute substrate. Energy demand nearing aviation sector levels (IEA 2024). Water withdrawal for cooling in drought-prone regions (Li et al. 2023). E-waste from accelerated hardware churn projected at millions of metric tons/year by 2030 (Wang et al. 2024).</p>
+</div>
+
+<div class="card cc">
+<h3>💧 Water / Energy Commons</h3>
+<p>Shared resource pools squeezed by AI buildout. Grid capacity conflicts (Maryland Piedmont, 2024). Municipal water competition in AZ, OR, Bengaluru, Santiago. Agonistic flashpoints where material scarcity meets political mobilisation.</p>
+</div>
+
+<div class="card cc">
+<h3>👷 Labour Markets</h3>
+<p>GenAI displacing cognitive/routine work (NBER). Marginalised workers face greatest precarity. Automation frontier expands faster than retraining ecosystems. Distributional effects remain contested — a live agonistic cleavage.</p>
+</div>
+
+<div class="card cc">
+<h3>📱 Algorithmic Public Sphere</h3>
+<p>AI-mediated information ecosystems eroding Arendtian public deliberation. Feedback loops between algorithmic curation and training data. Bias amplification documented in hiring, lending, criminal justice (ACL 2024).</p>
+</div>
+
+<div class="card cc">
+<h3>⛏️ Mineral Supply Chains</h3>
+<p>Critical minerals (Li, Co, Ga, Ge, rare earths) under geopolitical tension. US DOE 2023 assessment flags supply-chain concentration. Semiconductor fab environmental damage. Agonistic arena for resource sovereignty claims.</p>
+</div>
+
+<div class="card cg">
+<h3>🏛️ Governance Regimes</h3>
+<p>Nation-state regulation (grid permits, emissions caps, e-waste directives). Multi-stakeholder bodies. Must shift from technocratic consensus to agonistic pluralism — institutionalising conflict as productive rather than suppressing it (Popa &amp; Blok 2020).</p>
+</div>
+
+<div class="card cc">
+<h3>⚔️ Agonistic Arena</h3>
+<p>The central political space where adversary relations play out. Counter-hegemonic contestation, resource sovereignty claims, public deliberation over AI's material costs. Mouffe's agonistic pluralism applied to human-AI interdependence.</p>
+</div>
+
+</div>
+
+<div class="st">◆ EDGE LEGEND</div>
+<div class="grid">
+
+<div class="card ch">
+<h3>Human → Agentic</h3>
+<p>Labour supply, attention, democratic regulation, training data. These flows constitute AI's <em>social</em> substrate — the human activity that fuels both the economic and epistemic machinery.</p>
+</div>
+
+<div class="card ca">
+<h3>Agentic → Human</h3>
+<p>Automation of cognitive/routine labour, algorithmic curation of public discourse, feedback-loop bias. AI exerts structural power back onto human societies, shaping opportunity and information.</p>
+</div>
+
+<div class="card cm">
+<h3>Human → Material</h3>
+<p>Extraction rights, land-use permits, grid expansion approvals, water allocation policy. Human governance regimes mediate access to the physical resources AI requires.</p>
+</div>
+
+<div class="card cm">
+<h3>Material → Human</h3>
+<p>Resource scarcity signals, pollution burdens, e-waste contamination, climate feedback. The material world imposes costs and constraints back on human communities — unevenly distributed.</p>
+</div>
+
+<div class="card ca">
+<h3>AI → Material</h3>
+<p>Data centre energy and water demand, hardware manufacturing waste, mineral depletion. AI's physical metabolism is the primary driver of the material conflicts modelled.</p>
+</div>
+
+<div class="card cm">
+<h3>Material → AI</h3>
+<p>Geopolitical bottlenecks in Ga, Ge, rare earths; fab capacity constraints; thermal limits. Material shortages and supply-chain weaponisation throttle AI's expansion trajectory.</p>
+</div>
+
+</div>
+
+<div class="ann">
+<em>AGONISTIC ARENA</em> — The adversarial political space where these seven clusters interact. Conflict is not a bug to be engineered away but the <em>constitutive condition</em> of human-AI interdependence (Mouffe, 2013; Popa &amp; Blok, 2020). Legitimate governance institutions must institutionalise agonistic contestation — enabling adversary relations without collapsing into antagonism.
+</div>
+
+</body>
+</html>

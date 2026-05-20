@@ -55,14 +55,14 @@ Chimera adopts Reggio's 8-phase heartbeat as its canonical loop structure in MVP
 
 ### Mind/* hierarchy: **Hybrid**
 
-This is **a delta to [ADR 0002](0002-memory-strategy.md)**. ADR 0002 specified SQLite for ontology + activity log + drift state. Reggio's mind/* file model is complementary, not a replacement.
+This is **a delta to [ADR 0002](0002-memory-strategy.md)**. [ADR 0002](./0002-memory-strategy.md) specified SQLite for ontology + activity log + drift state. Reggio's mind/* file model is complementary, not a replacement.
 
 | What | Where | Why |
 |---|---|---|
-| KFM entities, transitions, authority audit | SQLite (`entities`, `entity_transitions`) per ADR 0002 | Relational integrity for KFM check. |
-| Activity log (cycle, cell_id PK) | SQLite per ADR 0002 | Idempotent claim writes. |
-| Drift state snapshots | JSON files (`state/drift/<session>.json`) per ADR 0002 | Already a Leonardo-style snapshot. |
-| API call ledger, ladder outcomes | SQLite (`api_calls`, `ladder_outcomes`) — **new tables**, ADR 0002 amendment | Cost/latency observability; matches Reggio's `daemon.db`. |
+| KFM entities, transitions, authority audit | SQLite (`entities`, `entity_transitions`) per [ADR 0002](./0002-memory-strategy.md) | Relational integrity for KFM check. |
+| Activity log (cycle, cell_id PK) | SQLite per [ADR 0002](./0002-memory-strategy.md) | Idempotent claim writes. |
+| Drift state snapshots | JSON files (`state/drift/<session>.json`) per [ADR 0002](./0002-memory-strategy.md) | Already a Leonardo-style snapshot. |
+| API call ledger, ladder outcomes | SQLite (`api_calls`, `ladder_outcomes`) — **new tables**, [ADR 0002](./0002-memory-strategy.md) amendment | Cost/latency observability; matches Reggio's `daemon.db`. |
 | **HEARTBEAT.md** (current cycle, trust tier, model usage frontmatter) | `mind/HEARTBEAT.md` | Human-readable cycle state; the source of truth Chimera resumes from across container restarts. |
 | **INBOX.md** (active task list, `- [ ]` / `- [x]`) | `mind/INBOX.md` | Operator-editable. Chimera reads in ASSESS, writes in WRITE. |
 | **SESSION_LOG.md** (cycle-by-cycle event log) | `mind/SESSION_LOG.md` | Append-only. Human-tail-able. |
@@ -75,7 +75,7 @@ This is **a delta to [ADR 0002](0002-memory-strategy.md)**. ADR 0002 specified S
 
 ```
 state/                       # docker volume
-  chimera.db                 # SQLite (per ADR 0002 + api_calls/ladder_outcomes)
+  chimera.db                 # SQLite (per [ADR 0002](./0002-memory-strategy.md) + api_calls/ladder_outcomes)
   drift/<session>.json
 mind/                        # docker volume, human-editable
   HEARTBEAT.md
@@ -102,24 +102,24 @@ Non-negotiable. These are what stop a tool-using agent from going off the rails.
 
 Adopt the queue and the "Reggio proposes, operator disposes" gate. **Simplification**: at MVP, the "operator" is the human user via CLI (`chimera mutations list`, `chimera mutations approve <id>`). Auto-activation by trust tier is deferred until trust-tier logic lands.
 
-### TierLadder cost cascade: **adopted; ladder content per ADR 0001**
+### TierLadder cost cascade: **adopted; ladder content per [ADR 0001](./0001-sdk-chimera-boundaries.md)**
 
-ADR 0001 already committed to Leonardo's `MODEL_TIERS`. Reggio's `TierLadder.execute()` walks cheapest-first with a safety net. Same shape; ladder content already canonicalized. `LadderOutcomeRecorder` tables go into SQLite (`ladder_outcomes`).
+[ADR 0001](./0001-sdk-chimera-boundaries.md) already committed to Leonardo's `MODEL_TIERS`. Reggio's `TierLadder.execute()` walks cheapest-first with a safety net. Same shape; ladder content already canonicalized. `LadderOutcomeRecorder` tables go into SQLite (`ladder_outcomes`).
 
 ### Evolution pipeline (discover → evaluate → assemble → validate → activate): **deferred to v1+**
 
 The full evolution side loop with sandbox subprocess validation is Phase 4-or-later. The mutation queue infrastructure lands in MVP (so the *interface* is stable); the *engines that feed it* come later. This matches the deferral of Discovery/Curiosity/Reflection engines above.
 
-### Indexer sidecar / Qdrant: **NOT in MVP, per ADR 0002**
+### Indexer sidecar / Qdrant: **NOT in MVP, per [ADR 0002](./0002-memory-strategy.md)**
 
-Echoes are nice but not necessary. ADR 0002's deferral of Qdrant stands. When/if added, the `IndexerClient.search` failure semantics (0.25s timeout, fails-open to `[]`) are adopted verbatim.
+Echoes are nice but not necessary. [ADR 0002](./0002-memory-strategy.md)'s deferral of Qdrant stands. When/if added, the `IndexerClient.search` failure semantics (0.25s timeout, fails-open to `[]`) are adopted verbatim.
 
 ## Consequences
 
 - **`chimera/core/loop.py`** is the 8-phase implementation. Each phase is a method on a `ChimeraLoop` class. Phases are independently testable.
 - **`chimera/core/escalation.py`** holds PR #58-style correction prompts.
 - **`chimera/tools/loop_guard.py`** and **`chimera/tools/write_intent.py`** are MVP modules.
-- **ADR 0002 amended** (informally; will be folded into a 0002 revision if needed): adds `api_calls` and `ladder_outcomes` tables; adds the mind/* directory as a peer to `state/`.
+- **[ADR 0002](./0002-memory-strategy.md) amended** (informally; will be folded into a 0002 revision if needed): adds `api_calls` and `ladder_outcomes` tables; adds the mind/* directory as a peer to `state/`.
 - **`PLAN.md` Phase 1 expands**: Task 1.3 (Agent loop v0) becomes "Agent loop with 8 phases, stubs OK"; Task 1.4 (Shell tool) gets companion task 1.4b (ACT-phase guards).
 - **No engines at MVP** means the cycle is sparse: PLAN runs Opus every 4th cycle and does nothing otherwise; HOUSEKEEPING/WAKE/COMMIT/ROTATE are minimal. That's fine — the phase boundaries are the value, not the engine fill.
 - **The "human-as-operator" model for mutation approval** means MVP Chimera is not fully autonomous; that's a deliberate choice to keep the failure modes small.

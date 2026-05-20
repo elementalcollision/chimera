@@ -296,12 +296,26 @@ def record_api_call(
     latency_ms: int | None = None,
     finish_reason: str | None = None,
     error: str | None = None,
+    tool_uses_count: int | None = None,
+    round_boundary_latency_ms: int | None = None,
 ) -> int:
-    """Insert an api_calls row. Returns the row id."""
+    """Insert an api_calls row. Returns the row id.
+
+    v4.33: ``tool_uses_count`` captures how many tool_use blocks the
+    model emitted in this response (0=text reply, 1=serial,
+    2+=parallel batch). Nullable on errors / older rows.
+
+    v4.50: ``round_boundary_latency_ms`` captures wall-clock between
+    the previous round's last tool completion and this provider call.
+    NULL on the first round of a task. Helps answer "is the round
+    boundary the bottleneck?" before any cross-round speculative
+    refactor (ADR 0061).
+    """
     cursor = conn.execute(
         "INSERT INTO api_calls (cycle, provider, model_id, input_tokens, "
-        "output_tokens, cost_usd, latency_ms, finish_reason, error, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "output_tokens, cost_usd, latency_ms, finish_reason, error, "
+        "created_at, tool_uses_count, round_boundary_latency_ms) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             cycle,
             provider,
@@ -313,6 +327,8 @@ def record_api_call(
             finish_reason,
             error,
             _utc_now_iso(),
+            tool_uses_count,
+            round_boundary_latency_ms,
         ),
     )
     return cursor.lastrowid

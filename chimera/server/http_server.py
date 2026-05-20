@@ -162,6 +162,48 @@ def build_http_app(cms: ChimeraMCPServer) -> Starlette:
     return app
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _is_loopback(host: str) -> bool:
+    """v4.52: a *loopback* bind is safe to run without auth (local-dev
+    convenience). Anything else — 0.0.0.0, a public IP, a hostname —
+    is treated as network-exposed and requires a bearer token."""
+    return (host or "").strip().lower() in _LOOPBACK_HOSTS
+
+
+class InsecureHttpBindError(RuntimeError):
+    """Raised when serve_http is asked to bind to a non-loopback host
+    without an auth token configured. Refuses to start rather than
+    silently accept anonymous peers from the network."""
+
+
+def _check_bind_security(host: str) -> None:
+    """v4.52 guard, extracted so it's unit-testable without booting
+    uvicorn. Raises InsecureHttpBindError on a non-loopback bind that
+    has no token set and no explicit insecure override."""
+    import os as _os
+
+    if _is_loopback(host):
+        return
+    has_token = bool(
+        _os.environ.get("CHIMERA_PEER_TOKEN")
+        or _os.environ.get("CHIMERA_PEER_TOKENS")
+    )
+    allow_insecure = _os.environ.get("CHIMERA_ALLOW_INSECURE_HTTP") in (
+        "1", "true", "yes",
+    )
+    if has_token or allow_insecure:
+        return
+    raise InsecureHttpBindError(
+        f"refusing to bind chimera serve --http to non-loopback host "
+        f"{host!r} without auth. Set CHIMERA_PEER_TOKEN (single token) "
+        "or CHIMERA_PEER_TOKENS (JSON map), OR pass --host 127.0.0.1 "
+        "for loopback-only, OR set CHIMERA_ALLOW_INSECURE_HTTP=1 to "
+        "override (not recommended)."
+    )
+
+
 async def serve_http(
     *,
     host: str = "127.0.0.1",
@@ -170,9 +212,16 @@ async def serve_http(
 ) -> int:
     """Run the HTTP MCP server until SIGINT.
 
-    Binds to ``host``:``port``. ``host=0.0.0.0`` exposes to the
-    network — make sure ``CHIMERA_PEER_TOKEN`` is set first.
+    Binds to ``host``:``port``. v4.52: non-loopback binds (``0.0.0.0``
+    and any public host) REQUIRE ``CHIMERA_PEER_TOKEN`` or
+    ``CHIMERA_PEER_TOKENS`` to be set — the server refuses to start
+    otherwise. Loopback binds still allow anonymous (with a warning)
+    for local-dev convenience.
+
+    Set ``CHIMERA_ALLOW_INSECURE_HTTP=1`` to bypass the guard if you
+    truly mean to expose anonymously (rare; CI / sandboxed networks).
     """
+    _check_bind_security(host)
     from ..core import assert_no_errors
     assert_no_errors()
     cms = ChimeraMCPServer.from_env(name=name)

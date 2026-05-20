@@ -178,3 +178,89 @@ async def test_sub_agent_passes_allowed_tools_to_context(shell_env, db):
     )
     # The sub-agent's second response is the visible final text.
     assert "failed but I tried" in out
+
+
+# ── v4.49: sub-agent failure visibility ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sub_agent_failure_raises_structured_error(shell_env, db):
+    """When the sub-agent's ActResult.completed is False, the runner
+    raises SubAgentFailed with finish_reason + failure_reason so the
+    parent model sees an actionable is_error tool_result."""
+    from chimera.tools.subagent import SubAgentFailed
+
+    # Script a provider that exhausts rounds — never returns stop.
+    fake = _ScriptedProvider(
+        [
+            ChatResponse(
+                text="thinking",
+                tool_uses=[ToolUseBlock(id=f"tu_{i}", name="shell",
+                                        input={"argv": ["ls", "."]})],
+                stop_reason="tool_use",
+                model_id="m",
+                provider="fake",
+            )
+            for i in range(20)
+        ]
+    )
+    reg = ToolRegistry()
+    register_core_tools(reg)
+    runner = SubAgentRunner(
+        providers={
+            ProviderKind.OPENROUTER: fake, ProviderKind.ANTHROPIC: fake,
+        },
+        db=db,
+        registry=reg,
+    )
+
+    with pytest.raises(SubAgentFailed) as exc_info:
+        await runner.run("compute fibonacci", tier="haiku")
+    err = exc_info.value
+    assert err.finish_reason == "max_rounds"
+    assert err.tier == "haiku"
+    assert err.rounds_used >= 1
+    msg = str(err)
+    assert "sub-agent FAILED" in msg
+    assert "tier='haiku'" in msg
+    assert "finish_reason=max_rounds" in msg
+
+
+@pytest.mark.asyncio
+async def test_sub_agent_failure_propagates_through_dispatcher(shell_env, db):
+    """End-to-end: spawn_sub_agent handler raises SubAgentFailed; the
+    dispatcher re-raises so ACT's _run_one wraps it as is_error=True."""
+    from chimera.tools import Dispatcher
+
+    fake = _ScriptedProvider(
+        [
+            ChatResponse(
+                text="loop",
+                tool_uses=[ToolUseBlock(id=f"tu_{i}", name="shell",
+                                        input={"argv": ["ls", "."]})],
+                stop_reason="tool_use",
+                model_id="m",
+                provider="fake",
+            )
+            for i in range(20)
+        ]
+    )
+    reg = ToolRegistry()
+    register_core_tools(reg)
+    runner = SubAgentRunner(
+        providers={
+            ProviderKind.OPENROUTER: fake, ProviderKind.ANTHROPIC: fake,
+        },
+        db=db,
+        registry=reg,
+    )
+    register_sub_agent_tool(runner, reg)
+
+    disp = Dispatcher(reg)
+    with pytest.raises(Exception) as exc_info:
+        await disp.dispatch(
+            "spawn_sub_agent",
+            {"brief": "loop forever doing nothing"},
+            DispatchContext(),
+        )
+    assert "sub-agent FAILED" in str(exc_info.value)

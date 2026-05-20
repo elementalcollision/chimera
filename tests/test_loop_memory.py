@@ -165,3 +165,48 @@ async def test_activity_accumulates_across_cycles(config):
     assert summary["active_cycles_in_window"] == 2
     assert summary["activity_count"] == 16  # 8 phases × 2 cycles
     loop.close()
+
+
+# ── v4.32: housekeeping auto-incremental graph ───────────────
+
+
+@pytest.mark.asyncio
+async def test_housekeeping_appends_to_graph_incrementally(
+    config, state_dir, monkeypatch,
+):
+    """Housekeeping runs first in the cycle, so the graph picks up
+    previous-cycle entities. After two cycles, the bootstrap plan
+    (created in cycle 1's WAKE) is visible in the graph via cycle 2's
+    housekeeping pass."""
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+
+    loop = ChimeraLoop(config)
+    await loop.run_one_cycle()
+    await loop.run_one_cycle()
+    loop.close()
+
+    from chimera.memory import GraphStore, default_graph_dir
+    store = GraphStore(default_graph_dir())
+    n_ent = store.query("MATCH (e:Entity) RETURN count(e)").rows[0][0]
+    assert n_ent >= 1, "expected the bootstrap plan to be projected"
+
+
+@pytest.mark.asyncio
+async def test_housekeeping_disabled_skips_graph_update(
+    config, state_dir, monkeypatch,
+):
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("CHIMERA_AUTO_GRAPH_UPDATE_DISABLED", "1")
+
+    loop = ChimeraLoop(config)
+    await loop.run_one_cycle()
+    loop.close()
+
+    # Graph dir should not exist OR contain an empty schema only.
+    from chimera.memory import GraphStore, default_graph_dir
+    gpath = default_graph_dir()
+    if gpath.exists():
+        store = GraphStore(gpath)
+        n_ent = store.query("MATCH (e:Entity) RETURN count(e)").rows[0][0]
+        # If schema was init'd elsewhere, it must be empty since update was skipped.
+        assert n_ent == 0

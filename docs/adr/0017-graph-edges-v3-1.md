@@ -48,7 +48,7 @@ entity and ACTIVATED skill (if any).
 
 - The journal is read-only at v3.1 — no policy reacts to its history yet.
 - Cross-host TRUSTED edges (peer-of-peer transitive trust) deferred until
-  cross-host sync ships (see ADR 0014's v3 non-goal list).
+  cross-host sync ships (see [ADR 0014](./0014-emergence-protocol-journal.md)'s v3 non-goal list).
 - We still don't auto-project on every loop tick; rebuild stays explicit.
 
 ## Tests

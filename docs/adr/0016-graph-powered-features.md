@@ -5,7 +5,7 @@
 
 ## Context
 
-ADR 0015 introduced LadybugDB as a derived projection over SQLite. v2.10 populated only the
+[ADR 0015](./0015-graph-store.md) introduced LadybugDB as a derived projection over SQLite. v2.10 populated only the
 KFM-shaped subset: `Entity`, `Mutation`, `ApiCall`, `Peer`, `TRANSITIONED_TO`. The four
 filesystem-only edge types — `DEPENDS_ON`, `USES_TOOL`, `REFERENCES`, plus the `Skill` and
 `WikiDoc` node tables — were declared but unpopulated.
@@ -52,7 +52,7 @@ These exist alongside the raw `chimera graph query "<cypher>"` for ad-hoc work.
 - **No `PROPOSED` / `ACTIVATED` / `TRUSTED` edges yet.** Those need cross-store joins
   (mutation payload → entity name; trust-history events → peer pairs) that are real but not
   urgent. Deferred to v3.1 if/when a use case appears.
-- **Vector index untouched.** The Qdrant deferral trigger from ADR 0002 still rules.
+- **Vector index untouched.** The Qdrant deferral trigger from [ADR 0002](./0002-memory-strategy.md) still rules.
 
 ## Sources
 

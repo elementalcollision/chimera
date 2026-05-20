@@ -3,7 +3,20 @@
  * Each takes already-fetched data as props and renders in the
  * design language defined in app/tokens.css + canvas-styles.css.
  */
-import { ApiCall, Entity, Mutation } from "@/lib/db";
+import {
+  ApiCall,
+  Entity,
+  ModelUtilization,
+  Mutation,
+  OntologyAudit,
+  QueueHealth,
+  ReanchorBucket,
+  RoundBoundaryStats,
+  ToolFanout,
+  ToolFanoutBucket,
+  ToolFanoutByModel,
+} from "@/lib/db";
+import type { FanoutCostBucket } from "@/lib/cost";
 import {
   AssemblyJournalEntry,
   DriftLogRecord,
@@ -430,3 +443,471 @@ export function DriftSparklineWidget({ records }: { records: DriftLogRecord[] })
   );
 }
 
+// ── v4.25: queue health (ADR 0041) ───────────────────────────
+
+function _humanizeAge(s: number | null): string {
+  if (s == null) return "—";
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+export function QueueHealthWidget({ health }: { health: QueueHealth | null }) {
+  if (!health) return <Empty>No mutation queue yet.</Empty>;
+  const counts = health.counts;
+  const pending = counts["pending"] || 0;
+  const applied = counts["applied"] || 0;
+  const decided =
+    applied +
+    (counts["approved"] || 0) +
+    (counts["rejected"] || 0) +
+    (counts["failed"] || 0);
+  const ageS = health.pending_oldest_age_seconds;
+  const ageTone: "ok" | "warn" | "danger" =
+    ageS == null ? "ok" : ageS > 86400 ? "danger" : ageS > 3600 ? "warn" : "ok";
+  const ratio = health.approved_ratio;
+  const pillEntries: Array<[string, number, "warn" | "ok" | "danger" | "slate"]> = [
+    ["pending", pending, pending > 0 ? "warn" : "slate"],
+    ["applied", applied, "ok"],
+    ["rejected", counts["rejected"] || 0, "slate"],
+    ["failed", counts["failed"] || 0, "danger"],
+    ["expired", counts["expired"] || 0, "slate"],
+  ];
+  const anyVisible = pillEntries.some(([, n]) => n > 0);
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {pillEntries.map(([label, n, tone]) =>
+          n > 0 ? (
+            <span key={label} className="pill" data-tone={tone}>
+              {label} {n}
+            </span>
+          ) : null,
+        )}
+        {!anyVisible && (
+          <span className="muted" style={{ fontSize: 12 }}>queue is empty</span>
+        )}
+      </div>
+      <div className="kv">
+        <div>
+          <div className="label">Oldest pending</div>
+          <div className="serif-num" style={{ fontSize: 20 }} data-tone={ageTone}>
+            {_humanizeAge(ageS)}
+          </div>
+        </div>
+        <div>
+          <div className="label">Recurrence (max / total)</div>
+          <div className="serif-num" style={{ fontSize: 20 }}>
+            {health.pending_recurrence_max} / {health.pending_recurrence_total}
+          </div>
+        </div>
+        <div>
+          <div className="label">Applied / decided</div>
+          <div className="serif-num" style={{ fontSize: 20 }}>
+            {decided > 0 && ratio !== null ? `${Math.round(ratio * 100)}%` : "—"}
+          </div>
+        </div>
+      </div>
+      {(health.pending_recurrence_max > 1 ||
+        (ageS !== null && ageS > 3600)) && (
+        <div className="muted" style={{ fontSize: 11 }}>
+          Duplicates absorbed in-place via recurrence_count.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── v4.25: ontology audit (ADR 0043) ─────────────────────────
+
+export function OntologyAuditWidget({ audit }: { audit: OntologyAudit | null }) {
+  if (!audit) return <Empty>No ontology yet.</Empty>;
+  const stale = audit.stale_count;
+  const dead = audit.dead_count;
+  const dep = audit.deprecated_unarchived;
+  const reanchor = audit.reanchor_events_in_window;
+  const stateOrder = [
+    "NEW",
+    "EXPERIMENTAL",
+    "CANDIDATE",
+    "STABLE",
+    "DEPRECATED",
+    "ARCHIVED",
+    "KILLED",
+  ];
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <span className="serif-num" style={{ fontSize: 28 }}>
+          {audit.total_entities}
+        </span>
+        <span className="muted" style={{ fontSize: 11 }}>
+          entities · cycle {audit.current_cycle}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {stateOrder.map((s) => {
+          const n = audit.by_state[s] || 0;
+          if (n === 0) return null;
+          const tone =
+            s === "DEPRECATED"
+              ? "warn"
+              : s === "STABLE" || s === "ARCHIVED"
+              ? "ok"
+              : "slate";
+          return (
+            <span key={s} className="pill" data-tone={tone}>
+              {s.toLowerCase()} {n}
+            </span>
+          );
+        })}
+      </div>
+      <div className="kv">
+        <div>
+          <div className="label">Stale (≥{audit.stale_after_cycles} cycles)</div>
+          <div
+            className="serif-num"
+            style={{ fontSize: 20 }}
+            data-tone={stale > 0 ? "warn" : "ok"}
+          >
+            {stale}
+          </div>
+        </div>
+        <div>
+          <div className="label">Dead (≥{audit.activity_window_cycles}c idle)</div>
+          <div
+            className="serif-num"
+            style={{ fontSize: 20 }}
+            data-tone={dead > 0 ? "warn" : "ok"}
+          >
+            {dead}
+          </div>
+        </div>
+        <div>
+          <div className="label">
+            Re-anchors (last {audit.reanchor_window_cycles}c)
+          </div>
+          <div className="serif-num" style={{ fontSize: 20 }}>
+            {reanchor}
+          </div>
+        </div>
+        <div>
+          <div className="label">DEPRECATED·unarchived</div>
+          <div
+            className="serif-num"
+            style={{ fontSize: 20 }}
+            data-tone={dep > 5 ? "warn" : "ok"}
+          >
+            {dep}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── v4.30: re-anchor history (ADR 0043 + 0046 follow-up) ────
+
+export function ReanchorHistoryWidget({
+  buckets,
+}: {
+  buckets: ReanchorBucket[];
+}) {
+  if (!buckets || buckets.length === 0) {
+    return <Empty>No transition history yet.</Empty>;
+  }
+  const total = buckets.reduce((s, b) => s + b.count, 0);
+  const peak = buckets.reduce((m, b) => Math.max(m, b.count), 0);
+  const last = buckets[buckets.length - 1];
+  const first = buckets[0];
+  const window = last.end_cycle - first.start_cycle;
+  // Trend hint: compare last 1/3 vs first 1/3 by count sum.
+  const third = Math.max(1, Math.floor(buckets.length / 3));
+  const recent = buckets.slice(-third).reduce((s, b) => s + b.count, 0);
+  const oldest = buckets.slice(0, third).reduce((s, b) => s + b.count, 0);
+  let trend: { tone: "ok" | "warn"; text: string } | null = null;
+  if (recent > oldest * 1.5 && recent > 1) {
+    trend = { tone: "warn", text: "trending up" };
+  } else if (oldest > recent * 1.5 && oldest > 1) {
+    trend = { tone: "ok", text: "trending down" };
+  }
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <span className="serif-num" style={{ fontSize: 28 }}>
+          {total}
+        </span>
+        <span className="muted" style={{ fontSize: 11 }}>
+          re-anchors across last {window} cycles
+        </span>
+        {trend && (
+          <span className="pill" data-tone={trend.tone} style={{ marginLeft: "auto" }}>
+            {trend.text}
+          </span>
+        )}
+      </div>
+      <Sparkline
+        values={buckets.map((b) => b.count)}
+        color="var(--mlc-amber)"
+        height={56}
+      />
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: 11,
+          color: "var(--fg-3)",
+        }}
+      >
+        <span>cycle {first.start_cycle}</span>
+        <span>peak {peak}/bucket</span>
+        <span>cycle {last.end_cycle - 1}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── v4.33: tool-fanout telemetry (ADR 0040 follow-up) ───────
+
+export function ToolFanoutWidget({
+  fanout,
+  byModel,
+  history,
+  costByFanout,
+}: {
+  fanout: ToolFanout | null;
+  byModel?: ToolFanoutByModel[];
+  history?: ToolFanoutBucket[];
+  costByFanout?: FanoutCostBucket[];
+}) {
+  if (!fanout || fanout.total_calls_with_tools === 0) {
+    return <Empty>No tool-use calls yet.</Empty>;
+  }
+  const total = fanout.total_calls_with_tools;
+  const share = fanout.parallel_share;
+  const dist: Array<{ label: string; n: number; tone: "slate" | "ok" | "mint" }> = [
+    { label: "1 (serial)", n: fanout.serial, tone: "slate" },
+    { label: "2", n: fanout.parallel_2, tone: "ok" },
+    { label: "3+", n: fanout.parallel_3_plus, tone: "mint" },
+  ];
+  const distMax = Math.max(1, ...dist.map((b) => b.n));
+  const showHistory = !!(history && history.length > 0 && history.some((b) => b.total > 0));
+  const showByModel = !!(byModel && byModel.length > 0);
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <span className="serif-num" style={{ fontSize: 28 }}>
+          {share !== null ? Math.round(share * 100) + "%" : "—"}
+        </span>
+        <span className="muted" style={{ fontSize: 11 }}>
+          parallel · {total} tool-use call{total === 1 ? "" : "s"} · max fan-out{" "}
+          {fanout.max_fanout}
+        </span>
+      </div>
+      <div>
+        {dist.map((b) => (
+          <BarRow
+            key={b.label}
+            name={b.label}
+            value={b.n}
+            max={distMax}
+            unit=""
+            tone={b.tone === "ok" ? "mint" : b.tone === "mint" ? "peach" : "sand"}
+          />
+        ))}
+      </div>
+      {showHistory && (
+        <div style={{ display: "grid", gap: 4 }}>
+          <div className="label" style={{ fontSize: 10 }}>Per-cycle parallel share</div>
+          <Sparkline
+            values={history!.map((b) =>
+              b.total > 0 ? b.parallel / b.total : 0,
+            )}
+            color="var(--mlc-mint)"
+            height={36}
+            baseline={0.25}
+          />
+        </div>
+      )}
+      {costByFanout && costByFanout.some((b) => b.calls > 0) && (
+        <div style={{ display: "grid", gap: 2 }}>
+          <div className="label" style={{ fontSize: 10 }}>
+            $/call vs $/tool-call (fan-out amortizes input)
+          </div>
+          {costByFanout
+            .filter((b) => b.calls > 0)
+            .map((b) => {
+              const savings =
+                b.bucket === "1"
+                  ? null
+                  : b.costPerCall > 0
+                  ? 1 - b.costPerToolCall / b.costPerCall
+                  : null;
+              return (
+                <div
+                  key={b.bucket}
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 8,
+                    fontSize: 11,
+                    padding: "2px 0",
+                  }}
+                >
+                  <span style={{ minWidth: 36, color: "var(--fg-2)" }}>
+                    {b.bucket}
+                  </span>
+                  <span className="muted" style={{ minWidth: 84 }}>
+                    {b.calls} call{b.calls === 1 ? "" : "s"}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      fontVariantNumeric: "tabular-nums",
+                      color: "var(--fg-2)",
+                    }}
+                  >
+                    ${b.costPerCall.toFixed(4)} / ${b.costPerToolCall.toFixed(4)}
+                  </span>
+                  {savings !== null && (
+                    <span
+                      style={{
+                        color:
+                          savings >= 0.3
+                            ? "var(--mlc-mint-ink)"
+                            : "var(--fg-3)",
+                        minWidth: 40,
+                        textAlign: "right",
+                      }}
+                    >
+                      -{Math.round(savings * 100)}%
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
+      {showByModel && (
+        <div className="row-list" style={{ marginTop: 2 }}>
+          {byModel!.map((m) => (
+            <div
+              key={m.model_id}
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 8,
+                fontSize: 11,
+                padding: "3px 0",
+              }}
+            >
+              <span style={{ flex: 1, color: "var(--fg-2)" }}>{m.model_id}</span>
+              <span className="muted">avg {m.avg_fanout.toFixed(2)}</span>
+              <span
+                style={{
+                  color:
+                    m.parallel_share >= 0.5
+                      ? "var(--mlc-mint-ink)"
+                      : m.parallel_share >= 0.25
+                      ? "var(--fg-2)"
+                      : "var(--fg-3)",
+                  fontVariantNumeric: "tabular-nums",
+                  minWidth: 38,
+                  textAlign: "right",
+                }}
+              >
+                {Math.round(m.parallel_share * 100)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── v4.51: model-utilization (engine pressure) ──────────────
+
+export function ModelUtilizationWidget({
+  rows,
+  boundary,
+}: {
+  rows: ModelUtilization[];
+  boundary?: RoundBoundaryStats | null;
+}) {
+  if (!rows || rows.length === 0) {
+    return <Empty>No model activity yet.</Empty>;
+  }
+  const topPeak = Math.max(...rows.map((r) => r.peak_per_cycle));
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <span className="serif-num" style={{ fontSize: 28 }}>
+          {rows.reduce((s, r) => s + r.total, 0)}
+        </span>
+        <span className="muted" style={{ fontSize: 11 }}>
+          api calls · top peak {topPeak}/cycle
+        </span>
+        {boundary && boundary.samples > 0 && (
+          <span className="pill" data-tone="slate" style={{ marginLeft: "auto" }}>
+            round-boundary p50 {Math.round(boundary.p50_ms)}ms · p95{" "}
+            {Math.round(boundary.p95_ms)}ms
+          </span>
+        )}
+      </div>
+      <div className="row-list" style={{ gap: 2 }}>
+        {rows.map((r) => {
+          const tone =
+            r.peak_per_cycle >= 100
+              ? "var(--mlc-peach)"
+              : r.peak_per_cycle >= 30
+              ? "var(--mlc-amber)"
+              : "var(--mlc-mint)";
+          return (
+            <div
+              key={r.model_id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 70px 70px 70px 1fr",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 11,
+                padding: "3px 0",
+              }}
+            >
+              <span style={{ color: "var(--fg-2)" }}>{r.model_id}</span>
+              <span className="muted" style={{ textAlign: "right" }}>
+                {r.total} total
+              </span>
+              <span
+                className="muted"
+                style={{ textAlign: "right" }}
+                title="calls in the last hour"
+              >
+                {r.last_hour}/h
+              </span>
+              <span
+                style={{
+                  textAlign: "right",
+                  fontVariantNumeric: "tabular-nums",
+                  color: tone,
+                }}
+                title="peak calls in any single cycle"
+              >
+                peak {r.peak_per_cycle}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <Sparkline
+                  values={r.series}
+                  color={tone}
+                  height={18}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

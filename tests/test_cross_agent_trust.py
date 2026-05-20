@@ -36,6 +36,47 @@ def test_peer_name_from_tool_returns_none_for_non_mcp():
     assert peer_name_from_tool("mcp-just-prefix") == "just"
 
 
+def test_peer_name_from_tool_resolves_hyphenated_peer_via_registry():
+    """v4.27: with a registry the longest peer prefix wins."""
+    from chimera.tools import ToolRegistry
+
+    reg = ToolRegistry()
+    # Register a fake identity tool for the hyphenated peer.
+    reg.register(
+        name="mcp-chimera-a-chimera-identity",
+        toolset="peer",
+        description="fake peer identity",
+        schema={
+            "type": "function",
+            "function": {
+                "name": "mcp-chimera-a-chimera-identity",
+                "description": "fake peer identity",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        handler=lambda args, ctx: "",
+    )
+    # Without registry → broken first-segment behaviour (back-compat).
+    assert peer_name_from_tool("mcp-chimera-a-shell") == "chimera"
+    # With registry → longest-prefix match wins.
+    assert (
+        peer_name_from_tool("mcp-chimera-a-shell", registry=reg)
+        == "chimera-a"
+    )
+    assert (
+        peer_name_from_tool("mcp-chimera-a-chimera-kfm-state", registry=reg)
+        == "chimera-a"
+    )
+
+
+def test_peer_name_from_tool_registry_returns_none_for_unknown_peer():
+    from chimera.tools import ToolRegistry
+
+    reg = ToolRegistry()
+    # No identity tool registered → no resolution.
+    assert peer_name_from_tool("mcp-ghost-shell", registry=reg) is None
+
+
 # ── PeerTrustPolicy ─────────────────────────────────────────
 
 

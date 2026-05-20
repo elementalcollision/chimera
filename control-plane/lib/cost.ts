@@ -119,3 +119,65 @@ export function costByModel(
 export function totalCost(buckets: CostBucket[]): number {
   return buckets.reduce((acc, b) => acc + b.totalCost, 0);
 }
+
+// v4.37: cost per fan-out bucket.
+//
+// Each row is one ACT API call. ``tool_uses_count`` is how many tool
+// calls that one response emitted (1=serial, 2+=parallel batch). The
+// model pays for input tokens once per response regardless of fan-out,
+// so a 2-fan-out response amortizes input cost over 2 actions. This
+// breakdown quantifies that.
+export interface FanoutCostBucket {
+  bucket: "1" | "2" | "3+";
+  calls: number;
+  toolCalls: number;       // sum of tool_uses_count
+  totalCost: number;
+  costPerCall: number;
+  costPerToolCall: number;
+}
+
+export function costByFanout(
+  rows: Array<{
+    model_id: string;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    tool_uses_count: number | null;
+  }>,
+): FanoutCostBucket[] {
+  const prices = effectivePrices();
+  const init = (label: "1" | "2" | "3+"): FanoutCostBucket => ({
+    bucket: label,
+    calls: 0,
+    toolCalls: 0,
+    totalCost: 0,
+    costPerCall: 0,
+    costPerToolCall: 0,
+  });
+  const buckets: Record<"1" | "2" | "3+", FanoutCostBucket> = {
+    "1": init("1"),
+    "2": init("2"),
+    "3+": init("3+"),
+  };
+  for (const r of rows) {
+    const k = r.tool_uses_count ?? 0;
+    if (k < 1) continue;
+    const key: "1" | "2" | "3+" = k === 1 ? "1" : k === 2 ? "2" : "3+";
+    const b = buckets[key];
+    b.calls += 1;
+    b.toolCalls += k;
+    const price = prices[r.model_id];
+    if (price) {
+      const inT = r.input_tokens ?? 0;
+      const outT = r.output_tokens ?? 0;
+      b.totalCost +=
+        (inT / 1_000_000) * price.inputCostPerMtok +
+        (outT / 1_000_000) * price.outputCostPerMtok;
+    }
+  }
+  for (const key of ["1", "2", "3+"] as const) {
+    const b = buckets[key];
+    b.costPerCall = b.calls > 0 ? b.totalCost / b.calls : 0;
+    b.costPerToolCall = b.toolCalls > 0 ? b.totalCost / b.toolCalls : 0;
+  }
+  return [buckets["1"], buckets["2"], buckets["3+"]];
+}

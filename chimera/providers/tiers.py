@@ -227,29 +227,25 @@ LADDER_GEMINI_3_PRO = ModelConfig(
 )
 
 
-# OPUS_LADDER (v4.8): Anthropic opus first — it's the strongest baseline
-# for code generation, and pushing it to the front fixes the v4.7
-# parse-failure observation. The rest are flagship rungs across other
-# providers so cross-witness critique (ADR 0031) has real disagreement
-# room.
+# OPUS_LADDER (v4.53): Deepseek-v4-pro FIRST. Pre-v4.53 had opus first
+# ("strongest baseline for code generation"), but the 2026-05-19 overnight
+# run burned $229 in 2h on 801 opus calls when escalation memory promoted
+# a fanout-heavy task to tier="opus" — which under the old ordering meant
+# claude-opus-4-7 by default. See [ADR 0072](./0072-cost-runaway-guards.md).
+# The new ordering treats opus as a *reasoning capability tier*, not an
+# "always reach for claude-opus" tier. Deepseek-v4-pro at $0.435/$0.87 per
+# Mtok handles 80% of opus-tier work for 1/34th the cost; claude-opus
+# remains the last-rung safety net when cheaper rungs genuinely fail.
+# Cross-witness critique (ADR 0031) still uses per-rung aliases
+# (``witnesses=("claude-opus-4-7", ...)``) so disagreement room is unchanged.
 OPUS_LADDER: list[LadderRung] = [
     LadderRung(
-        config=OPUS,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            supports_vision=True,
-            reasoning_optimized=True,
-            context_tokens=200_000,
-        ),
-    ),
-    LadderRung(
-        config=LADDER_OPENAI_GPT5_PRO,
+        config=LADDER_DEEPSEEK_V4_PRO,
         capabilities=ModelCapabilities(
             supports_tools=True,
             supports_json_mode=True,
             reasoning_optimized=True,
-            context_tokens=400_000,
+            context_tokens=1_048_576,
         ),
     ),
     LadderRung(
@@ -263,12 +259,22 @@ OPUS_LADDER: list[LadderRung] = [
         ),
     ),
     LadderRung(
-        config=LADDER_DEEPSEEK_V4_PRO,
+        config=LADDER_OPENAI_GPT5_PRO,
         capabilities=ModelCapabilities(
             supports_tools=True,
             supports_json_mode=True,
             reasoning_optimized=True,
-            context_tokens=1_048_576,
+            context_tokens=400_000,
+        ),
+    ),
+    LadderRung(
+        config=OPUS,
+        capabilities=ModelCapabilities(
+            supports_tools=True,
+            supports_json_mode=True,
+            supports_vision=True,
+            reasoning_optimized=True,
+            context_tokens=200_000,
         ),
     ),
 ]

@@ -28,6 +28,35 @@ def _build_parser() -> argparse.ArgumentParser:
         "fragmentation",
         help="Show the v4.5 fragmentation log (compound-task failures).",
     )
+    escalations = sub.add_parser(
+        "escalations",
+        help="Inspect the v4.46 task-escalation memory (auto-promotes tier).",
+    )
+    esc_sub = escalations.add_subparsers(
+        dest="escalations_command", metavar="<esc-cmd>",
+    )
+    esc_list = esc_sub.add_parser("list", help="List recent escalation rows.")
+    esc_list.add_argument("--limit", type=int, default=20)
+    esc_list.add_argument(
+        "--grep", default=None,
+        help="Substring filter on the signature.",
+    )
+    esc_sub.add_parser(
+        "summary",
+        help="Aggregate counts per signature × tier.",
+    )
+    esc_clear = esc_sub.add_parser(
+        "clear",
+        help="Delete escalation rows (use with care — the agent uses these to learn).",
+    )
+    esc_clear.add_argument(
+        "--grep", default=None,
+        help="Only delete rows whose signature matches this substring.",
+    )
+    esc_clear.add_argument(
+        "--all", action="store_true",
+        help="Required with no --grep — confirms a full wipe.",
+    )
     tiers = sub.add_parser(
         "tiers",
         help="Show every model rung in every tier ladder (v4.8+).",
@@ -59,6 +88,60 @@ def _build_parser() -> argparse.ArgumentParser:
         "--kind",
         help="Filter by entity kind (plan, tool, skill, subagent).",
     )
+    ontology.add_argument(
+        "--audit",
+        action="store_true",
+        help="Print a memory/ontology audit (stale + dead entities, re-anchor count).",
+    )
+    ontology.add_argument(
+        "--cycle",
+        type=int,
+        default=None,
+        help="Audit reference cycle (defaults to max cycle from agent_activity_log).",
+    )
+    ontology.add_argument(
+        "--stale-after-cycles",
+        type=int,
+        default=20,
+        help="Stale threshold for the audit (default 20).",
+    )
+    ontology.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit audit output as JSON (only with --audit).",
+    )
+    ontology.add_argument(
+        "--archive-stale",
+        action="store_true",
+        help="Promote DEPRECATED entities past --archive-after-cycles to ARCHIVED.",
+    )
+    ontology.add_argument(
+        "--archive-after-cycles",
+        type=int,
+        default=30,
+        help="Cycle threshold for --archive-stale (default 30).",
+    )
+    ontology.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --archive-stale: report what would be archived without writing.",
+    )
+    ontology.add_argument(
+        "--propose-kills",
+        action="store_true",
+        help=(
+            "Queue kill_entity mutations for ARCHIVED entities past "
+            "--archive-after-cycles. Operator must approve before --apply-kills."
+        ),
+    )
+    ontology.add_argument(
+        "--apply-kills",
+        action="store_true",
+        help=(
+            "Apply any approved kill_entity mutations: transition ARCHIVED → KILLED "
+            "via the K-operator. Pairs with --propose-kills + `chimera mutations approve`."
+        ),
+    )
 
     mutations = sub.add_parser(
         "mutations",
@@ -74,6 +157,13 @@ def _build_parser() -> argparse.ArgumentParser:
     mut_reject = mut_sub.add_parser("reject", help="Reject a pending mutation.")
     mut_reject.add_argument("id", type=int)
     mut_reject.add_argument("--reason", default=None)
+    mut_health = mut_sub.add_parser(
+        "health",
+        help="Show queue-health metrics (counts, oldest pending, recurrence).",
+    )
+    mut_health.add_argument(
+        "--json", action="store_true", help="Emit the snapshot as JSON."
+    )
 
     a2a = sub.add_parser(
         "a2a",
@@ -154,7 +244,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scenario.add_argument(
         "name",
-        choices=("drift", "research", "two_chimera", "multi_host"),
+        choices=(
+            "drift", "research", "two_chimera", "multi_host",
+            "federation_drill", "federation_trust_drill",
+            "federation_http_drill",
+        ),
         help="Which scenario to run.",
     )
 
@@ -202,7 +296,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     graph_sub = graph.add_subparsers(dest="graph_command", metavar="<graph-cmd>")
     graph_sub.add_parser("init", help="Create schema in state/chimera.graph/.")
-    graph_sub.add_parser("rebuild", help="Re-project SQLite + registry into the graph.")
+    g_rebuild = graph_sub.add_parser(
+        "rebuild", help="Re-project SQLite + registry into the graph."
+    )
+    g_rebuild.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Append only new entities + transitions (v4.31) — much cheaper than clear+rebuild.",
+    )
     g_query = graph_sub.add_parser("query", help="Run a Cypher query and print rows.")
     g_query.add_argument("cypher", help="Cypher statement.")
     g_hist = graph_sub.add_parser(
@@ -228,6 +329,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output path (default: state/chimera.graph.snapshot.json).",
     )
+    g_stress = graph_sub.add_parser(
+        "stress",
+        help="Synthetic stress test: populate N entities, rebuild, query, restart.",
+    )
+    g_stress.add_argument("--entities", type=int, default=500)
+    g_stress.add_argument("--transitions-each", type=int, default=2)
+    g_stress.add_argument("--repeat", type=int, default=10)
+    g_stress.add_argument("--json", action="store_true")
 
     return parser
 
@@ -369,6 +478,58 @@ def main(argv: list[str] | None = None) -> int:
                 f"{preview}…"
             )
         return 0
+    if args.command == "escalations":
+        from .core import LoopConfig
+        from .core.escalation import (
+            clear_escalations,
+            escalation_summary,
+            list_escalations,
+        )
+        from .memory import open_and_init
+
+        cfg = LoopConfig.from_env()
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+        sub_cmd = args.escalations_command or "list"
+        if sub_cmd == "list":
+            rows = list_escalations(
+                conn, limit=args.limit, signature_substring=args.grep,
+            )
+            if not rows:
+                print("chimera escalations: (none)")
+                return 0
+            print(f"chimera escalations: {len(rows)} row(s)")
+            for r in rows:
+                preview = r.task_text.split("\n")[0][:70]
+                print(
+                    f"  cycle {r.cycle:3d}  tier={r.tier:6s} "
+                    f"reason={r.finish_reason:22s} rounds={r.rounds_used:2d}  "
+                    f"{preview}…"
+                )
+            return 0
+        if sub_cmd == "summary":
+            summary = escalation_summary(conn)
+            if not summary:
+                print("chimera escalations summary: (none)")
+                return 0
+            print(f"chimera escalations summary: {len(summary)} signature(s)")
+            for sig, by_tier in sorted(
+                summary.items(), key=lambda kv: -sum(kv[1].values()),
+            )[:20]:
+                bits = ", ".join(f"{t}×{n}" for t, n in sorted(by_tier.items()))
+                tokens = (sig.split(",")[:5]) or ["(empty)"]
+                preview = " ".join(tokens) + ("…" if len(sig.split(",")) > 5 else "")
+                print(f"  {bits:30s}  tokens: {preview}")
+            return 0
+        if sub_cmd == "clear":
+            if not args.grep and not args.all:
+                parser.error(
+                    "`escalations clear` requires --grep <substr> OR --all "
+                    "(safety guard; the agent uses these rows to learn)."
+                )
+            n = clear_escalations(conn, signature_substring=args.grep)
+            print(f"chimera escalations: deleted {n} row(s)")
+            return 0
+        parser.error(f"unknown escalations subcommand: {sub_cmd}")
     if args.command == "doctor":
         from .core import run_checks
         results = run_checks()
@@ -390,7 +551,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if args.command == "run":
-        from .core import ChimeraLoop
+        from .core import ChimeraLoop, LoopConfig
+        # v4.41: honour the optional ad-hoc prompt — append it to INBOX.md
+        # so ASSESS picks it up as an open task on this cycle.
+        if args.prompt:
+            cfg = LoopConfig.from_env()
+            inbox = cfg.mind_dir / "INBOX.md"
+            inbox.parent.mkdir(parents=True, exist_ok=True)
+            existing = inbox.read_text(encoding="utf-8") if inbox.exists() else "# Inbox\n"
+            if not existing.endswith("\n"):
+                existing += "\n"
+            with inbox.open("a", encoding="utf-8") as fh:
+                if not existing.startswith("# "):
+                    fh.write("# Inbox\n")
+                fh.write(f"- [ ] {args.prompt}\n")
+            print(f"chimera run: enqueued task to {inbox}")
         report = asyncio.run(ChimeraLoop().run_one_cycle())
         for line in report.phase_log:
             print(f"  {line}")
@@ -566,6 +741,7 @@ def main(argv: list[str] | None = None) -> int:
             get_mutation as _get,
             list_mutations as _list,
             open_and_init,
+            queue_health as _queue_health,
             reject_mutation as _reject,
         )
         import json as _json
@@ -610,6 +786,39 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"error: {e}")
                 return 1
             print(f"rejected mutation #{m.id} ({m.type})")
+            return 0
+        if sub_cmd == "health":
+            snap = _queue_health(conn)
+            if getattr(args, "json", False):
+                print(_json.dumps(snap, indent=2, sort_keys=True))
+                return 0
+            counts = snap["counts"]
+            total = sum(counts.values())
+            print(f"mutation queue: {total} total")
+            for st in (
+                "pending",
+                "approved",
+                "applied",
+                "rejected",
+                "expired",
+                "failed",
+            ):
+                n = counts.get(st, 0)
+                if n:
+                    print(f"  {st:9s} {n:4d}")
+            age = snap["pending_oldest_age_seconds"]
+            if age is not None:
+                print(f"oldest pending: {age}s ago")
+            rmax = snap["pending_recurrence_max"]
+            rsum = snap["pending_recurrence_total"]
+            if rmax or rsum:
+                print(
+                    f"pending recurrence: max={rmax} total={rsum}  "
+                    "(duplicates absorbed in-place)"
+                )
+            ar = snap["approved_ratio"]
+            if ar is not None:
+                print(f"applied / decided: {ar:.0%}")
             return 0
         parser.error(f"unknown mutations subcommand: {sub_cmd}")
         return 2
@@ -762,10 +971,132 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "ontology":
         from .core import LoopConfig
-        from .memory import list_entities, list_transitions, open_and_init
+        from .memory import (
+            apply_approved_kills,
+            audit_ontology,
+            auto_archive_stale_deprecated,
+            list_entities,
+            list_transitions,
+            open_and_init,
+            propose_kill_archived,
+        )
+        import json as _json
 
         cfg = LoopConfig.from_env()
         conn = open_and_init(cfg.state_dir / "chimera.db")
+
+        if getattr(args, "propose_kills", False):
+            row = conn.execute(
+                "SELECT COALESCE(MAX(cycle), 0) AS c FROM agent_activity_log"
+            ).fetchone()
+            cycle = args.cycle if args.cycle is not None else (int(row["c"]) if row else 0)
+            proposed = propose_kill_archived(
+                conn,
+                current_cycle=cycle,
+                archive_after_cycles=args.archive_after_cycles,
+                dry_run=args.dry_run,
+            )
+            verb = "would propose" if args.dry_run else "queued"
+            print(
+                f"chimera ontology --propose-kills @ cycle {cycle} "
+                f"(ARCHIVED >= {args.archive_after_cycles} cycles): "
+                f"{verb} {len(proposed)} kill_entity mutation(s)"
+            )
+            for e in proposed:
+                print(
+                    f"  [{e['kind']:8s}] {e['name']}  "
+                    f"({e['cycles_in_state']} cycles in ARCHIVED)"
+                )
+            if proposed and not args.dry_run:
+                print("Next: `chimera mutations list` → approve → `chimera ontology --apply-kills`")
+            return 0
+        if getattr(args, "apply_kills", False):
+            row = conn.execute(
+                "SELECT COALESCE(MAX(cycle), 0) AS c FROM agent_activity_log"
+            ).fetchone()
+            cycle = args.cycle if args.cycle is not None else (int(row["c"]) if row else 0)
+            killed = apply_approved_kills(conn, current_cycle=cycle)
+            print(
+                f"chimera ontology --apply-kills @ cycle {cycle}: "
+                f"killed {len(killed)} entit{'y' if len(killed) == 1 else 'ies'}"
+            )
+            for k in killed:
+                print(f"  #{k['mutation_id']:4d}  [{k.get('kind','?'):8s}] {k.get('name','?')}")
+            return 0
+        if getattr(args, "archive_stale", False):
+            row = conn.execute(
+                "SELECT COALESCE(MAX(cycle), 0) AS c FROM agent_activity_log"
+            ).fetchone()
+            cycle = args.cycle if args.cycle is not None else (int(row["c"]) if row else 0)
+            archived = auto_archive_stale_deprecated(
+                conn,
+                current_cycle=cycle,
+                archive_after_cycles=args.archive_after_cycles,
+                dry_run=args.dry_run,
+            )
+            verb = "would archive" if args.dry_run else "archived"
+            print(
+                f"chimera ontology --archive-stale @ cycle {cycle} "
+                f"(after >= {args.archive_after_cycles} cycles): "
+                f"{verb} {len(archived)}"
+            )
+            for e in archived:
+                print(
+                    f"  [{e['kind']:8s}] {e['name']}  "
+                    f"({e['cycles_in_state']} cycles in DEPRECATED)"
+                )
+            return 0
+
+        if getattr(args, "audit", False):
+            # Reference cycle: explicit > inferred from activity log > 0.
+            cycle = args.cycle
+            if cycle is None:
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(cycle), 0) AS c FROM agent_activity_log"
+                ).fetchone()
+                cycle = int(row["c"]) if row else 0
+            snap = audit_ontology(
+                conn,
+                current_cycle=cycle,
+                stale_after_cycles=args.stale_after_cycles,
+            )
+            if args.json:
+                print(_json.dumps(snap, indent=2, sort_keys=True))
+                return 0
+            print(
+                f"chimera ontology audit @ cycle {cycle}  "
+                f"(stale>={args.stale_after_cycles})"
+            )
+            print(f"  total entities: {snap['total_entities']}")
+            if snap["by_kind"]:
+                print("  by kind:")
+                for k, n in sorted(snap["by_kind"].items()):
+                    print(f"    {k:10s} {n}")
+            if snap["by_state"]:
+                print("  by state:")
+                for s, n in sorted(snap["by_state"].items()):
+                    print(f"    {s:12s} {n}")
+            print(f"  stale: {snap['stale_count']}")
+            for e in snap["stale_entities"]:
+                print(
+                    f"    [{e['kfm_state']:11s}] {e['kind']:8s} {e['name']}  "
+                    f"({e['cycles_in_state']} cycles in state)"
+                )
+            print(f"  dead: {snap['dead_count']} (no activity in last "
+                  f"{snap['thresholds']['activity_window_cycles']} cycles)")
+            for e in snap["dead_entities"]:
+                print(
+                    f"    [{e['kfm_state']:11s}] {e['kind']:8s} {e['name']}"
+                )
+            print(
+                f"  reanchor events (last {snap['reanchor_window_cycles']} "
+                f"cycles): {snap['reanchor_events_in_window']}"
+            )
+            print(
+                f"  deprecated-but-not-archived: {snap['deprecated_unarchived']}"
+            )
+            return 0
+
         entities = list_entities(conn, kind=args.kind)
         if not entities:
             print("chimera ontology: (no entities)")
@@ -835,6 +1166,60 @@ def main(argv: list[str] | None = None) -> int:
             for line in result.call_result.splitlines():
                 print(f"    {line}")
             return 0 if result.ok else 1
+        if args.name == "federation_http_drill":
+            from .scenarios import run_federation_http_drill as _fhd
+            peer_root = cfg.state_dir.parent / "peer_chimera"
+            result = _fhd(peer_root)
+            print("chimera scenario federation_http_drill:")
+            print(f"  server_url:        {result.server_url}")
+            print(f"  health_ok:         {result.health_ok}")
+            print(f"  auth_rejected:     {result.auth_rejected_anonymous}")
+            print(f"  identity.role:     {(result.identity or {}).get('role')}")
+            print(f"  kfm.cycle:         {(result.kfm or {}).get('cycle')}")
+            print(f"  witness_lines:     {result.witness_lines}")
+            if result.failures:
+                print("  failures:")
+                for f in result.failures:
+                    print(f"    - {f}")
+            print(f"  ok: {result.ok}")
+            return 0 if result.ok else 1
+        if args.name == "federation_trust_drill":
+            from .scenarios import run_federation_trust_drill as _ftd
+            peer_root = cfg.state_dir.parent / "peer_chimera"
+            result = _ftd(peer_root)
+            print("chimera scenario federation_trust_drill:")
+            print(f"  locked.decision:   {result.locked_decision}")
+            print(f"  locked.reason:     {result.locked_reason}")
+            print(f"  degraded.decision: {result.degraded_decision}")
+            print(f"  degraded.reason:   {result.degraded_reason}")
+            print(f"  healthy.decision:  {result.healthy_decision}")
+            print(f"  healthy.reason:    {result.healthy_reason}")
+            print(f"  journal_records:   {result.journal_records}")
+            if result.failures:
+                print("  failures:")
+                for f in result.failures:
+                    print(f"    - {f}")
+            print(f"  ok: {result.ok}")
+            return 0 if result.ok else 1
+        if args.name == "federation_drill":
+            from .scenarios import run_federation_drill as _fd
+            peer_root = cfg.state_dir.parent / "peer_chimera"
+            result = _fd(peer_root)
+            print("chimera scenario federation_drill:")
+            print(f"  discovered_tools: {result.discovered_tools}")
+            print(f"  identity.role: {(result.identity or {}).get('role')}")
+            print(f"  identity.agent_id: {(result.identity or {}).get('agent_id')}")
+            print(f"  kfm.cycle: {(result.kfm or {}).get('cycle')}")
+            print(f"  kfm.trust_tier: {(result.kfm or {}).get('trust_tier')}")
+            print(f"  witness_lines: {result.witness_lines}")
+            print(f"  observations_written: {result.observations_written}")
+            print(f"  journal_entries_after: {result.journal_entries_after}")
+            if result.failures:
+                print("  failures:")
+                for f in result.failures:
+                    print(f"    - {f}")
+            print(f"  ok: {result.ok}")
+            return 0 if result.ok else 1
     if args.command == "graph":
         from .core import LoopConfig
         from .memory import GraphStore, default_graph_dir, open_and_init
@@ -848,8 +1233,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if sub_cmd == "rebuild":
             conn = open_and_init(cfg.state_dir / "chimera.db")
-            counts = store.rebuild_from_sqlite(conn)
-            print(f"chimera graph rebuild ({store.path}):")
+            if getattr(args, "incremental", False):
+                counts = store.update_from_sqlite(conn)
+                mode = "incremental"
+            else:
+                counts = store.rebuild_from_sqlite(conn)
+                mode = "full"
+            print(f"chimera graph rebuild ({mode}, {store.path}):")
             for k, v in sorted(counts.items()):
                 print(f"  {k}: {v}")
             return 0
@@ -981,6 +1371,45 @@ def main(argv: list[str] | None = None) -> int:
             out_path.write_text(_json.dumps(snapshot, indent=2), encoding="utf-8")
             print(f"chimera graph export: {out_path}")
             return 0
+        if sub_cmd == "stress":
+            import json as _json
+            import tempfile
+            from .scenarios import run_graph_stress
+
+            with tempfile.TemporaryDirectory(prefix="chimera-stress-") as td:
+                td_path = Path(td)
+                result = run_graph_stress(
+                    sqlite_path=td_path / "chimera.db",
+                    graph_path=td_path / "chimera.graph",
+                    n_entities=args.entities,
+                    transitions_each=args.transitions_each,
+                    repeat_queries=args.repeat,
+                )
+            payload = result.to_dict()
+            if args.json:
+                print(_json.dumps(payload, indent=2, sort_keys=True))
+                return 0 if result.ok else 1
+            print(
+                f"chimera graph stress: {result.n_entities} entities, "
+                f"{result.n_transitions} transitions"
+            )
+            print(f"  populate: {result.populate_seconds:.3f}s")
+            print(f"  rebuild:  {result.rebuild_seconds:.3f}s")
+            for k, v in sorted(result.rebuild_counts.items()):
+                print(f"    {k:18s} {v}")
+            print("  queries (p50 / p95 ms):")
+            for q in result.query_timings:
+                print(
+                    f"    {q.label:28s} rows={q.rows:4d}  "
+                    f"p50={q.p50_ms:7.3f}  p95={q.p95_ms:7.3f}"
+                )
+            print(f"  restart_count_match: {result.restart_count_match}")
+            if result.failures:
+                print("  failures:")
+                for f in result.failures:
+                    print(f"    - {f}")
+            print(f"  ok: {result.ok}")
+            return 0 if result.ok else 1
         if sub_cmd == "provenance":
             store.init_schema()
             mid = args.mutation_id

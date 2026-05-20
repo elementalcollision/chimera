@@ -5,7 +5,7 @@
 
 ## Context
 
-ADR 0038 shipped the MLC canvas port and explicitly deferred three
+[ADR 0038](./0038-mlc-canvas-design.md) shipped the MLC canvas port and explicitly deferred three
 items flagged by the designer in the hand-off chat:
 
 1. **View presets** (Operator / Cost / Debug / Federation segmented

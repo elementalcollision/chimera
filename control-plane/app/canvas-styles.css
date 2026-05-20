@@ -262,6 +262,8 @@ button {
   padding: 12px 14px 10px;
   cursor: grab;
   user-select: none;
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 .tile__header:active { cursor: grabbing; }
 .tile[data-pinned="true"] .tile__header { cursor: default; }
@@ -272,13 +274,19 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--fg-3);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tile__title {
   flex: 1;
+  min-width: 0;
   font-size: 14px;
   font-weight: var(--fw-semibold);
   color: var(--fg-1);
   letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tile__chip {
   font-size: 10px;

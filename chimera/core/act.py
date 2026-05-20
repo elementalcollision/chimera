@@ -21,6 +21,7 @@ adaptive routing policy (a later sprint) has data to work with.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import sqlite3
@@ -52,6 +53,102 @@ from ..tools import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+_CONTINUATION_HEAD = 800
+_CONTINUATION_TAIL = 800
+_CONTINUATION_INLINE_MAX = 2000  # files smaller than this embed in full
+_CONTINUATION_MAX_PATHS = 6
+
+
+def _continuation_context(task_text: str) -> str:
+    """v4.42 / v4.43: build a "Continuation context" block for the system
+    prompt summarising any artifact paths the task references that already
+    exist on disk. Tells the model "the prior cycle did X — continue from
+    there, do not restart from zero."
+
+    v4.43 improvement: small files (<2KB) embed in full; larger files
+    show HEAD + TAIL so the model sees both the structural top and the
+    most recent progress (the tail is where partial work usually
+    accumulates — appended sections, last-written paragraphs).
+
+    Returns "" when no continuation is detected (fresh task).
+    """
+    expected = expected_artifacts(task_text)
+    if not expected:
+        return ""
+    base = Path.cwd()
+    blocks: list[str] = []
+    for rel in expected[:_CONTINUATION_MAX_PATHS]:
+        p = base / rel
+        if not p.exists() or not p.is_file():
+            continue
+        try:
+            st = p.stat()
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        n_lines = text.count("\n")
+        if len(text) <= _CONTINUATION_INLINE_MAX:
+            preview = text
+            marker = ""
+        else:
+            head = text[:_CONTINUATION_HEAD].rstrip()
+            tail = text[-_CONTINUATION_TAIL:].lstrip()
+            elided = len(text) - _CONTINUATION_HEAD - _CONTINUATION_TAIL
+            preview = (
+                f"{head}\n"
+                f"  ...[{elided} bytes elided from middle]...\n"
+                f"{tail}"
+            )
+            marker = ""
+        blocks.append(
+            f"- `{rel}` ({st.st_size} bytes, {n_lines} lines):\n"
+            f"  ```\n  {preview}{marker}\n  ```"
+        )
+    if not blocks:
+        return ""
+    body = "\n".join(blocks)
+    return (
+        "## Continuation context\n"
+        "Prior cycle(s) produced these artifacts already. CONTINUE the work "
+        "(append, finish, fix the specific gaps) — do NOT re-research, "
+        "re-fetch, or re-validate content that's clearly already present. "
+        "Treat existing content as authoritative unless it is obviously "
+        "truncated or syntactically broken. Your goal is to land the "
+        "missing pieces and STOP:\n"
+        f"{body}"
+    )
+
+
+def _schema_hint(registry, tool_name: str, args: dict[str, Any]) -> str:
+    """v4.41: render a one-line schema hint for the model on validation
+    failure. Format: ``hint: <name>({required: ..., received: ...})``."""
+    try:
+        entry = registry.get(tool_name)
+    except Exception:  # noqa: BLE001
+        return ""
+    if entry is None:
+        return f"hint: unknown tool {tool_name!r}; check the registered tool list."
+    schema = entry.schema or {}
+    fn = schema.get("function") if schema.get("type") == "function" else schema
+    params = (fn or {}).get("parameters") or {}
+    props = params.get("properties") or {}
+    required = list(params.get("required") or [])
+    received = sorted(args.keys()) if isinstance(args, dict) else []
+    fields: list[str] = []
+    for key in required:
+        prop = props.get(key) or {}
+        fields.append(f"{key}: {prop.get('type', 'any')} (required)")
+    optional = [k for k in props.keys() if k not in required]
+    for key in optional[:4]:
+        prop = props[key]
+        fields.append(f"{key}: {prop.get('type', 'any')}")
+    schema_line = ", ".join(fields) or "(no parameters)"
+    return (
+        f"hint: {tool_name}({{ {schema_line} }}). "
+        f"received keys: {received or '[]'}."
+    )
 
 
 DEFAULT_SYSTEM_PROMPT_EXTRA = (
@@ -110,6 +207,32 @@ def check_artifacts(
 class ActExecutor:
     """Runs the tool-using inner loop for a single task."""
 
+    # v4.71: tier-aware output-token budget. The flat 2048 cap was
+    # producing repeated ``finish=length`` truncations on opus tool_use
+    # turns (recorded in cycle 27 history meta). Anthropic's published
+    # output ceilings: haiku-4.5 ≈ 8k, sonnet-4.6 ≈ 64k extended
+    # thinking / 8k standard, opus-4.7 ≈ 32k. We pick conservative
+    # defaults below the ceilings and let operators override via
+    # ``CHIMERA_ACT_MAX_TOKENS`` (global) or
+    # ``CHIMERA_ACT_MAX_TOKENS_<TIER>`` (per-tier). See
+    # docs/runbook.md §"Output-token budget".
+    _TIER_MAX_TOKENS: dict[str, int] = {
+        "haiku": 4096,
+        "sonnet": 8192,
+        "opus": 16384,
+    }
+
+    @classmethod
+    def _resolve_max_tokens(cls, tier: str) -> int:
+        import os
+        per_tier = os.environ.get(f"CHIMERA_ACT_MAX_TOKENS_{tier.upper()}")
+        if per_tier and per_tier.isdigit():
+            return int(per_tier)
+        glob = os.environ.get("CHIMERA_ACT_MAX_TOKENS")
+        if glob and glob.isdigit():
+            return int(glob)
+        return cls._TIER_MAX_TOKENS.get(tier, 4096)
+
     def __init__(
         self,
         *,
@@ -118,7 +241,7 @@ class ActExecutor:
         db: sqlite3.Connection,
         tier: str = "haiku",
         max_rounds: int = 12,
-        max_tokens: int = 2048,
+        max_tokens: int | None = None,
         system_prompt_extra: str = DEFAULT_SYSTEM_PROMPT_EXTRA,
     ) -> None:
         self._dispatcher = dispatcher
@@ -126,7 +249,11 @@ class ActExecutor:
         self._db = db
         self._tier = tier
         self._max_rounds = max_rounds
-        self._max_tokens = max_tokens
+        # v4.71: None → tier-aware default. Explicit ints still honoured
+        # (preserves backward compatibility with existing callers/tests).
+        self._max_tokens = (
+            max_tokens if max_tokens is not None else self._resolve_max_tokens(tier)
+        )
         self._system_prompt_extra = system_prompt_extra
 
     def _build_system_prompt(self, *, cycle: int) -> str:
@@ -193,9 +320,64 @@ class ActExecutor:
         cycle: int,
         context: DispatchContext | None = None,
     ) -> ActResult:
+        # v4.46: persistent task-escalation memory. If this task's
+        # signature has failed before, start at a higher tier than the
+        # default — avoids re-running deepseek-flash 26 times on a job
+        # that demonstrably needs sonnet.
+        from .escalation import recommended_tier, record_failure
+        promoted_tier = recommended_tier(
+            self._db, task_text=task_text, default_tier=self._tier,
+        )
+        if promoted_tier != self._tier:
+            logger.info(
+                "act: escalating tier %s → %s based on prior failures",
+                self._tier, promoted_tier,
+            )
+            self._tier = promoted_tier
+
+        result = await self._execute_inner(task_text, cycle=cycle, context=context)
+
+        # On any non-completion exit, record the failure so the NEXT
+        # attempt at a similar signature picks a higher tier.
+        #
+        # v4.53: ``cost_cap`` is excluded — a cap trip is a *spend*
+        # problem, not a *capability* problem. Promoting tier would
+        # just burn the cap faster on the next attempt. The cycle
+        # rotates and the task gets a fresh budget on the next cycle.
+        if not result.completed and result.finish_reason != "cost_cap":
+            try:
+                record_failure(
+                    self._db,
+                    task_text=task_text,
+                    tier=self._tier,
+                    finish_reason=result.finish_reason,
+                    rounds_used=result.rounds,
+                    cycle=cycle,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "task_escalations record_failure raised; continuing",
+                )
+        return result
+
+    async def _execute_inner(
+        self,
+        task_text: str,
+        *,
+        cycle: int,
+        context: DispatchContext | None = None,
+    ) -> ActResult:
         ctx = context or DispatchContext()
+        # v4.42: continuation-context detection. If the task text references
+        # artifact paths under mind/ or state/ that already exist on disk,
+        # the prior cycle made progress; surface the partial state to the
+        # model so it doesn't restart from zero.
+        continuation_block = _continuation_context(task_text)
+        system_prompt = self._build_system_prompt(cycle=cycle)
+        if continuation_block:
+            system_prompt = f"{system_prompt}\n\n{continuation_block}"
         messages: list[Message] = [
-            Message.system(self._build_system_prompt(cycle=cycle)),
+            Message.system(system_prompt),
             Message.user(task_text),
         ]
         tools_schema = self._dispatcher.registry.schemas()
@@ -227,13 +409,45 @@ class ActExecutor:
         last_provider_error: str | None = None
 
         # v4.5: per-task adaptive budget — scales with declared artifacts
-        # and named tool keywords, capped at 32.
+        # and named tool keywords, capped at 32. v4.47: also scaled by
+        # the (possibly v4.46-promoted) tier so opus gets more rounds
+        # than haiku for the same task.
         from .budget import dynamic_max_rounds
 
         effective_max_rounds = dynamic_max_rounds(
-            task_text, base=self._max_rounds
+            task_text, base=self._max_rounds, tier=self._tier,
         )
+        # v4.50: wall-clock anchor used to measure round-boundary latency
+        # — the time between the prior round's last tool completion and
+        # this round's provider call. None on the very first round.
+        import time as _time
+        prior_tools_done_at: float | None = None
+        from .budget import check_cycle_cost_cap, CycleCostCapExceeded
         for round_idx in range(effective_max_rounds):
+            # v4.53: hard-stop if this cycle has spent over the cap.
+            # Checked BEFORE the provider call so a tripping cycle
+            # exits cleanly without one final expensive request.
+            try:
+                check_cycle_cost_cap(self._db, cycle)
+            except CycleCostCapExceeded as exc:
+                logger.warning(
+                    "act: cycle %d cost cap tripped at $%.2f (cap $%.2f); "
+                    "exiting round loop without tier promotion",
+                    exc.cycle, exc.spend_usd, exc.cap_usd,
+                )
+                return ActResult(
+                    task_text=task_text,
+                    completed=False,
+                    rounds=round_idx,
+                    finish_reason="cost_cap",
+                    failure_reason=str(exc),
+                    api_call_count=api_call_count,
+                )
+            round_boundary_ms: int | None = None
+            if prior_tools_done_at is not None:
+                round_boundary_ms = int(
+                    (_time.perf_counter() - prior_tools_done_at) * 1000.0
+                )
             try:
                 response = await provider.complete_with_tools(
                     messages=messages,
@@ -282,6 +496,10 @@ class ActExecutor:
                 output_tokens=response.output_tokens,
                 latency_ms=response.latency_ms,
                 finish_reason=response.stop_reason,
+                # v4.33: parallel-tool fan-out telemetry.
+                tool_uses_count=len(response.tool_uses or []),
+                # v4.50: time between prior tool completion and this call.
+                round_boundary_latency_ms=round_boundary_ms,
             )
             record_ladder_outcome(
                 self._db,
@@ -348,45 +566,74 @@ class ActExecutor:
             # Append assistant turn with the model's tool_use blocks.
             messages.append(Message.assistant(response.text, response.tool_uses))
 
-            # Dispatch each tool call; build the tool_result turn.
-            tool_results: list[ToolResultBlock] = []
+            # v4.18: dispatch the batch of tool_uses concurrently. The
+            # Anthropic API emits multiple tool_use blocks in a single
+            # response when the model wants parallel calls; running them
+            # serially throws that latency back away. We still append each
+            # call to history first (so detect_degenerate_loop sees the
+            # full batch before any dispatch fires).
+            batch_args: list[dict[str, Any]] = []
             for tu in response.tool_uses:
                 args = normalize_tool_input(tu.input)
-                call = ToolCall(name=tu.name, args=args)
-                history.append(call)
+                batch_args.append(args)
+                history.append(ToolCall(name=tu.name, args=args))
 
-                verdict = detect_degenerate_loop(history)
-                if verdict is LoopVerdict.ABORT:
-                    return ActResult(
-                        task_text=task_text,
-                        completed=False,
-                        rounds=round_idx + 1,
-                        finish_reason="degenerate_loop_abort",
-                        write_targets=write_targets,
-                        tool_call_history=history,
-                        final_text=final_text,
-                        failure_reason="aborted after repeated identical tool calls",
-                        api_call_count=api_call_count,
-                    )
+            verdict = detect_degenerate_loop(history)
+            if verdict is LoopVerdict.ABORT:
+                return ActResult(
+                    task_text=task_text,
+                    completed=False,
+                    rounds=round_idx + 1,
+                    finish_reason="degenerate_loop_abort",
+                    write_targets=write_targets,
+                    tool_call_history=history,
+                    final_text=final_text,
+                    failure_reason="aborted after repeated identical tool calls",
+                    api_call_count=api_call_count,
+                )
 
+            async def _run_one(tu_id: str, name: str, args: dict[str, Any]) -> ToolResultBlock:
                 try:
-                    output = await self._dispatcher.dispatch(tu.name, args, ctx)
-                    tool_results.append(
-                        ToolResultBlock(tool_use_id=tu.id, content=output, is_error=False)
-                    )
+                    output = await self._dispatcher.dispatch(name, args, ctx)
+                    return ToolResultBlock(tool_use_id=tu_id, content=output, is_error=False)
                 except ToolDenied as exc:
-                    tool_results.append(
-                        ToolResultBlock(
-                            tool_use_id=tu.id, content=f"tool denied: {exc}", is_error=True
-                        )
+                    return ToolResultBlock(
+                        tool_use_id=tu_id, content=f"tool denied: {exc}", is_error=True
                     )
-                except Exception as exc:
-                    logger.exception("tool dispatch failed: %s", tu.name)
-                    tool_results.append(
-                        ToolResultBlock(
-                            tool_use_id=tu.id, content=f"error: {exc}", is_error=True
-                        )
+                except (ValueError, TypeError, KeyError) as exc:
+                    # v4.41: input-validation failure. Teach the model the
+                    # correct shape so it can self-correct in the next
+                    # round, instead of seeing only the raw exception.
+                    hint = _schema_hint(self._dispatcher.registry, name, args)
+                    return ToolResultBlock(
+                        tool_use_id=tu_id,
+                        content=f"error: {exc}\n{hint}".rstrip(),
+                        is_error=True,
                     )
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("tool dispatch failed: %s", name)
+                    return ToolResultBlock(
+                        tool_use_id=tu_id, content=f"error: {exc}", is_error=True
+                    )
+
+            if len(response.tool_uses) > 1:
+                logger.info(
+                    "act: dispatching %d tool_uses in parallel: %s",
+                    len(response.tool_uses),
+                    [tu.name for tu in response.tool_uses],
+                )
+
+            tool_results: list[ToolResultBlock] = list(
+                await asyncio.gather(
+                    *[
+                        _run_one(tu.id, tu.name, args)
+                        for tu, args in zip(response.tool_uses, batch_args)
+                    ]
+                )
+            )
+            # v4.50: capture wall-clock at the last tool's completion so
+            # the NEXT round can record the round-boundary latency.
+            prior_tools_done_at = _time.perf_counter()
 
             # Track write_targets the agent may have produced. The shell tool
             # doesn't write, but future write tools will populate this via the

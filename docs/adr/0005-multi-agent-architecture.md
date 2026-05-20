@@ -96,13 +96,13 @@ ACT can call them like any other tool.
 
 | Topic | Owner ADR | Target |
 |---|---|---|
-| Identity handshake — mutual attestation of agent_id, capabilities, KFM state | ADR 0006 | v2.1 |
-| HTTP/SSE transport + bearer-token auth | ADR 0007 | v2.1 |
-| Peer registry / discovery (replaces hand-edited env) | ADR 0008 | v2.2 |
-| Swarm-KFM coordination (multi-agent ontology) | ADR 0009 | v2.3 |
-| Alignment ceremony via Xenocomm's 5 strategies | ADR 0010 | v2.3 |
-| Emergence-aware protocol evolution | ADR 0011 | v2.4 |
-| Cross-agent trust + per-peer tier mapping | ADR 0012 | v2.4 |
+| Identity handshake — mutual attestation of agent_id, capabilities, KFM state | [ADR 0006](./0006-identity-handshake.md) | v2.1 |
+| HTTP/SSE transport + bearer-token auth | [ADR 0007](./0007-peer-registry.md) | v2.1 |
+| Peer registry / discovery (replaces hand-edited env) | [ADR 0008](./0008-swarm-kfm.md) | v2.2 |
+| Swarm-KFM coordination (multi-agent ontology) | [ADR 0009](./0009-cross-agent-trust.md) | v2.3 |
+| Alignment ceremony via Xenocomm's 5 strategies | [ADR 0010](./0010-peer-aware-dispatcher.md) | v2.3 |
+| Emergence-aware protocol evolution | [ADR 0011](./0011-http-transport.md) | v2.4 |
+| Cross-agent trust + per-peer tier mapping | [ADR 0012](./0012-inbound-attestation.md) | v2.4 |
 
 This sequence is intentional: every later piece depends on identity
 (2.1) and discovery (2.2) being real first. The Xenocomm SDK's

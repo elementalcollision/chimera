@@ -279,9 +279,74 @@ class ChimeraLoop:
     # ── Phases ──────────────────────────────────────────────
 
     async def _phase_housekeeping(self) -> None:
-        # MVP stub. Sweep-stale mutation logic lands when MutationQueue does.
-        self._record_phase_activity("housekeeping")
-        self._log_phase("HOUSEKEEPING (stub)")
+        """v4.24: auto-archive stale DEPRECATED entities.
+
+        Reads ``CHIMERA_AUTO_ARCHIVE_AFTER_CYCLES`` (default 30) and
+        ``CHIMERA_AUTO_ARCHIVE_DISABLED`` (default off). Each cycle,
+        promotes up to 25 DEPRECATED entities that have been sitting
+        for that many cycles to ARCHIVED via the K-operator.
+        """
+        import os as _os
+        from ..memory import auto_archive_stale_deprecated
+
+        archived: list[dict[str, Any]] = []
+        if _os.environ.get("CHIMERA_AUTO_ARCHIVE_DISABLED") not in ("1", "true", "yes"):
+            try:
+                after = int(_os.environ.get("CHIMERA_AUTO_ARCHIVE_AFTER_CYCLES", "30"))
+            except ValueError:
+                after = 30
+            cycle = self._report.cycle if self._report else 0
+            try:
+                archived = auto_archive_stale_deprecated(
+                    self._db,
+                    current_cycle=cycle,
+                    archive_after_cycles=after,
+                )
+            except Exception:
+                logger.exception("auto-archive failed; continuing")
+
+        # v4.32: incremental graph projection. Append-only diffs so the
+        # graph stays current between operator-triggered full rebuilds
+        # without paying the 230ms clear+rebuild every cycle.
+        graph_counts: dict[str, int] = {}
+        if _os.environ.get("CHIMERA_AUTO_GRAPH_UPDATE_DISABLED") not in (
+            "1", "true", "yes",
+        ):
+            try:
+                from ..memory import GraphStore, default_graph_dir
+                store = GraphStore(default_graph_dir())
+                graph_counts = store.update_from_sqlite(self._db)
+            except Exception:
+                logger.exception("auto-graph-update failed; continuing")
+
+        details: dict[str, Any] = {}
+        if archived:
+            details["archived_count"] = len(archived)
+        if graph_counts:
+            added = sum(graph_counts.values())
+            if added:
+                details["graph_added"] = added
+                for k, v in graph_counts.items():
+                    if v:
+                        details[f"graph_{k.lower()}"] = v
+        self._record_phase_activity(
+            "housekeeping",
+            details=details or None,
+        )
+
+        parts: list[str] = []
+        if archived:
+            parts.append(
+                f"archived {len(archived)} stale DEPRECATED "
+                f"entit{'y' if len(archived) == 1 else 'ies'}"
+            )
+        if graph_counts and any(graph_counts.values()):
+            added = sum(graph_counts.values())
+            parts.append(f"projected {added} new graph row(s)")
+        if parts:
+            self._log_phase("HOUSEKEEPING: " + "; ".join(parts))
+        else:
+            self._log_phase("HOUSEKEEPING: nothing to do")
 
     async def _phase_wake(self) -> None:
         state, body = mind.load_heartbeat(self._heartbeat_path)

@@ -1,0 +1,39 @@
+
+
+## References
+
+### Primary Sources (cited in paper summary and annotated companion)
+- IEA (2024). "Energy and AI." International Energy Agency Special Report. https://www.iea.org/reports/energy-and-ai
+- LBNL (2024). "2024 United States Data Center Energy Usage Report." Lawrence Berkeley National Laboratory. https://eta-publications.lbl.gov/publications/2024-united-states-data-center
+- Li, P., Yang, J., Islam, M.A., & Ren, S. (2023). "Making AI Less 'Thirsty': Uncovering and Addressing the Secret Water Footprint of AI Models." arXiv:2304.03271. https://arxiv.org/abs/2304.03271
+- Brookings Institution (2025). "Data centers and water: The growing strain on stressed regions." https://www.brookings.edu/articles/data-centers-and-water/
+- Lawfare (2024). "The Global Water Footprint of AI." https://www.lawfaremedia.org/article/the-global-water-footprint-of-ai
+- Wang, P., Wu, T.Y., & de Vries, A. (2024). "The e-waste implications of generative AI." Nature Computational Science, 4, 818-823. https://doi.org/10.1038/s43588-024-00712-6
+- de Vries, A. (2024). "The growing energy footprint of artificial intelligence." Resources, Conservation and Recycling, 205, 107571. https://doi.org/10.1016/j.resconrec.2024.107571
+- US DOE (2023). "Critical Materials Assessment." U.S. Department of Energy. https://www.energy.gov/eere/ammto/2023-critical-materials-assessment
+- RAND Corporation (2024). "Semiconductor Supply Chains: Geopolitical Competition in Critical Technology." https://www.rand.org/pubs/research_reports/RRA2382-1.html
+- Popa, E.O. & Blok, V. (2020). "A Processual Approach to Agonistic Pluralism in Technology Governance." Philosophy & Technology, 33, 637-657. https://doi.org/10.1007/s13347-020-00412-3
+- Mouffe, C. (2013). Agonistics: Thinking the World Politically. Verso Books.
+
+### Section 1: Capital as a first-class node
+- Juniewicz, I. (2026). "Hyperscaler capex has quadrupled since GPT-4's release." Epoch AI. https://epoch.ai/data-insights/hyperscaler-capex-trend
+- Dell'Oro Group (2025). "Data Center Capex Surged 51 Percent to $455 Billion in 2024." https://www.delloro.com/news/data-center-capex-surged-51-percent-to-455-billion-in-2024
+- Dell'Oro Group (2025). "Hyperscale Blackwell and Custom Accelerator Rollouts Drive 53 Percent Capex Growth in 1Q 2025." https://www.delloro.com/news/hyperscaler-blackwell-and-custom-accelerator-rollouts-drive-53-percent-capex-growth-in-1q-2025/
+- Goldman Sachs (2025). "Why AI Companies May Invest More than $500 Billion in 2026." https://www.goldmansachs.com/insights/articles/why-ai-companies-may-invest-more-than-500-billion-in-2026
+- Asia Asset Management (2025). "Singapore, UAE wealth funds lead Vantage Data Centres' US$1.6 billion fundraising." https://www.asiaasset.com/post/30052-gicvantage-gte-0915
+- CNBC (2025). "Abu Dhabi's ADQ, U.S. PE firm to invest $25 billion in U.S. data center projects." https://www.cnbc.com/2025/03/20/abu-dhabis-adq-us-pe-firm-to-invest-25-billion-in-us-data-center-projects.html
+- IFSWF (2024). "Digital Infrastructure: Driving Resilience Through Connectivity." IFSWF Annual Review 2024. https://ifswfreview.org/digital-infrastructure.html
+- BlackRock (2024). "BlackRock, Global Infrastructure Partners, Microsoft and MGX launch new AI partnership." https://news.microsoft.com/2024/09/17/blackrock-global-infrastructure-partners-microsoft-and-mgx-launch-new-ai-partnership-to-invest-in-data-centers-and-supporting-power-infrastructure/
+- Bloomberg (2024). "BlackRock, Microsoft Aim to Raise $30 Billion for AI Investments." https://www.bloomberg.com/news/articles/2024-09-17/blackrock-microsoft-aim-to-raise-30-billion-for-ai-investments
+- Bommarito, M. (2025). "Financial Sponsors: The $175B+ Private Capital Reshaping AI Infrastructure." https://michaelbommarito.com/wiki/datacenters/entities/financial/
+
+### Section 2: Feedback loops and dynamics
+- Monitoring Analytics (2025). "2025 State of the Market Report for PJM." Independent Market Monitor for PJM. https://www.monitoringanalytics.com/reports/PJM_State_of_the_Market/2025/2025-som-pjm-vol1.pdf
+- PJM Interconnection (2025). "2025 Long-Term Load Forecast." https://www.pjm.com
+- S&P Global Market Intelligence (2024). "Duke Energy outlines early retirement of 5 coal units in NC rate case." https://www.spglobal.com/marketintelligence/en/news-insights/trending/qaIp29yIYkzmL-qhWn4x0g2
+- Canary Media (2024). "Duke Energy seeks to delay its 2030 climate target in North Carolina." https://www.canarymedia.com/articles/utilities/duke-energy-seeks-to-delay-its-2030-climate-target-in-north-carolina
+- Dominion Energy (2024). "2024 Virginia Integrated Resource Plan." https://investors.dominionenergy.com/news/press-release-details/2024/Dominion-Energy-Virginia-releases-comprehensive-long-term-plan-to-meet-growing-power-demand-with-reliable-affordable-and-increasingly-clean-electricity/
+- Caretta, M.A. et al. (2022). "Chapter 4: Water." In: Climate Change 2022: Impacts, Adaptation and Vulnerability. IPCC AR6 WGII. https://www.ipcc.ch/report/ar6/wg2/chapter/chapter-4/
+- Ceres (2025). "Drained by Data: The Cumulative Impact of Data Centers on Regional Water Stress." https://www.ceres.org/resources/reports/drained-by-data-the-cumulative-impact-of-data-centers-on-regional-water-stress
+- S&P Global Sustainable1 (2025). "Beneath the Surface: Water Stress in Data Centers." https://www.spglobal.com/sustainable1/en/insights/special-editorial/beneath-the-surface-water-stress-in-data-centers
+- Washington Post (2024). "As internet data centers multiply, efforts to control them are growing." https://www.washingtonpost.com/dc-md-va/2024/04/30/data-centers-regulations-northern-virginia-georgia-arizona/

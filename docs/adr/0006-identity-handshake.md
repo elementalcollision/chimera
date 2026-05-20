@@ -70,7 +70,7 @@ the returned dict carries ``role == "chimera"`` and a non-empty
   (a v2.2+ peer registry can issue/verify tokens).
 - **No peer-typed trust decisions.** v2.1 surfaces identity; v2.4 acts
   on it.
-- **No HTTP/SSE.** Stdio only, per ADR 0005.
+- **No HTTP/SSE.** Stdio only, per [ADR 0005](./0005-multi-agent-architecture.md).
 
 ## References
 

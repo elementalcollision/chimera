@@ -32,6 +32,9 @@ class Mutation:
     created_at: str
     approved_at: str | None
     applied_at: str | None
+    # v4.19: bumped by adaptation._already_proposed when a duplicate fires.
+    # 0 means "seen exactly once".
+    recurrence_count: int = 0
 
 
 def _utc_now_iso() -> str:
@@ -39,6 +42,10 @@ def _utc_now_iso() -> str:
 
 
 def _row_to_mutation(row: sqlite3.Row) -> Mutation:
+    # ``row`` is a sqlite3.Row; column access via dict-style. The
+    # recurrence_count column may not exist on a very old DB that
+    # somehow skipped init_schema migration — default to 0 in that case.
+    keys = row.keys() if hasattr(row, "keys") else ()
     return Mutation(
         id=row["id"],
         type=row["type"],
@@ -48,6 +55,7 @@ def _row_to_mutation(row: sqlite3.Row) -> Mutation:
         created_at=row["created_at"],
         approved_at=row["approved_at"],
         applied_at=row["applied_at"],
+        recurrence_count=row["recurrence_count"] if "recurrence_count" in keys else 0,
     )
 
 
@@ -148,6 +156,82 @@ def mark_failed(
         (reason, mid),
     )
     return get_mutation(conn, mid)
+
+
+def bump_recurrence(conn: sqlite3.Connection, mid: int) -> Mutation | None:
+    """v4.19: record that a duplicate-signature proposal was suppressed.
+
+    Increments the existing row's ``recurrence_count`` rather than
+    enqueueing a new row, so the operator sees "this hit 8 times"
+    instead of 8 separate pending mutations.
+    """
+    m = get_mutation(conn, mid)
+    if m is None:
+        return None
+    conn.execute(
+        "UPDATE mutations SET recurrence_count = recurrence_count + 1 "
+        "WHERE id = ?",
+        (mid,),
+    )
+    return get_mutation(conn, mid)
+
+
+def queue_health(conn: sqlite3.Connection) -> dict[str, Any]:
+    """v4.19: queue-health snapshot for the dashboard and CLI.
+
+    Returns a single dict with:
+      - ``counts``: status → row count
+      - ``pending_oldest_age_seconds``: int | None
+      - ``pending_recurrence_max``: highest recurrence_count among pending
+      - ``pending_recurrence_total``: sum of recurrence_count among pending
+      - ``approved_ratio``: applied / (approved + applied + rejected + failed)
+        — operator signal/noise. None if no decisions yet.
+    """
+    rows = conn.execute(
+        "SELECT status, COUNT(*) AS n FROM mutations GROUP BY status"
+    ).fetchall()
+    counts: dict[str, int] = {r["status"]: int(r["n"]) for r in rows}
+
+    oldest = conn.execute(
+        "SELECT MIN(created_at) AS oldest FROM mutations WHERE status = 'pending'"
+    ).fetchone()
+    pending_oldest_age: int | None = None
+    if oldest and oldest["oldest"]:
+        try:
+            t0 = dt.datetime.fromisoformat(oldest["oldest"])
+            if t0.tzinfo is None:
+                t0 = t0.replace(tzinfo=dt.timezone.utc)
+            age = (dt.datetime.now(dt.timezone.utc) - t0).total_seconds()
+            pending_oldest_age = int(age)
+        except ValueError:
+            pending_oldest_age = None
+
+    rec = conn.execute(
+        "SELECT COALESCE(MAX(recurrence_count), 0) AS rmax, "
+        "COALESCE(SUM(recurrence_count), 0) AS rsum "
+        "FROM mutations WHERE status = 'pending'"
+    ).fetchone()
+
+    decided = (
+        counts.get("approved", 0)
+        + counts.get("applied", 0)
+        + counts.get("rejected", 0)
+        + counts.get("failed", 0)
+    )
+    if decided > 0:
+        approved_ratio: float | None = (
+            counts.get("applied", 0) / decided
+        )
+    else:
+        approved_ratio = None
+
+    return {
+        "counts": counts,
+        "pending_oldest_age_seconds": pending_oldest_age,
+        "pending_recurrence_max": int(rec["rmax"]) if rec else 0,
+        "pending_recurrence_total": int(rec["rsum"]) if rec else 0,
+        "approved_ratio": approved_ratio,
+    }
 
 
 def sweep_stale(

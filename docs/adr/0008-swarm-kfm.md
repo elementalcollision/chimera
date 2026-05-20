@@ -34,7 +34,7 @@ A second always-exposed tool, alongside ``chimera-identity``:
 
 ## Why a tool (and not a resource, again)
 
-Same reasoning as ADR 0006: tools route through the existing dispatcher;
+Same reasoning as [ADR 0006](./0006-identity-handshake.md): tools route through the existing dispatcher;
 resources would need a parallel wire path. The peer dispatch context
 (``trust_tier="T1"``, ``session_id="peer"``) provides default-safe
 behaviour without any new policy machinery.

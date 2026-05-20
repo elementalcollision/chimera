@@ -1,0 +1,80 @@
+# ADR index
+
+72 architecture decision records. Listed in numeric order. "Status" is the
+last column; "Accepted" means in force, "Deferred" means decided not to do
+this yet (with rationale), "Superseded by N" means later ADR replaces.
+
+| File | Title | Status |
+|---|---|---|
+| [0001-sdk-chimera-boundaries.md](./0001-sdk-chimera-boundaries.md) | ADR 0001 — SDK Chimera Boundaries | Accepted (pending Phase 0 sign-off) |
+| [0002-memory-strategy.md](./0002-memory-strategy.md) | ADR 0002 — Memory Strategy | Accepted (pending Phase 0 sign-off) |
+| [0003-reggio-loop.md](./0003-reggio-loop.md) | ADR 0003 — Reggio Loop Adoption | Proposed (recommendation; awaits user mark-up) |
+| [0004-xenocomm-a2a.md](./0004-xenocomm-a2a.md) | ADR 0004 — Xenocomm / A2A integration (spike) | Proposed (spike). Closes the v2 deferral in [ADR 0001](0001-sdk-chimera-boundaries.md) |
+| [0005-multi-agent-architecture.md](./0005-multi-agent-architecture.md) | ADR 0005 — Multi-agent architecture (v2.0) | Accepted. Anchors v2.0. Successor entries codify each |
+| [0006-identity-handshake.md](./0006-identity-handshake.md) | ADR 0006 — Peer identity handshake (v2.1) | Accepted. Anchors v2.1. Sits between [ADR 0005](0005-multi-agent-architecture.md) |
+| [0007-peer-registry.md](./0007-peer-registry.md) | ADR 0007 — Peer registry (v2.2) | Accepted. Anchors v2.2. Builds on |
+| [0008-swarm-kfm.md](./0008-swarm-kfm.md) | ADR 0008 — Swarm-KFM read-only view (v2.3) | Accepted. Anchors v2.3. Sits between |
+| [0009-cross-agent-trust.md](./0009-cross-agent-trust.md) | ADR 0009 — Cross-agent trust (outbound) (v2.4) | Accepted. Anchors v2.4. Builds on the data plumbing of |
+| [0010-peer-aware-dispatcher.md](./0010-peer-aware-dispatcher.md) | ADR 0010 — PeerAwareDispatcher (v2.5) | Accepted. Anchors v2.5. Closes the "wire the policy in" |
+| [0011-http-transport.md](./0011-http-transport.md) | ADR 0011 — HTTP/SSE transport for chimera serve (v2.6) | Accepted. Anchors v2.6. Originally listed in |
+| [0012-inbound-attestation.md](./0012-inbound-attestation.md) | ADR 0012 — Inbound peer attestation (v2.7) | Accepted. Anchors v2.7. The inbound complement to |
+| [0013-alignment-ceremony.md](./0013-alignment-ceremony.md) | ADR 0013 — Alignment ceremony (v2.8) | Accepted. Anchors v2.8. Loosely modelled on Xenocomm's |
+| [0014-emergence-protocol-journal.md](./0014-emergence-protocol-journal.md) | ADR 0014 — Emergence-aware protocol journal (v2.9) | Accepted. Anchors v2.9. Closes the last open item on the |
+| [0015-graph-store.md](./0015-graph-store.md) | ADR 0015 — LadybugDB graph store | Accepted (2026-05-18) |
+| [0016-graph-powered-features.md](./0016-graph-powered-features.md) | ADR 0016 — Graph-powered features (v3.0) | Accepted (2026-05-18) |
+| [0017-graph-edges-v3-1.md](./0017-graph-edges-v3-1.md) | ADR 0017 — Closing the remaining graph edges (v3.1) | Accepted (2026-05-18) |
+| [0018-operational-hardening.md](./0018-operational-hardening.md) | ADR 0018 — Operational hardening (v3.3) | Accepted (2026-05-18) |
+| [0019-provider-retry-backoff.md](./0019-provider-retry-backoff.md) | ADR 0019 — Provider retry/backoff (v3.5) | Accepted (2026-05-18) |
+| [0020-boot-config-validator.md](./0020-boot-config-validator.md) | ADR 0020 — Boot-time config validator (v3.6) | Accepted (2026-05-18) |
+| [0021-cross-host-peer-sync.md](./0021-cross-host-peer-sync.md) | ADR 0021 — Cross-host peer registry sync (v3.7) | Accepted (2026-05-18) |
+| [0022-emergence-v3.md](./0022-emergence-v3.md) | ADR 0022 — Emergence v3: auto-record + cross-host journal sync | Accepted (2026-05-18) |
+| [0023-multi-host-demo.md](./0023-multi-host-demo.md) | ADR 0023 — Multi-host demo scenario (v3.10) | Accepted (2026-05-19) |
+| [0024-act-ladder-escalation.md](./0024-act-ladder-escalation.md) | ADR 0024 — ACT ladder escalation under retry (v3.11) | Accepted (2026-05-19) |
+| [0025-v4-stability.md](./0025-v4-stability.md) | ADR 0025 — v4.0 stability promises | Accepted (2026-05-19) |
+| [0026-artifact-verification.md](./0026-artifact-verification.md) | ADR 0026 — Artifact verification (v4.3) | Accepted (2026-05-19) |
+| [0027-shell-default-cwd.md](./0027-shell-default-cwd.md) | ADR 0027 — Shell default cwd is the mind+state common parent (v4.4) | Accepted (2026-05-19) |
+| [0028-adaptive-budgets.md](./0028-adaptive-budgets.md) | ADR 0028 — Adaptive budgets + fragmentation auto-mutation (v4.5) | Accepted (2026-05-19) |
+| [0029-assembler-ladder.md](./0029-assembler-ladder.md) | ADR 0029 — Skill-assembler tier escalation (v4.6) | Accepted (2026-05-19) |
+| [0030-assembler-critique-loop.md](./0030-assembler-critique-loop.md) | ADR 0030 — Assembler prompt refinement + critique-and-revise loop (v4.7) | Accepted (2026-05-19) |
+| [0031-multi-witness-critique.md](./0031-multi-witness-critique.md) | ADR 0031 — Multi-witness critique + expanded opus ladder (v4.8) | Accepted (2026-05-19) |
+| [0032-named-rungs-assembly-journal.md](./0032-named-rungs-assembly-journal.md) | ADR 0032 — Named-rung selection + skill-assembly journal + dashboard (v4.9) | Accepted (2026-05-19) |
+| [0033-canvas-dashboard.md](./0033-canvas-dashboard.md) | ADR 0033 — Canvas dashboard shell with draggable widgets (v4.11) | Accepted (2026-05-19) |
+| [0034-engines-kill-switch.md](./0034-engines-kill-switch.md) | ADR 0034 — Engines kill-switch covers planner + daily engines (v4.12) | Accepted (2026-05-19) |
+| [0035-cross-provider-defaults.md](./0035-cross-provider-defaults.md) | ADR 0035 — Cross-provider witness defaults (v4.13) | Accepted (2026-05-19) |
+| [0036-tiers-json-export.md](./0036-tiers-json-export.md) | ADR 0036 — `chimera tiers --json` exporter + dashboard sync (v4.14) | Accepted (2026-05-19) |
+| [0037-drift-time-series.md](./0037-drift-time-series.md) | ADR 0037 — Drift composite time series + sparkline (v4.15) | Accepted (2026-05-19) |
+| [0038-mlc-canvas-design.md](./0038-mlc-canvas-design.md) | ADR 0038 — Port Chimera Canvas design (MLC brand + 14 widgets) (v4.16) | Accepted (2026-05-19) |
+| [0039-deferred-designer-items.md](./0039-deferred-designer-items.md) | ADR 0039 — Deferred designer items: view presets, auto-refresh, cost-over-time (v4.17) | Accepted (2026-05-19) |
+| [0040-parallel-tool-dispatch.md](./0040-parallel-tool-dispatch.md) | ADR 0040 — Parallel tool dispatch in ACT (v4.18) | Accepted (2026-05-19) |
+| [0041-proposer-recurrence.md](./0041-proposer-recurrence.md) | ADR 0041 — Auto-proposer recurrence + queue health (v4.19) | Accepted (2026-05-19) |
+| [0042-peer-federation-drill.md](./0042-peer-federation-drill.md) | ADR 0042 — Peer federation drill (v4.20) | Accepted (2026-05-19) |
+| [0043-ontology-audit.md](./0043-ontology-audit.md) | ADR 0043 — Memory / ontology audit (v4.21) | Accepted (2026-05-19) |
+| [0044-ladybug-stress-test.md](./0044-ladybug-stress-test.md) | ADR 0044 — LadybugDB graph stress test (v4.22) | Accepted (2026-05-19) |
+| [0045-graph-rebuild-perf.md](./0045-graph-rebuild-perf.md) | ADR 0045 — Graph rebuild perf via UNWIND batching (v4.23) | Accepted (2026-05-19) |
+| [0046-auto-archive-deprecated.md](./0046-auto-archive-deprecated.md) | ADR 0046 — Auto-archive stale DEPRECATED entities (v4.24) | Accepted (2026-05-19) |
+| [0047-dashboard-parity.md](./0047-dashboard-parity.md) | ADR 0047 — Dashboard parity for queue health + ontology audit (v4.25) | Accepted (2026-05-19) |
+| [0048-trust-gating-drill.md](./0048-trust-gating-drill.md) | ADR 0048 — Trust-gating federation drill (v4.26) | Accepted (2026-05-19) |
+| [0049-hyphenated-peer-names.md](./0049-hyphenated-peer-names.md) | ADR 0049 — Fix peer_name_from_tool for hyphenated peers (v4.27) | Accepted (2026-05-19) |
+| [0050-degrade-path-drill.md](./0050-degrade-path-drill.md) | ADR 0050 — DEGRADE-path trust drill (v4.28) | Accepted (2026-05-19) |
+| [0051-http-federation-drill.md](./0051-http-federation-drill.md) | ADR 0051 — HTTP transport federation drill (v4.29) | Accepted (2026-05-19) |
+| [0052-reanchor-history.md](./0052-reanchor-history.md) | ADR 0052 — Re-anchor history widget (v4.30) | Accepted (2026-05-19) |
+| [0053-incremental-projection.md](./0053-incremental-projection.md) | ADR 0053 — Incremental graph projection (v4.31) | Accepted (2026-05-19) |
+| [0054-housekeeping-graph-update.md](./0054-housekeeping-graph-update.md) | ADR 0054 — Auto-incremental graph in housekeeping (v4.32) | Accepted (2026-05-19) |
+| [0055-tool-fanout-telemetry.md](./0055-tool-fanout-telemetry.md) | ADR 0055 — Tool-fanout telemetry (v4.33) | Accepted (2026-05-19) |
+| [0056-fanout-by-model-and-history.md](./0056-fanout-by-model-and-history.md) | ADR 0056 — Per-model + time-series fan-out telemetry (v4.34) | Accepted (2026-05-19) |
+| [0057-mutating-row-incremental.md](./0057-mutating-row-incremental.md) | ADR 0057 — Incremental projection for mutating rows (v4.35) | Accepted (2026-05-19) |
+| [0058-cost-per-fanout.md](./0058-cost-per-fanout.md) | ADR 0058 — Cost-per-fanout correlation (v4.37) | Accepted (2026-05-19) |
+| [0059-skill-wiki-mtime-gate.md](./0059-skill-wiki-mtime-gate.md) | ADR 0059 — Skill/wiki incremental via mtime gate (v4.38) | Accepted (2026-05-19) |
+| [0060-kill-archived-workflow.md](./0060-kill-archived-workflow.md) | ADR 0060 — ARCHIVED → KILLED operator workflow (v4.39) | Accepted (2026-05-19) |
+| [0061-cross-round-parallelism-deferred.md](./0061-cross-round-parallelism-deferred.md) | ADR 0061 — Cross-round tool parallelism (v4.40, deferred design) | Deferred (2026-05-19) |
+| [0062-pressure-point-remediations.md](./0062-pressure-point-remediations.md) | ADR 0062 — Pressure-point remediations (v4.41) | Accepted (2026-05-19) |
+| [0063-continuation-context.md](./0063-continuation-context.md) | ADR 0063 — Cross-round continuation context (v4.42) | Accepted (2026-05-19) |
+| [0064-container-bootstrap.md](./0064-container-bootstrap.md) | ADR 0064 — Container bootstrap (v4.45) | Accepted (2026-05-19) |
+| [0065-task-escalation-memory.md](./0065-task-escalation-memory.md) | ADR 0065 — Persistent task-escalation memory (v4.46) | Accepted (2026-05-19) |
+| [0066-tier-aware-budget.md](./0066-tier-aware-budget.md) | ADR 0066 — Tier-aware adaptive budget (v4.47) | Accepted (2026-05-19) |
+| [0067-escalations-cli.md](./0067-escalations-cli.md) | ADR 0067 — `chimera escalations` CLI verb (v4.48) | Accepted (2026-05-19) |
+| [0068-subagent-failure-visibility.md](./0068-subagent-failure-visibility.md) | ADR 0068 — Sub-agent failure visibility (v4.49) | Accepted (2026-05-19) |
+| [0069-round-boundary-instrumentation.md](./0069-round-boundary-instrumentation.md) | ADR 0069 — Round-boundary latency instrumentation (v4.50) | Accepted (2026-05-19) |
+| [0070-model-utilization-widget.md](./0070-model-utilization-widget.md) | ADR 0070 — Model utilization (engine pressure) widget (v4.51) | Accepted (2026-05-19) |
+| [0071-http-bind-security.md](./0071-http-bind-security.md) | ADR 0071 — HTTP bind security guard (v4.52) | Accepted (2026-05-19) |
+| [0072-cost-runaway-guards.md](./0072-cost-runaway-guards.md) | ADR 0072 — Cost-runaway guards + opus ladder inversion (v4.53) | Accepted (2026-05-19) |

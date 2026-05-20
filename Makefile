@@ -1,31 +1,44 @@
-.PHONY: help install dev build up run logs down test lint clean
+.PHONY: help install dev build up down logs run cycle dashboard ping test test-slow lint clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## ' Makefile | awk -F':.*?## ' '{printf "  %-12s %s\n", $$1, $$2}'
 
 install: ## Install runtime deps with uv into a local venv
-	uv venv && uv pip install -e .
+	uv sync
 
 dev: ## Install runtime + dev deps with uv
-	uv venv && uv pip install -e '.[dev]'
+	uv sync --all-extras
 
-build: ## Build the chimera:dev image
+build: ## Build both container images
 	docker compose build
 
-up: ## Start chimera in the background
+up: ## Start chimera (HTTP MCP serve) + dashboard in the background
 	docker compose up -d
 
-run: ## One-shot run; pass ARGS="..." for CLI args
-	docker compose run --rm chimera $(ARGS)
-
-logs: ## Tail logs
-	docker compose logs -f --tail=100 chimera
-
-down: ## Stop and remove the container
+down: ## Stop and remove containers
 	docker compose down
 
-test: ## Run pytest inside the container
-	docker compose run --rm chimera python -m pytest
+logs: ## Tail logs from both services
+	docker compose logs -f --tail=100
+
+run: ## Ad-hoc chimera invocation. Pass ARGS="ping --provider both" etc.
+	docker compose run --rm chimera $(ARGS)
+
+cycle: ## One-shot cycle. Pass TASK="<task text>"
+	docker compose run --rm chimera run "$(TASK)"
+
+dashboard: ## Open the dashboard (assumes `make up` is running)
+	@echo "Dashboard: http://127.0.0.1:3000"
+	@command -v open >/dev/null && open http://127.0.0.1:3000 || true
+
+ping: ## Verify both providers from inside the container
+	docker compose run --rm chimera ping --provider both
+
+test: ## Run pytest (local venv)
+	uv run pytest -q
+
+test-slow: ## Run pytest including slow integration tests
+	uv run pytest -q -m "slow or not slow"
 
 lint: ## Ruff check
 	uv run ruff check chimera tests

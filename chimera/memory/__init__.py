@@ -20,14 +20,23 @@ from .entities import (
     record_ladder_outcome,
     transition_entity,
 )
+from .audit import (
+    apply_approved_kills,
+    audit_ontology,
+    auto_archive_stale_deprecated,
+    propose_kill_archived,
+    reanchor_history,
+)
 from .mutations import (
     Mutation,
     approve_mutation,
+    bump_recurrence,
     create_mutation,
     get_mutation,
     list_mutations,
     mark_applied,
     mark_failed,
+    queue_health,
     reject_mutation,
     sweep_stale,
 )
@@ -71,6 +80,13 @@ __all__ = [
     "mark_failed",
     "reject_mutation",
     "sweep_stale",
+    "apply_approved_kills",
+    "audit_ontology",
+    "auto_archive_stale_deprecated",
+    "propose_kill_archived",
+    "reanchor_history",
+    "bump_recurrence",
+    "queue_health",
     "GRAPH_SCHEMA_VERSION",
     "GraphQueryResult",
     "GraphStore",

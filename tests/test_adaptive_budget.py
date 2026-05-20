@@ -44,6 +44,45 @@ def test_dynamic_max_rounds_caps_at_ceiling():
     assert dynamic_max_rounds(text, base=12, cap=32) == 32
 
 
+# ── v4.47: tier multiplier ──────────────────────────────────
+
+
+def test_dynamic_max_rounds_haiku_is_baseline():
+    text = "Quick triage of mind/notes.md"
+    assert dynamic_max_rounds(text, base=12, tier="haiku") == 12
+
+
+def test_dynamic_max_rounds_sonnet_promotes_budget():
+    text = "Quick triage of mind/notes.md"
+    # base=12 × 1.5 = 18.
+    assert dynamic_max_rounds(text, base=12, tier="sonnet") == 18
+
+
+def test_dynamic_max_rounds_opus_doubles_budget():
+    text = "Quick triage of mind/notes.md"
+    # base=12 × 2.0 = 24.
+    assert dynamic_max_rounds(text, base=12, tier="opus") == 24
+
+
+def test_dynamic_max_rounds_opus_scales_the_cap_too():
+    # Compound task that pegs haiku at cap=32 should not be truncated
+    # to 32 when promoted — the cap scales with tier so opus sees ~64.
+    text = (
+        "Use web_search + http_fetch + code_exec + shell + spawn_sub_agent to "
+        "produce `state/a.log`, `state/b.log`, `state/c.log`, `state/d.log`."
+    )
+    haiku = dynamic_max_rounds(text, base=12, cap=32, tier="haiku")
+    opus = dynamic_max_rounds(text, base=12, cap=32, tier="opus")
+    assert haiku == 32
+    assert opus == 64  # cap × 2.0
+
+
+def test_dynamic_max_rounds_unknown_tier_defaults_to_haiku_multiplier():
+    text = "Quick triage of mind/notes.md"
+    # Unknown tier name → multiplier 1.0 (no promotion).
+    assert dynamic_max_rounds(text, base=12, tier="weird") == 12
+
+
 # ── signature + log ─────────────────────────────────────────
 
 
@@ -176,5 +215,11 @@ def test_maybe_propose_does_not_duplicate(tmp_path: Path, db):
         path=log,
     )
     assert first is not None
-    assert second is None  # already proposed, do not duplicate
+    # v4.19: duplicate signature returns the existing id (so the caller
+    # can see something happened) and bumps recurrence_count in-place
+    # instead of enqueueing a new row.
+    assert second == first
+    from chimera.memory import get_mutation
+    m = get_mutation(db, first)
+    assert m is not None and m.recurrence_count == 1
     assert len(list_mutations(db, type="skill_proposal")) == 1

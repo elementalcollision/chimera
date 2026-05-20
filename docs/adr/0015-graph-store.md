@@ -22,7 +22,7 @@ All six are expressible in SQLite with recursive CTEs and JSON payloads but get 
 - **Adopt LadybugDB** (the active Kuzu fork — Apple acquired and archived upstream Kuzu in October 2025) as Chimera's graph store.
 - **SQLite remains the source of truth** for `entities`, `entity_transitions`, `mutations`, `api_calls`. The graph is a **derived projection**, rebuildable from SQLite + the filesystem peer registry.
 - Use the `kuzu` PyPI package (>=0.10) during the Ladybug rebrand; pin tighter once Ladybug ships its own wheel.
-- **Defer Qdrant** until either (a) ADR 0002's "prompt context regularly >50% of model max" trigger fires, or (b) Ladybug's in-DB HNSW recall@10 falls below 0.9 on a 100k-chunk corpus. Reject HelixDB (OSS ACID unclear, server-only) and LanceDB-as-graph (`lance-graph` is Rust-only).
+- **Defer Qdrant** until either (a) [ADR 0002](./0002-memory-strategy.md)'s "prompt context regularly >50% of model max" trigger fires, or (b) Ladybug's in-DB HNSW recall@10 falls below 0.9 on a 100k-chunk corpus. Reject HelixDB (OSS ACID unclear, server-only) and LanceDB-as-graph (`lance-graph` is Rust-only).
 
 ## Shape
 

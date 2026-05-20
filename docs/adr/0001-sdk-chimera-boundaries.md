@@ -50,7 +50,7 @@ User decisions baked in:
 | **Activity log + circuit breaker + skip-memo** | Adopt village's patterns. Activity log is the heartbeat. Circuit breakers wrap every peer call. | [pillar-positioning.md Patterns 1, 5, 6](../research/pillar-positioning.md). |
 | **Signal handling / graceful shutdown** | Adopt village's `install_drain_handlers` + 30s drain timeout. | [pillar-positioning.md Pattern 3](../research/pillar-positioning.md). |
 | **A2A / inter-agent comms** | Out of v1 scope. xenocomm_sdk is a v2 candidate. | Plan §Phase 5. |
-| **Croissant serialization for ontology** | Deferred to ADR 0002 / v1+. | [pillar-ontology-drift.md](../research/pillar-ontology-drift.md). |
+| **Croissant serialization for ontology** | Deferred to [ADR 0002](./0002-memory-strategy.md) / v1+. | [pillar-ontology-drift.md](../research/pillar-ontology-drift.md). |
 
 ### Module layout (consequence of the above)
 
@@ -84,7 +84,7 @@ chimera/
     generate.py        # claude-daemon-style 0-3 proposals
     dedup.py           # fingerprint + cluster-verb
   memory/
-    # populated per ADR 0002
+    # populated per [ADR 0002](./0002-memory-strategy.md)
 ```
 
 ## Consequences
@@ -100,9 +100,9 @@ chimera/
 
 ## Open Items (deferred to follow-up ADRs)
 
-1. **ADR 0003 (Reggio loop)** — once the user inspects, encode the feedback mechanism that connects task execution back to goal/lesson state.
-2. **ADR 0004 (Tool sandbox elevation)** — exact mechanism for elevating a shell command past the MVP allow-list (subprocess flags, container `--cap-add`, or seccomp profile).
-3. **ADR 0005 (Sub-agent spawn semantics)** — once Phase 3 task 3.4 is reached, codify how a cross-model sub-agent inherits a parent's tool policy.
+1. **[ADR 0003](./0003-reggio-loop.md) (Reggio loop)** — once the user inspects, encode the feedback mechanism that connects task execution back to goal/lesson state.
+2. **[ADR 0004](./0004-xenocomm-a2a.md) (Tool sandbox elevation)** — exact mechanism for elevating a shell command past the MVP allow-list (subprocess flags, container `--cap-add`, or seccomp profile).
+3. **[ADR 0005](./0005-multi-agent-architecture.md) (Sub-agent spawn semantics)** — once Phase 3 task 3.4 is reached, codify how a cross-model sub-agent inherits a parent's tool policy.
 
 ## References
 

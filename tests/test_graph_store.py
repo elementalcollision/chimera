@@ -197,3 +197,131 @@ def test_entity_history_query_returns_ordered_chain(graph: GraphStore, sqlite_co
         params={"i": e.id},
     ).rows
     assert hist == [[1, "NEW", "EXPERIMENTAL"], [2, "EXPERIMENTAL", "CANDIDATE"]]
+
+
+# ── v4.31: incremental projection ───────────────────────────
+
+
+def test_update_from_sqlite_appends_new_entities(graph: GraphStore, sqlite_conn):
+    """First update populates the graph; second update appends only diffs."""
+    create_entity(sqlite_conn, kind="plan", name="alpha", cycle=0)
+    counts1 = graph.update_from_sqlite(sqlite_conn)
+    assert counts1["Entity"] == 1
+
+    # Re-run with no new rows → zero adds.
+    counts2 = graph.update_from_sqlite(sqlite_conn)
+    assert counts2["Entity"] == 0
+    assert counts2["TRANSITIONED_TO"] == 0
+
+    # Add a second entity → only that one is appended.
+    create_entity(sqlite_conn, kind="skill", name="beta", cycle=1)
+    counts3 = graph.update_from_sqlite(sqlite_conn)
+    assert counts3["Entity"] == 1
+    rows = graph.query("MATCH (e:Entity) RETURN e.name ORDER BY e.name").rows
+    assert [r[0] for r in rows] == ["alpha", "beta"]
+
+
+def test_update_from_sqlite_appends_new_transitions(graph: GraphStore, sqlite_conn):
+    e = create_entity(sqlite_conn, kind="plan", name="alpha", cycle=0)
+    transition_entity(
+        sqlite_conn, entity_id=e.id, to_state="EXPERIMENTAL",
+        operator_type="f", cycle=1,
+    )
+    graph.update_from_sqlite(sqlite_conn)
+
+    transition_entity(
+        sqlite_conn, entity_id=e.id, to_state="CANDIDATE",
+        operator_type="m", cycle=2,
+    )
+    counts = graph.update_from_sqlite(sqlite_conn)
+    assert counts["Entity"] == 0
+    assert counts["TRANSITIONED_TO"] == 1
+
+    rows = graph.query(
+        "MATCH (e:Entity)-[t:TRANSITIONED_TO]->(e) "
+        "RETURN t.cycle ORDER BY t.cycle"
+    ).rows
+    assert [r[0] for r in rows] == [1, 2]
+
+
+def test_update_from_sqlite_is_idempotent(graph: GraphStore, sqlite_conn):
+    e = create_entity(sqlite_conn, kind="plan", name="alpha", cycle=0)
+    transition_entity(
+        sqlite_conn, entity_id=e.id, to_state="EXPERIMENTAL",
+        operator_type="f", cycle=1,
+    )
+    graph.update_from_sqlite(sqlite_conn)
+    graph.update_from_sqlite(sqlite_conn)
+    graph.update_from_sqlite(sqlite_conn)
+    n_ent = graph.query("MATCH (e:Entity) RETURN count(e)").rows[0][0]
+    n_edge = graph.query(
+        "MATCH (e:Entity)-[t:TRANSITIONED_TO]->(e) RETURN count(t)"
+    ).rows[0][0]
+    assert n_ent == 1
+    assert n_edge == 1
+
+
+# ── v4.35: incremental for mutating rows ─────────────────────
+
+
+def test_update_picks_up_mutation_status_flip(graph: GraphStore, sqlite_conn):
+    """Mutation row's status: pending → applied should be visible after
+    update_from_sqlite even though Entity append-only logic wouldn't
+    catch it."""
+    m = create_mutation(
+        sqlite_conn, type="skill_proposal", payload={"name": "x"}
+    )
+    graph.update_from_sqlite(sqlite_conn)
+    status_before = graph.query(
+        "MATCH (m:Mutation {id: $i}) RETURN m.status",
+        params={"i": int(m.id)},
+    ).rows[0][0]
+    assert status_before == "pending"
+
+    mark_applied(sqlite_conn, m.id, reason="ok")
+    graph.update_from_sqlite(sqlite_conn)
+
+    status_after = graph.query(
+        "MATCH (m:Mutation {id: $i}) RETURN m.status",
+        params={"i": int(m.id)},
+    ).rows[0][0]
+    assert status_after == "applied"
+
+    # And no duplicate mutation row was created.
+    n_mut = graph.query("MATCH (m:Mutation) RETURN count(m)").rows[0][0]
+    assert n_mut == 1
+
+
+def test_update_skills_wiki_mtime_gate_is_noop_when_unchanged(
+    graph: GraphStore, sqlite_conn, tmp_path,
+):
+    """v4.38: second update with no filesystem change → no Skill/WikiDoc
+    counts in the result."""
+    counts1 = graph.update_from_sqlite(sqlite_conn)
+    # First run projects whatever the local filesystem has.
+    counts2 = graph.update_from_sqlite(sqlite_conn)
+    # Mtime gate: skills/wiki keys should be ABSENT in counts2 (no work
+    # done) if the fingerprint matches.
+    assert "Skill" not in counts2 or counts2.get("Skill", 0) == counts1.get("Skill", 0)
+    assert "WikiDoc" not in counts2
+    # Sanity: a fingerprint file was written.
+    fp = graph.path.with_suffix(graph.path.suffix + ".fingerprint")
+    assert fp.exists()
+    digest_first = fp.read_text(encoding="utf-8").strip()
+    assert len(digest_first) == 40  # sha1 hex
+
+
+def test_update_with_mutations_disabled_skips_replace(graph: GraphStore, sqlite_conn):
+    m = create_mutation(
+        sqlite_conn, type="skill_proposal", payload={"name": "x"}
+    )
+    graph.update_from_sqlite(sqlite_conn)
+    mark_applied(sqlite_conn, m.id, reason="ok")
+    # Caller opts out → mutation node remains stale.
+    counts = graph.update_from_sqlite(sqlite_conn, include_mutations=False)
+    assert "Mutation" not in counts
+    status = graph.query(
+        "MATCH (m:Mutation {id: $i}) RETURN m.status",
+        params={"i": int(m.id)},
+    ).rows[0][0]
+    assert status == "pending"  # not refreshed

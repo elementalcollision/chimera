@@ -1,6 +1,6 @@
 {
   "name": "chimera-control-plane",
-  "version": "4.17.0",
+  "version": "4.53.0",
   "description": "Read-only observability dashboard for the Chimera agent.",
   "private": true,
   "scripts": {

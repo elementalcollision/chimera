@@ -5,7 +5,7 @@
 
 ## Context
 
-ADR 0033 shipped the canvas dashboard with a hand-kept
+[ADR 0033](./0033-canvas-dashboard.md) shipped the canvas dashboard with a hand-kept
 `lib/cost.ts::MODEL_PRICES` mirror of `chimera/providers/tiers.py`
 pricing. The drift risk was real: any change to MODEL_TIERS pricing
 required a manual edit to the TS mirror or the Token Cost widget

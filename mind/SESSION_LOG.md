@@ -1,3 +1,43 @@
 # Chimera — Session Log
 
 Append-only, cycle-by-cycle event log. Populated by the WRITE phase.
+- cycle 1 @ 2026-05-19T14:53:19+00:00 — tasks_seen=1 flipped=0
+- cycle 1 @ 2026-05-19T14:56:44+00:00 — tasks_seen=2 flipped=2
+- ROTATE @ 2026-05-19T14:58:10+00:00 — age_hours=16.97
+- cycle 2 @ 2026-05-19T14:58:24+00:00 — tasks_seen=0 flipped=0
+- cycle 3 @ 2026-05-19T15:01:09+00:00 — tasks_seen=3 flipped=1
+- cycle 4 @ 2026-05-19T15:07:27+00:00 — tasks_seen=2 flipped=2
+- cycle 5 @ 2026-05-19T15:20:59+00:00 — tasks_seen=2 flipped=1
+- cycle 6 @ 2026-05-19T15:34:54+00:00 — tasks_seen=2 flipped=0
+- cycle 7 @ 2026-05-19T15:51:20+00:00 — tasks_seen=2 flipped=1
+- cycle 8 @ 2026-05-19T16:02:42+00:00 — tasks_seen=1 flipped=0
+- cycle 9 @ 2026-05-19T16:06:08+00:00 — tasks_seen=4 flipped=0
+- cycle 10 @ 2026-05-19T18:00:00+00:00 — tasks_seen=1 flipped=0
+- cycle 11 @ 2026-05-19T18:05:10+00:00 — tasks_seen=2 flipped=1
+- cycle 12 @ 2026-05-20T01:19:09+00:00 — tasks_seen=1 flipped=0
+- cycle 13 @ 2026-05-20T01:27:20+00:00 — tasks_seen=1 flipped=1
+- cycle 14 @ 2026-05-20T02:09:02+00:00 — tasks_seen=1 flipped=0
+- cycle 15 @ 2026-05-20T04:04:17+00:00 — tasks_seen=1 flipped=0
+- ROTATE @ 2026-05-20T04:08:33+00:00 — age_hours=13.17
+- cycle 16 @ 2026-05-20T04:08:33+00:00 — tasks_seen=1 flipped=1
+- cycle 17 @ 2026-05-20T04:34:39+00:00 — tasks_seen=7 flipped=3
+- cycle 18 @ 2026-05-20T04:52:35+00:00 — tasks_seen=4 flipped=2
+- cycle 19 @ 2026-05-20T05:19:51+00:00 — tasks_seen=2 flipped=0
+- cycle 20 @ 2026-05-20T05:26:59+00:00 — tasks_seen=2 flipped=1
+- cycle 21 @ 2026-05-20T05:30:22+00:00 — tasks_seen=1 flipped=0
+- cycle 22 @ 2026-05-20T05:31:18+00:00 — tasks_seen=1 flipped=0
+- cycle 23 @ 2026-05-20T05:32:53+00:00 — tasks_seen=1 flipped=0
+- cycle 24 @ 2026-05-20T05:34:09+00:00 — tasks_seen=1 flipped=0
+- cycle 25 @ 2026-05-20T05:35:14+00:00 — tasks_seen=3 flipped=0
+- cycle 26 @ 2026-05-20T05:39:39+00:00 — tasks_seen=3 flipped=0
+- cycle 27 @ 2026-05-20T05:43:58+00:00 — tasks_seen=3 flipped=0
+- cycle 28 @ 2026-05-20T05:48:52+00:00 — tasks_seen=3 flipped=0
+- cycle 29 @ 2026-05-20T05:53:39+00:00 — tasks_seen=5 flipped=1
+- cycle 30 @ 2026-05-20T06:02:42+00:00 — tasks_seen=4 flipped=2
+- cycle 31 @ 2026-05-20T06:11:15+00:00 — tasks_seen=2 flipped=0
+- cycle 32 @ 2026-05-20T06:14:51+00:00 — tasks_seen=2 flipped=0
+- cycle 33 @ 2026-05-20T06:18:41+00:00 — tasks_seen=3 flipped=0
+- cycle 34 @ 2026-05-20T06:23:01+00:00 — tasks_seen=3 flipped=0
+- cycle 35 @ 2026-05-20T06:27:31+00:00 — tasks_seen=3 flipped=0
+- cycle 36 @ 2026-05-20T06:32:47+00:00 — tasks_seen=3 flipped=0
+- cycle 37 @ 2026-05-20T06:38:30+00:00 — tasks_seen=5 flipped=0
