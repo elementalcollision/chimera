@@ -174,32 +174,66 @@ class ActResult:
     missing_artifacts: list[str] = field(default_factory=list)
 
 
-_ARTIFACT_PATTERN = re.compile(r"`((?:state|mind)/[A-Za-z0-9_./-]+)`")
+_ARTIFACT_PATTERN = re.compile(r"`((?:state|mind|docs)/[A-Za-z0-9_./-]+)`")
+
+# v4.79 (ADR 0093): natural-language "write X to <path>" phrasing. Soak
+# tests showed tasks like "Write all of the above to mind/research/x.md"
+# slip past validation when the model emitted stop_reason="stop" without
+# producing the file. We catch un-backticked paths too, but restrict to
+# the same trusted roots as the backtick pattern to limit false
+# positives. Verbs are anchored at a word boundary so we don't catch
+# "overwrite" or "rewriter".
+_NL_ARTIFACT_PATTERN = re.compile(
+    r"\b(?:write|writes|save|saves|put|puts|store|stores|create|creates|"
+    r"emit|emits|output|outputs|append|appends|persist|persists)\b"
+    r"[^.\n`]{0,120}?"
+    r"\b(?:to|at|into|in)\s+`?((?:state|mind|docs)/[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,6})`?",
+    re.IGNORECASE,
+)
 
 
 def expected_artifacts(task_text: str) -> list[str]:
-    """Extract backtick-quoted paths under state/ or mind/ from a task line.
+    """Extract paths a task promises to write under state/, mind/, or docs/.
 
-    Used by ACT to verify the model's claimed completion actually produced
-    the files the task asked for (L-1, ADR 0026). The path is treated as
-    relative to the working directory; callers resolve as needed.
+    Matches two patterns:
+      1. Backtick-quoted paths (canonical form; ADR 0026).
+      2. Un-backticked paths after a write-verb + preposition (ADR 0093).
+
+    Used by ACT to verify the model's claimed completion actually
+    produced the files the task asked for. Paths are returned relative;
+    callers resolve as needed.
     """
     seen: list[str] = []
-    for m in _ARTIFACT_PATTERN.finditer(task_text):
-        path = m.group(1)
+
+    def _add(path: str) -> None:
         if path not in seen:
             seen.append(path)
+
+    for m in _ARTIFACT_PATTERN.finditer(task_text):
+        _add(m.group(1))
+    for m in _NL_ARTIFACT_PATTERN.finditer(task_text):
+        _add(m.group(1))
     return seen
 
 
 def check_artifacts(
     expected: list[str], *, base_dir: Path | None = None
 ) -> list[str]:
-    """Return the subset of ``expected`` paths that do NOT exist on disk."""
+    """Return the subset of ``expected`` paths that are missing or empty.
+
+    v4.79 (ADR 0093): an existing zero-byte file is treated as missing.
+    A model that creates the file but never writes content to it is the
+    same failure mode as not creating it at all — and is something the
+    soak test surfaced when shell tools were partially denied.
+    """
     base = base_dir or Path.cwd()
     missing: list[str] = []
     for rel in expected:
-        if not (base / rel).exists():
+        p = base / rel
+        try:
+            if not p.exists() or not p.is_file() or p.stat().st_size == 0:
+                missing.append(rel)
+        except OSError:
             missing.append(rel)
     return missing
 
