@@ -97,6 +97,67 @@ def _check_http_server_token() -> CheckResult:
     )
 
 
+def _check_cost_caps(state_dir: Path) -> CheckResult:
+    """v4.67 (ADR 0086): preflight cost-state check.
+
+    Reports current 60-minute spend against the rolling-hour cap.
+    Returns:
+      * ok   — empty DB OR spend < 50% of cap
+      * warn — spend ≥ 50% but < 100% of cap (review trend)
+      * warn — spend ≥ cap (cap will trip on the next cycle)
+
+    Never returns ``error`` because spend-over-cap is operationally
+    expected (the caps trip ACT exits, not preflight failures).
+    """
+    db_path = state_dir / "chimera.db"
+    if not db_path.exists():
+        return CheckResult(
+            "cost_caps", "ok",
+            "no chimera.db yet — caps not yet exercised",
+        )
+    try:
+        from ..memory import open_and_init
+        from .budget import (
+            cycle_cost_cap_usd,
+            rolling_hour_cap_usd,
+            rolling_spend_usd,
+            task_budget_usd,
+        )
+        conn = open_and_init(db_path)
+        try:
+            spend_60m = rolling_spend_usd(conn, minutes=60)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            "cost_caps", "warn",
+            f"could not read rolling spend ({exc}); caps may still be active",
+        )
+
+    hour_cap = rolling_hour_cap_usd()
+    cycle_cap = cycle_cost_cap_usd()
+    task_cap = task_budget_usd()
+    cap_summary = (
+        f"caps: cycle=${cycle_cap:.2f} task=${task_cap:.2f} 60m=${hour_cap:.2f}"
+    )
+
+    if hour_cap <= 0:
+        return CheckResult(
+            "cost_caps", "warn",
+            f"rolling-60m cap disabled (CHIMERA_ROLLING_HOUR_CAP_USD=0); {cap_summary}",
+        )
+    pct = (spend_60m / hour_cap) * 100.0 if hour_cap > 0 else 0.0
+    msg = (
+        f"60m spend ${spend_60m:.2f} ({pct:.0f}% of ${hour_cap:.2f} cap); "
+        f"{cap_summary}"
+    )
+    if spend_60m >= hour_cap:
+        return CheckResult("cost_caps", "warn", f"OVER rolling-60m cap. {msg}")
+    if pct >= 50.0:
+        return CheckResult("cost_caps", "warn", msg)
+    return CheckResult("cost_caps", "ok", msg)
+
+
 def run_checks() -> list[CheckResult]:
     """Run every check. Pure: writes nothing (beyond creating state/mind dirs)."""
     state_dir = Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
@@ -109,6 +170,7 @@ def run_checks() -> list[CheckResult]:
         _check_json_env("CHIMERA_MCP_SERVERS"),
         _check_json_env("CHIMERA_PEER_TOKENS"),
         _check_http_server_token(),
+        _check_cost_caps(state_dir),
         *_check_provider_keys(),
     ]
     return results

@@ -74,3 +74,103 @@ def test_assert_no_errors_passes_for_clean_config():
     # Provider keys are warns, not errors → passes.
     results = assert_no_errors()
     assert results  # non-empty
+
+
+# ── v4.67 (ADR 0086): cost_caps check ──────────────────────────────
+
+
+def test_cost_caps_ok_with_empty_db():
+    """Fresh state dir → empty DB → no spend → check returns ok.
+    (The dir-writability + sqlite checks run before cost_caps and
+    create an empty chimera.db, so we land on the $0-spend branch.)"""
+    r = _by_name(run_checks(), "cost_caps")
+    assert r.status == "ok"
+    # Either branch is fine: no-db OR empty-db reports zero spend.
+    assert "no chimera.db" in r.message or "$0.00" in r.message
+
+
+def test_cost_caps_ok_when_under_50_pct(monkeypatch, tmp_path):
+    """Seed a small spend; check should be ok and report percentage."""
+    from chimera.memory import open_and_init, record_api_call
+    state_dir = tmp_path / "state_seeded"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db = open_and_init(state_dir / "chimera.db")
+    record_api_call(
+        db, cycle=1, provider="openrouter",
+        model_id="deepseek/deepseek-v4-pro",
+        input_tokens=1_000_000, output_tokens=0,  # ~$0.44 → 2% of $20
+    )
+    db.commit()
+    db.close()
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    r = _by_name(run_checks(), "cost_caps")
+    assert r.status == "ok", r.message
+    assert "60m spend" in r.message
+
+
+def test_cost_caps_warn_when_above_50_pct(monkeypatch, tmp_path):
+    """Spend ~75% of cap → warn."""
+    from chimera.memory import open_and_init, record_api_call
+    state_dir = tmp_path / "state_warn"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db = open_and_init(state_dir / "chimera.db")
+    # 1M opus input = $15 = 75% of the $20 default cap.
+    record_api_call(
+        db, cycle=1, provider="anthropic", model_id="claude-opus-4-7",
+        input_tokens=1_000_000, output_tokens=0,
+    )
+    db.commit()
+    db.close()
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    r = _by_name(run_checks(), "cost_caps")
+    assert r.status == "warn", r.message
+
+
+def test_cost_caps_warn_with_over_marker(monkeypatch, tmp_path):
+    """Spend > cap → warn with explicit OVER prefix."""
+    from chimera.memory import open_and_init, record_api_call
+    state_dir = tmp_path / "state_over"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db = open_and_init(state_dir / "chimera.db")
+    record_api_call(
+        db, cycle=1, provider="anthropic", model_id="claude-opus-4-7",
+        input_tokens=2_000_000, output_tokens=0,  # $30 > $20
+    )
+    db.commit()
+    db.close()
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    r = _by_name(run_checks(), "cost_caps")
+    assert r.status == "warn"
+    assert "OVER" in r.message
+
+
+def test_cost_caps_warn_when_rolling_cap_disabled(monkeypatch, tmp_path):
+    """Operator explicitly disabled the cap → warn (not silent ok)."""
+    state_dir = tmp_path / "state_disabled"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    from chimera.memory import open_and_init
+    db = open_and_init(state_dir / "chimera.db")
+    db.close()
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("CHIMERA_ROLLING_HOUR_CAP_USD", "0")
+    r = _by_name(run_checks(), "cost_caps")
+    assert r.status == "warn"
+    assert "disabled" in r.message.lower()
+
+
+def test_cost_caps_never_returns_error(monkeypatch, tmp_path):
+    """Cost-cap state is operational, not config — even absurd spend
+    should warn, not error."""
+    from chimera.memory import open_and_init, record_api_call
+    state_dir = tmp_path / "state_huge"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db = open_and_init(state_dir / "chimera.db")
+    record_api_call(
+        db, cycle=1, provider="anthropic", model_id="claude-opus-4-7",
+        input_tokens=100_000_000, output_tokens=10_000_000,
+    )
+    db.commit()
+    db.close()
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
+    r = _by_name(run_checks(), "cost_caps")
+    assert r.status != "error"
