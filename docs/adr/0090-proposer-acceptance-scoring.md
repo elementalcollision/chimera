@@ -159,6 +159,31 @@ api_calls / chronicle).
 
 Full suite after v4.71: 770 passing (was 767, +19 new minus 0 lost).
 
+## Amendment — 2026-05-20 (v4.73)
+
+The 2026-05-20 long-cycle multi-agent test (see
+`mind/long_cycle_test_plan_2026-05-20.md`) surfaced a cold-start hole
+in the original design: `evaluate_and_update` only ran on terminal
+mutation transitions, so a proposer that was *already* below threshold
+when v4.71 shipped stayed silently `active` until the next transition
+fired the hook. The live `chimera proposers list` correctly showed
+`skill_proposal` at 20% but `check_can_propose` read the empty
+`proposer_status` table and allowed.
+
+**Fix:** `check_can_propose` now opportunistically calls
+`evaluate_and_update` when no status row exists for the proposer. The
+backfill is best-effort — any exception in scoring falls back to
+allow, matching the conservative default.
+
+Two new tests in `test_proposer_scoring.py`:
+
+- `test_check_can_propose_backfills_on_first_call` — reproduces the
+  long-cycle scenario (4 failed + 1 applied skill_proposal inserted
+  directly, bypassing the hook). Pre-fix: allow. Post-fix: degraded.
+- `test_check_can_propose_backfill_allows_healthy` — a healthy
+  pre-existing proposer (4 applied + 1 rejected) isn't falsely
+  demoted by the backfill path.
+
 ## Non-goals
 
 - **No automatic demotion of observation engines.** Discovery /

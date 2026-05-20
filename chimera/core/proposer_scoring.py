@@ -267,10 +267,25 @@ def evaluate_and_update(
 
 
 def check_can_propose(db: sqlite3.Connection, proposer: str) -> tuple[bool, str | None]:
-    """Gate that ``create_mutation`` calls. Returns (allow, reason)."""
+    """Gate that ``create_mutation`` calls. Returns (allow, reason).
+
+    v4.73 (post 2026-05-20 long-cycle finding): when no status row exists
+    we run ``evaluate_and_update`` opportunistically. ADR 0090's original
+    design only persisted status on terminal mutation transitions — so a
+    proposer that was already below threshold at v4.71 install time
+    stayed silently "active" because no transition had fired the hook.
+    This makes the gate honest on first read.
+    """
     if not scoring_enabled():
         return True, None
     st = get_status(db, proposer)
+    if st is None:
+        # Backfill on first check. Best-effort: any scoring error
+        # leaves us in the conservative-allow default.
+        try:
+            _score, st = evaluate_and_update(db, proposer)
+        except Exception:  # noqa: BLE001
+            return True, None
     if st is None or st.status == "active":
         return True, None
     return False, st.reason or f"proposer is {st.status}"

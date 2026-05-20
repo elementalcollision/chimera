@@ -94,12 +94,80 @@ Lessons baked in for the next run:
 
 ## Long-cycle multi-agent test (2026-05-20, ~$10 budget, see long_cycle_test_plan_2026-05-20.md)
 
-- [ ] Survey the major 2026 multi-agent agent frameworks (AutoGen 2 / Magentic-One, LangGraph Agents, CrewAI 2, A2A/AG2, smolagents, OpenAI Swarm, Anthropic Agent SDK, Google ADK, plus any others the research surfaces). For each framework, use web_search and http_fetch to find ≥ 2 reputable sources (official docs, release notes, github README, named journalism). Write a 3-5 bullet summary per framework into `mind/research/multi-agent-survey-2026.md` with explicit version + release-date + cited URLs. Treat this as the first deliverable; do not proceed to the matrix until at least 6 frameworks are surveyed.
+- [x] Survey the major 2026 multi-agent agent frameworks (AutoGen 2 / Magentic-One, LangGraph Agents, CrewAI 2, A2A/AG2, smolagents, OpenAI Swarm, Anthropic Agent SDK, Google ADK, plus any others the research surfaces). For each framework, use web_search and http_fetch to find ≥ 2 reputable sources (official docs, release notes, github README, named journalism). Write a 3-5 bullet summary per framework into `mind/research/multi-agent-survey-2026.md` with explicit version + release-date + cited URLs. Treat this as the first deliverable; do not proceed to the matrix until at least 6 frameworks are surveyed.
 
-- [ ] Build a capability matrix as `mind/research/capability-matrix.html` — a self-contained HTML table with frameworks as rows and capabilities as columns. Capability axes to consider (refine during research): cross-agent persistent memory, trust gating / attestation, cost discipline (per-call / per-task), proposer-quality scoring, mutation queue with operator gate, tier escalation across providers, drift/anchor primitives, signal-density gating, chronicle / journal of cross-agent events, peer discovery & federation, swarm-KFM state, MCP server-side exposure, sub-agent spawn across providers. Each cell ✅ / ⚠️ / ❌ with a citation footnote. Use inline CSS, no external assets beyond CDN-hosted fonts/SVG libs.
+- [x] Build a capability matrix as `mind/research/capability-matrix.html` — a self-contained HTML table with frameworks as rows and capabilities as columns. Capability axes to consider (refine during research): cross-agent persistent memory, trust gating / attestation, cost discipline (per-call / per-task), proposer-quality scoring, mutation queue with operator gate, tier escalation across providers, drift/anchor primitives, signal-density gating, chronicle / journal of cross-agent events, peer discovery & federation, swarm-KFM state, MCP server-side exposure, sub-agent spawn across providers. Each cell ✅ / ⚠️ / ❌ with a citation footnote. Use inline CSS, no external assets beyond CDN-hosted fonts/SVG libs.
 
-- [ ] From the capability matrix, identify the ONE capability most under-implemented across the field — present in ≤ 2 of the surveyed frameworks — and write `mind/research/adopt-proposal.md`. Required structure: (1) Operationalised claim — which 0–2 frameworks have it; cite each. (2) Scoring on `(operator value 1-5, implementation cost 1-5, alignment risk 1-5)` with one-sentence justification per axis. (3) Implementation sketch: ADR slot (next free after 0091), files touched, test surface, expected mutation types. If the answer is "every framework has it" then write that conclusion explicitly and propose nothing — that's a valid outcome.
+- [x] From the capability matrix, identify the ONE capability most under-implemented across the field — present in ≤ 2 of the surveyed frameworks — and write `mind/research/adopt-proposal.md`. Required structure: (1) Operationalised claim — which 0–2 frameworks have it; cite each. (2) Scoring on `(operator value 1-5, implementation cost 1-5, alignment risk 1-5)` with one-sentence justification per axis. (3) Implementation sketch: ADR slot (next free after 0091), files touched, test surface, expected mutation types. If the answer is "every framework has it" then write that conclusion explicitly and propose nothing — that's a valid outcome.
 
-- [ ] Spawn a sub-agent for an adversarial review of `adopt-proposal.md`. Use a DIFFERENT model family than the one that wrote the proposal — if the proposal came from Anthropic, use `openrouter/openai/gpt-4-turbo` or `openrouter/google/gemini-2.5-pro`; if it came from OpenRouter, use `claude-opus-4-7` via Anthropic. The sub-agent's task: produce a 5-bullet critique covering (i) does the "under-implemented" claim hold up, (ii) is the scoring honest, (iii) what's the most likely failure mode of the implementation sketch, (iv) is there a stronger alternative gap, (v) what data would change your mind. Append the critique to `adopt-proposal.md` under `## Cross-witness critique`.
+- [x] Spawn a sub-agent for an adversarial review of `adopt-proposal.md`. Use a DIFFERENT model family than the one that wrote the proposal — if the proposal came from Anthropic, use `openrouter/openai/gpt-4-turbo` or `openrouter/google/gemini-2.5-pro`; if it came from OpenRouter, use `claude-opus-4-7` via Anthropic. The sub-agent's task: produce a 5-bullet critique covering (i) does the "under-implemented" claim hold up, (ii) is the scoring honest, (iii) what's the most likely failure mode of the implementation sketch, (iv) is there a stronger alternative gap, (v) what data would change your mind. Append the critique to `adopt-proposal.md` under `## Cross-witness critique`.
 
-- [ ] Enqueue ONE mutation of type `config_change` or `skill_proposal` referencing the chosen capability gap. Payload should include `proposal_doc: "mind/research/adopt-proposal.md"`, a short `rationale`, and the proposed ADR slot number. This mutation is the run's terminal artefact for the proposer-scoring pipeline; the operator decides whether to apply it post-run.
+- [x] Enqueue ONE mutation of type `config_change` or `skill_proposal` referencing the chosen capability gap. Payload should include `proposal_doc: "mind/research/adopt-proposal.md"`, a short `rationale`, and the proposed ADR slot number. This mutation is the run's terminal artefact for the proposer-scoring pipeline; the operator decides whether to apply it post-run.
+
+- [x] Write a strategic summary of the capability matrix highlighting leading frameworks and gaps for Chimera’s next phase.  <!-- Turns the detailed matrix into actionable recommendations for the human operator. -->
+- [x] Create a glossary of all capability terms used in the matrix as a standalone markdown file in mind/research.  <!-- Ensures consistent understanding of the specialized axes like trust gating and drift primitives. -->
+
+- [x] Compile a report of the last 50 API calls, categorizing tool use by success/failure and summarizing the overall outcomes  <!-- Provides the human operator with a clear status update after the recent intensive tool‑use session. -->
+- [x] Compare the response quality and efficiency between deepseek-v4-flash and deepseek-v4-pro based on the recent calls, and recommend which to prioritize for future tasks  <!-- Helps optimize model selection for cost and performance. -->
+- [x] Audit the tool call logs for any anomalies, such as retries or timeouts, and flag them for investigation  <!-- Ensures system reliability by identifying potential issues early. -->
+
+- [x] Request the human operator to specify primary objectives for this session.  <!-- Without clear objectives, the agent cannot prioritize work effectively. -->
+- [x] Perform a self-check of all integrated LLM components and available tools.  <!-- Verifying operational readiness avoids failures during critical task execution. -->
+- [x] Create a session log entry documenting the start of operations at cycle 52.  <!-- A log entry provides a baseline for tracking progress and decisions. -->
+
+- [x] Audit recent tool-use latency across models to identify bottlenecks.  <!-- Understanding where time is spent helps prioritize optimization efforts. -->
+- [x] Document the current tool‑capable multi‑LLM setup for the operator.  <!-- A clear overview lets the operator make informed configuration decisions. -->
+- [x] Evaluate the deepseek/deepseek-v4-flash model’s error rate in recent cycles.  <!-- Detecting reliability trends early prevents compounded failures. -->
+
+- [x] Compile a concise progress report summarizing all completed work, key decisions, and any unresolved items.  <!-- Provides the human operator with a clear snapshot of what has been achieved across cycles. -->
+- [x] Audit the last 42 tool calls for failures, inconsistent results, or redundant invocations.  <!-- Ensures reliability after an intensive tool-use period and identifies opportunities for efficiency gains. -->
+
+- [x] Define the primary strategic goal for Chimera's current operational session  <!-- Provides clear direction for all subsequent planning. -->
+- [x] Audit the current state of all Chimera subsystems and their integration status  <!-- Identifies gaps that may hinder effective coordination. -->
+- [x] Establish a baseline priority framework for task evaluation and resource allocation  <!-- Enables consistent decision-making across agents. -->
+
+- [x] Summarize the last 30 API calls and flag any tool-use cycles that failed or produced empty results.  <!-- Enables quick diagnosis of recent operational issues and prevents silent tool failures from compounding. -->
+- [x] Define a new tool that captures and persists session-specific state across model restarts.  <!-- Eliminates repetitive context rebuilds and allows long-running multi-cycle tasks to be resumed reliably. -->
+- [x] Audit the tool-calling frequency by model and suggest a threshold to limit consecutive tool_use bursts before requiring a human review.  <!-- Reduces unnecessary tool loops and ensures resource efficiency while maintaining agent autonomy. -->
+
+- [x] Summarize the outcomes and key findings from the recent series of tool calls (cycles 70-75) for the human operator's review.  <!-- The operator may need a high-level overview of what the agent has accomplished across many automated cycles. -->
+- [x] Audit tool usage patterns from the last 20 cycles to identify inefficiencies or redundant calls.  <!-- Improving tool efficiency can reduce latency and API costs for the operator. -->
+- [x] Identify any unresolved tasks or recurring error patterns from recent sessions and draft a status update.  <!-- The operator can quickly grasp what needs attention without reading raw logs. -->
+
+- [x] Define a concrete objective for Chimera to accomplish in the next series of cycles  <!-- Without a clear goal the agent will idle; a new objective provides direction and maintains momentum. -->
+- [x] Audit the tool interaction logs from cycles 77–80 for anomalies, failures, or inefficient patterns  <!-- Early detection of issues prevents cascading errors and ensures reliable tool usage. -->
+- [x] Verify that Chimera's long-term memory store is not exceeding capacity and archive any outdated data  <!-- Preventing memory bloat avoids performance degradation and context-window errors. -->
+
+- [x] Review Chimera's configuration and available tools to produce a capabilities summary for the human operator.  <!-- A fresh session usually benefits from an orientation document so the operator knows what the agent can do. -->
+- [x] Examine the current working directory structure and report key files and directories to the human operator.  <!-- Context awareness enables targeted assistance and reveals existing projects or assets. -->
+- [x] Recommend top-level objectives for this session based on the environment scan and Chimera's design.  <!-- Without an explicit request, proposing a productive direction helps the operator make quick progress. -->
+
+- [x] Summarize the work completed in the recent session for the human operator.  <!-- Provides a clear status update so the operator can quickly understand progress. -->
+- [x] Inspect the outputs of all tool calls from the latest session for missing files, errors, or anomalies.  <!-- Ensures data quality and catches issues early before further work. -->
+- [x] Draft a recommended next-steps plan based on the latest session's results.  <!-- Moves the project forward by proposing concrete follow-on actions. -->
+
+- [x] Generate a concise status report summarizing all recent tool interactions and their outcomes.  <!-- Provides the human operator with transparency about Chimera's recent activity and any results awaiting attention. -->
+- [x] Audit the last 20 API calls for performance anomalies and suggest improvements.  <!-- Recent stop call took 22 seconds, indicating possible latency or token-generation bottlenecks that may degrade performance. -->
+- [x] Check for any incomplete or failed tool calls in recent cycles and flag them for follow-up.  <!-- Ensures no tool outputs were missed or left in an error state, preventing silent inconsistencies. -->
+
+- [x] Run a systems check to verify tool access, API connectivity, and environment integrity.  <!-- Establishes a reliable baseline before undertaking any complex multi-step work. -->
+- [x] Audit the active configuration file for completeness and flag any missing or conflicting parameters.  <!-- Prevents downstream errors caused by misconfiguration early in the session. -->
+- [x] Draft a brief capability overview and suggest a concrete initial goal to the operator.  <!-- Gives the human operator immediate visibility into what the agent can do and aligns on priorities from the start. -->
+
+- [x] Summarize the operational status and open tasks across all Chimera components into a human-readable briefing.  <!-- Provides the operator with a quick overview of what the system is currently doing. -->
+- [x] Analyze the execution logs from the last 50 cycles for anomalies, failures, or performance regressions.  <!-- Identifies potential issues before they escalate into larger problems. -->
+- [x] Audit the current tool inventory for outdated configurations or unused resources that could be cleaned up.  <!-- Keeps the execution environment lean and reduces unexpected failures. -->
+
+- [x] Summarize the key findings and outcomes from the heavy tool-use sequence in cycles 108-109.  <!-- Distilling the results of the recent flurry of tool calls into a concise summary helps the human operator and future cycles understand what was accomplished. -->
+- [x] Assess the success rate and latency patterns of the deepseek/deepseek-v4-flash tool calls from the last active cycle.  <!-- Understanding tool-use performance informs whether the model or tool configuration should be adjusted for efficiency. -->
+
+- [x] Perform a self-check of all integrated tools and LLM agents to verify operational readiness  <!-- Baseline health check at session start ensures no silent failures impede later work. -->
+- [x] Compile a concise summary of Chimera's current capabilities and available tools for the operator  <!-- Gives the human operator immediate clarity on what Chimera can execute. -->
+- [x] Identify and report any pending updates or maintenance tasks for Chimera's components  <!-- Proactive maintenance reduces future disruption and keeps dependencies current. -->
+
+- [x] Summarize all key decisions and outcomes from cycles 121-124 into a concise progress note.  <!-- Helps the operator catch up without reading raw logs. -->
+- [x] Audit recent tool_call results for any errors or unexpected outputs and report them.  <!-- Maintains reliability by catching silent failures. -->
+- [x] Propose a next-phase goal based on the work completed so far, listing 2-3 possible directions.  <!-- Helps overcome inertia and gives the operator actionable options. -->
+
+- [ ] Compile a concise summary of all tool outputs from the previous completed task cycle.  <!-- Ensures key findings are captured and visible to the operator without having to dig into logs. -->
+- [x] Audit the last batch of tool interactions for any error messages, timeouts, or incomplete data.  <!-- Validates data integrity and identifies potential gaps that could affect downstream decisions. -->

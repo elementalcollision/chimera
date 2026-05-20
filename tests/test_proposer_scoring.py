@@ -251,6 +251,68 @@ def test_reeval_runs_on_reject(db):
     assert get_status(db, "skill_proposal").status == "degraded"
 
 
+def test_check_can_propose_backfills_on_first_call(db):
+    """v4.73 fix for ADR 0090 cold-start hole: a proposer that was
+    already below threshold at install time (no terminal transition
+    has fired since the hook was added) gets evaluated lazily on the
+    first check_can_propose call rather than staying silently active.
+
+    Reproduction from the 2026-05-20 long-cycle run: 4 failed +
+    1 applied skill_proposal pre-existed; `chimera proposers list`
+    showed 20% (live compute) but proposer_status was empty and
+    create_mutation was happily allowing new proposals.
+    """
+    # Simulate pre-existing terminal state created BEFORE the hook
+    # would have fired (we insert directly to skip the hook).
+    db.execute(
+        "INSERT INTO mutations (type, payload, status, reason, created_at) "
+        "VALUES ('skill_proposal', '{}', 'failed', 'pre-existing', "
+        "datetime('now', '-1 day'))"
+    )
+    db.execute(
+        "INSERT INTO mutations (type, payload, status, reason, created_at) "
+        "VALUES ('skill_proposal', '{}', 'failed', 'pre-existing', "
+        "datetime('now', '-1 day'))"
+    )
+    db.execute(
+        "INSERT INTO mutations (type, payload, status, reason, created_at) "
+        "VALUES ('skill_proposal', '{}', 'failed', 'pre-existing', "
+        "datetime('now', '-1 day'))"
+    )
+    db.execute(
+        "INSERT INTO mutations (type, payload, status, reason, created_at) "
+        "VALUES ('skill_proposal', '{}', 'applied', 'pre-existing', "
+        "datetime('now', '-1 day'))"
+    )
+    # No proposer_status row yet — pre-fix behaviour would allow.
+    assert get_status(db, "skill_proposal") is None
+
+    allow, reason = check_can_propose(db, "skill_proposal")
+    assert allow is False
+    assert reason is not None
+    assert "25%" in reason  # 1 applied of 4 decided
+    # And now the status row exists for next time.
+    st = get_status(db, "skill_proposal")
+    assert st is not None
+    assert st.status == "degraded"
+
+
+def test_check_can_propose_backfill_allows_healthy(db):
+    """Backfill path doesn't falsely demote a healthy proposer."""
+    for _ in range(4):
+        db.execute(
+            "INSERT INTO mutations (type, payload, status, reason, created_at) "
+            "VALUES ('config_change', '{}', 'applied', NULL, datetime('now', '-1 hour'))"
+        )
+    db.execute(
+        "INSERT INTO mutations (type, payload, status, reason, created_at) "
+        "VALUES ('config_change', '{}', 'rejected', NULL, datetime('now', '-1 hour'))"
+    )
+    allow, reason = check_can_propose(db, "config_change")
+    assert allow is True
+    assert reason is None
+
+
 def test_listing_statuses(db):
     pause(db, "skill_proposal")
     pause(db, "task_split")

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Framework Capability Matrix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root { --bg:#0d1117; --surface:#161b22; --surface-hover:#1c2433; --border:#30363d; --text:#e6edf3; --text-muted:#8b949e; --green:#3fb950; --amber:#d2991d; --red:#f85149; --accent:#58a6ff; --radius:6px; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); padding:2.5rem 1.5rem 4rem; line-height:1.5; }
+.container { max-width:1720px; margin:0 auto; }
+header { text-align:center; margin-bottom:2.5rem; }
+header h1 { font-size:1.75rem; font-weight:700; letter-spacing:-0.02em; margin-bottom:0.5rem; }
+header .subtitle { color:var(--text-muted); font-size:0.9rem; max-width:740px; margin:0 auto; }
+.legend { display:flex; gap:1.5rem; justify-content:center; margin-top:1rem; font-size:0.85rem; flex-wrap:wrap; }
+.legend span { display:flex; align-items:center; gap:0.35rem; }
+.badge { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:4px; font-weight:600; font-size:0.75rem; }
+.badge.yes { background:#1a3c1a; color:var(--green); }
+.badge.partial { background:#2e2610; color:var(--amber); }
+.badge.no { background:#3c1a1a; color:var(--red); }
+.table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+table { width:100%; border-collapse:collapse; font-size:0.82rem; min-width:1520px; }
+thead th { position:sticky; top:0; background:#1c2333; color:var(--accent); font-weight:600; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; padding:0.7rem 0.6rem; border-bottom:2px solid var(--border); text-align:center; vertical-align:middle; white-space:nowrap; }
+thead th.col-framework { text-align:left; min-width:185px; padding-left:0.9rem; }
+thead th.col-group { font-size:0.65rem; letter-spacing:0.06em; color:var(--text-muted); background:#121820; font-weight:500; }
+tbody td { padding:0.6rem 0.55rem; text-align:center; vertical-align:middle; border-bottom:1px solid var(--border); }
+tbody tr:hover td { background:#1c2433; }
+td.fw-name { text-align:left; padding-left:0.9rem; font-weight:600; white-space:nowrap; }
+td.fw-name .prov { font-weight:400; font-size:0.72rem; color:var(--text-muted); display:block; font-family:'JetBrains Mono',monospace; }
+.cell { position:relative; }
+.cell sup { font-size:0.6rem; color:var(--text-muted); font-weight:500; cursor:help; }
+.cell sup a { color:var(--accent); text-decoration:none; }
+.cell sup a:hover { text-decoration:underline; }
+.footnotes { margin-top:2rem; padding:1.25rem 1.5rem; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); font-size:0.77rem; line-height:1.7; columns:2; column-gap:2.5rem; }
+.footnotes h3 { font-size:0.85rem; font-weight:600; margin-bottom:0.85rem; column-span:all; color:var(--accent); }
+.footnotes ol { margin:0; padding-left:1.2rem; }
+.footnotes li { break-inside:avoid; margin-bottom:0.3rem; color:var(--text-muted); }
+.footnotes li a { color:var(--accent); }
+.tooltip { visibility:hidden; opacity:0; position:absolute; bottom:125%; left:50%; transform:translateX(-50%); background:#21262d; color:var(--text); font-size:0.7rem; padding:0.45rem 0.65rem; border-radius:4px; white-space:nowrap; border:1px solid var(--border); pointer-events:none; transition:opacity 0.15s; z-index:10; }
+.cell:hover .tooltip { visibility:visible; opacity:1; transition-delay:0.4s; }
+footer { text-align:center; color:var(--text-muted); font-size:0.75rem; margin-top:2rem; border-top:1px solid var(--border); padding-top:1.25rem; }
+@media(max-width:900px) { .footnotes{columns:1} body{padding:1rem 0.5rem 2rem} header h1{font-size:1.4rem} }
+.cg-mem  { background:rgba(88,166,255,0.04); }
+.cg-trust { background:rgba(210,153,29,0.05); }
+.cg-cost  { background:rgba(63,185,80,0.04); }
+.cg-drift { background:rgba(248,81,73,0.04); }
+.cg-life  { background:rgba(188,140,255,0.05); }
+#ch-row td { background:rgba(188,140,255,0.12)!important; font-weight:500; }
+#ch-row td.fw-name { font-weight:700; color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>Agent Framework Capability Matrix</h1>
+  <p class="subtitle">Detailed comparison of 8 leading AI agent frameworks across 13 multi-agent and operational capability axes. Each cell rated with a citation footnote. Compiled July 2026 &mdash; Chimera Research.</p>
+  <div class="legend">
+    <span><span class="badge yes">&#x2713;</span> First-class / built-in</span>
+    <span><span class="badge partial">&#x223C;</span> Partial / plugin / DIY</span>
+    <span><span class="badge no">&#x2717;</span> Not available</span>
+  </div>
+</header>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+  <th class="col-framework" rowspan="2">Framework</th>
+  <th class="col-group cg-mem" colspan="3">Memory &amp; State</th>
+  <th class="col-group cg-trust" colspan="3">Trust &amp; Quality</th>
+  <th class="col-group cg-cost" colspan="3">Cost &amp; Operations</th>
+  <th class="col-group cg-drift" colspan="2">Context &amp; Drift</th>
+  <th class="col-group cg-life" colspan="2">Multi-Agent Lifecycle</th>
+</tr>
+<tr>
+  <th class="cg-mem">Cross-Agent Persistent Memory</th>
+  <th class="cg-mem">Swarm-KFM State</th>
+  <th class="cg-mem">Chronicle / Journal</th>
+  <th class="cg-trust">Trust Gating / Attestation</th>
+  <th class="cg-trust">Proposer-Quality Scoring</th>
+  <th class="cg-trust">Mutation Queue + Operator Gate</th>
+  <th class="cg-cost">Cost Discipline (per-call / per-task)</th>
+  <th class="cg-cost">Tier Escalation Across Providers</th>
+  <th class="cg-cost">MCP Server-Side Exposure</th>
+  <th class="cg-drift">Drift / Anchor Primitives</th>
+  <th class="cg-drift">Signal-Density Gating</th>
+  <th class="cg-life">Peer Discovery &amp; Federation</th>
+  <th class="cg-life">Sub-Agent Spawn Across Providers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td class="fw-name">LangGraph<span class="prov">Python &middot; LangChain</span></td>
+  <td class="cell cg-mem">&#x2713;<sup><a href="#fn1">1</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn2">2</a></sup></td>
+  <td class="cell cg-mem">&#x2713;<sup><a href="#fn3">3</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn4">4</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn5">5</a></sup></td>
+  <td class="cell cg-trust">&#x2713;<sup><a href="#fn6">6</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn7">7</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn8">8</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn9">9</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn10">10</a></sup></td>
+  <td class="cell cg-drift">&#x223C;<sup><a href="#fn11">11</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn12">12</a></sup></td>
+  <td class="cell cg-life">&#x2713;<sup><a href="#fn13">13</a></sup></td>
+</tr>
+<tr>
+  <td class="fw-name">CrewAI<span class="prov">Python &middot; CrewAI Inc.</span></td>
+  <td class="cell cg-mem">&#x2713;<sup><a href="#fn14">14</a></sup></td>
+  <td class="cell cg-mem">&#x2717;<sup><a href="#fn15">15</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn16">16</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn17">17</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn18">18</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn19">19</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn20">20</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn21">21</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn22">22</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn23">23</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn24">24</a></sup></td>
+  <td class="cell cg-life">&#x2717;<sup><a href="#fn25">25</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn26">26</a></sup></td>
+</tr>
+<tr>
+  <td class="fw-name">AutoGen<span class="prov">Python &middot; Microsoft</span></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn27">27</a></sup></td>
+  <td class="cell cg-mem">&#x2717;<sup><a href="#fn28">28</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn29">29</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn30">30</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn31">31</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn32">32</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn33">33</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn34">34</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn35">35</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn36">36</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn37">37</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn38">38</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn39">39</a></sup></td>
+</tr>
+<tr>
+  <td class="fw-name">OpenAI Agents SDK<span class="prov">Python/JS &middot; OpenAI</span></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn40">40</a></sup></td>
+  <td class="cell cg-mem">&#x2717;<sup><a href="#fn41">41</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn42">42</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn43">43</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn44">44</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn45">45</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn46">46</a></sup></td>
+  <td class="cell cg-cost">&#x2717;<sup><a href="#fn47">47</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn48">48</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn49">49</a></sup></td>
+  <td class="cell cg-drift">&#x223C;<sup><a href="#fn50">50</a></sup></td>
+  <td class="cell cg-life">&#x2717;<sup><a href="#fn51">51</a></sup></td>
+  <td class="cell cg-life">&#x2717;<sup><a href="#fn52">52</a></sup></td>
+</tr>
+<tr>
+  <td class="fw-name">OpenClaw<span class="prov">TypeScript &middot; OpenClaw</span></td>
+  <td class="cell cg-mem">&#x2713;<sup><a href="#fn53">53</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn54">54</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn55">55</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn56">56</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn57">57</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn58">58</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn59">59</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn60">60</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn61">61</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn62">62</a></sup></td>
+  <td class="cell cg-drift">&#x223C;<sup><a href="#fn63">63</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn64">64</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn65">65</a></sup></td>
+</tr>
+<tr>
+  <td class="fw-name">Google ADK<span class="prov">Python/Go/Java &middot; Google</span></td>
+  <td class="cell cg-mem">&#x2713;<sup><a href="#fn66">66</a></sup></td>
+  <td class="cell cg-mem">&#x2717;<sup><a href="#fn67">67</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn68">68</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn69">69</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn70">70</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn71">71</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn72">72</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn73">73</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn74">74</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn75">75</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn76">76</a></sup></td>
+  <td class="cell cg-life">&#x2713;<sup><a href="#fn77">77</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn78">78</a></sup></td>
+</tr>
+<tr>
+  <td class="fw-name">Mastra<span class="prov">TypeScript &middot; Gatsby Team</span></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn79">79</a></sup></td>
+  <td class="cell cg-mem">&#x2717;<sup><a href="#fn80">80</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn81">81</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn82">82</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn83">83</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn84">84</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn85">85</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn86">86</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn87">87</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn88">88</a></sup></td>
+  <td class="cell cg-drift">&#x2717;<sup><a href="#fn89">89</a></sup></td>
+  <td class="cell cg-life">&#x2717;<sup><a href="#fn90">90</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn91">91</a></sup></td>
+</tr>
+<tr id="ch-row">
+  <td class="fw-name">Chimera<span class="prov">Python &middot; Multi-LLM / Chimera</span></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn92">92</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn93">93</a></sup></td>
+  <td class="cell cg-mem">&#x223C;<sup><a href="#fn94">94</a></sup></td>
+  <td class="cell cg-trust">&#x2717;<sup><a href="#fn95">95</a></sup></td>
+  <td class="cell cg-trust">&#x223C;<sup><a href="#fn96">96</a></sup></td>
+  <td class="cell cg-trust">&#x2713;<sup><a href="#fn97">97</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn98">98</a></sup></td>
+  <td class="cell cg-cost">&#x2713;<sup><a href="#fn99">99</a></sup></td>
+  <td class="cell cg-cost">&#x223C;<sup><a href="#fn100">100</a></sup></td>
+  <td class="cell cg-drift">&#x223C;<sup><a href="#fn101">101</a></sup></td>
+  <td class="cell cg-drift">&#x2713;<sup><a href="#fn102">102</a></sup></td>
+  <td class="cell cg-life">&#x223C;<sup><a href="#fn103">103</a></sup></td>
+  <td class="cell cg-life">&#x2713;<sup><a href="#fn104">104</a></sup></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="footnotes">
+<h3>Citations &amp; Notes</h3>
+<ol>
+<li id="fn1">LangGraph <code>Store</code> API — persistent cross-thread memory backed by Postgres/SQLite with optional vector search. <a href="https://langchain-ai.github.io/langgraph/how-tos/persistence/">LangGraph Persistence docs</a>; <a href="https://aiworkshack.com/tools/langgraph/langgraph-long-term-memory-using-store-for-persistent-cross-thread-knowledge.html">AI Workshack</a>.</li>
+<li id="fn2">No built-in shared-filesystem KFM. Cross-agent state achievable via Store + filesystem, but not a first-class swarm-KFM primitive. <a href="https://docs.langchain.com/langgraph-platform">LangGraph Platform</a>.</li>
+<li id="fn3">LangSmith captures per-node execution timelines, tool calls, and token usage as an implicit structured journal. <a href="https://docs.langchain.com/langsmith">LangSmith docs</a>; <a href="https://arxiv.org/html/2602.10133v1">AgentTrace (arXiv 2026)</a>.</li>
+<li id="fn4">LangSmith observability + external attestation infrastructure needed. <a href="https://agentproof.sh/whitepaper">ERC-8004 Trust Oracle</a>; <a href="https://docs.x402hub.ai/docs/guides/attestations">x402 Attestations</a>.</li>
+<li id="fn5">No built-in proposer-quality scoring. Relies on LangSmith eval runners — not a real-time scoring primitive.</li>
+<li id="fn6"><code>interrupt()</code> pauses execution at any node, awaiting external human approval — the canonical operator-gate. <a href="https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/">LangGraph HITL docs</a>.</li>
+<li id="fn7">LangSmith per-run token/cost tracking. Token budgets per graph via LangGraph Platform. <a href="https://runcycles.io/blog/langgraph-budget-control-durable-execution-retries-fan-out">Cycles budgets</a>.</li>
+<li id="fn8">No built-in provider tier escalation. Manual routing via custom model-selection nodes. <a href="https://python.langchain.com/docs/how_to/llm_token_usage_tracking/">LangChain model routing</a>.</li>
+<li id="fn9">Agent Server exposes MCP endpoint; <code>langchain-mcp-adapters</code> wraps MCP servers. <a href="https://docs.langchain.com/langgraph-platform/server-mcp">MCP endpoint</a>; <a href="https://github.com/langchain-ai/langchain-mcp-adapters">adapters</a>.</li>
+<li id="fn10">No drift/anchor primitives. <a href="https://latentmesh.ai/blog/drift-detection-patterns-for-production-agents/">Drift Detection Patterns</a>; <a href="https://arxiv.org/abs/2601.04170v1">Agent Drift (arXiv)</a>.</li>
+<li id="fn11">Context overflow via summarisation; no density-scoring gate. <a href="https://www.abstractalgorithms.dev/langgraph-memory-and-state-persistence">Context overflow strategies</a>.</li>
+<li id="fn12">Peer discovery via LangGraph Platform deployments; no native decentralized discovery. <a href="https://docs.langchain.com/langgraph-platform">LangGraph Platform</a>.</li>
+<li id="fn13">Supervisor/sub-agent pattern; per-node model selection enables cross-provider spawning. <a href="https://docs.langchain.com/oss/python/langchain/multi-agent/subagents">Subagents docs</a>.</li>
