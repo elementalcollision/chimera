@@ -219,6 +219,11 @@ def _build_parser() -> argparse.ArgumentParser:
     mut_reject = mut_sub.add_parser("reject", help="Reject a pending mutation.")
     mut_reject.add_argument("id", type=int)
     mut_reject.add_argument("--reason", default=None)
+    mut_apply = mut_sub.add_parser(
+        "apply",
+        help="Apply an approved mutation. Currently supports type=task_split (v4.65).",
+    )
+    mut_apply.add_argument("id", type=int)
     mut_health = mut_sub.add_parser(
         "health",
         help="Show queue-health metrics (counts, oldest pending, recurrence).",
@@ -1191,6 +1196,34 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"rejected mutation #{m.id} ({m.type})")
             return 0
+        if sub_cmd == "apply":
+            # v4.65 (ADR 0084): apply an approved mutation. Currently
+            # supports type="task_split" (rewrites mind/INBOX.md);
+            # other types still apply via their own bespoke pipelines
+            # (ontology --apply-kills, skills assemble, etc.).
+            m = _get(conn, args.id)
+            if m is None:
+                print(f"mutation #{args.id} not found")
+                return 1
+            if m.type == "task_split":
+                from .core.task_split_proposal import apply_task_split
+                result = apply_task_split(
+                    conn, args.id, cfg.mind_dir / "INBOX.md",
+                )
+                if not result["ok"]:
+                    print(f"error: {result['reason']}")
+                    return 1
+                print(
+                    f"applied mutation #{args.id} (task_split): "
+                    f"{result['reason']}"
+                )
+                return 0
+            print(
+                f"mutation #{m.id} type={m.type!r} has no `chimera mutations "
+                "apply` handler. Try the type-specific verb (e.g. "
+                "`chimera ontology --apply-kills`)."
+            )
+            return 1
         if sub_cmd == "health":
             snap = _queue_health(conn)
             if getattr(args, "json", False):
