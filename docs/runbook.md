@@ -175,12 +175,27 @@ chimera ping --provider both            # one-token reply from each
 
 ### Refresh the graph manually
 
+As of v4.62 (ADR 0081) the Kuzu graph projection is **opt-in**.
+Default = off; housekeeping skips the auto-refresh entirely. The
+SQLite-recursive-CTE path covers ~95% of dashboard queries. To
+opt in:
+
 ```bash
-chimera graph rebuild                   # full clear + rebuild (~12s pre-v4.23; ~0.21s now)
-chimera graph rebuild --incremental     # diff-only, faster but mutation-rows aren't refreshed
+export CHIMERA_GRAPH_ENABLED=1          # auto-refresh in housekeeping
+```
+
+The CLI verbs are always available regardless of the gate:
+
+```bash
+chimera graph rebuild                   # full clear + rebuild (~0.21s)
+chimera graph rebuild --incremental     # diff-only
 chimera graph query "MATCH (e:Entity) RETURN count(e)"
 chimera graph stress --entities 500     # synthetic load benchmark
 ```
+
+Without `CHIMERA_GRAPH_ENABLED=1`, a hand-built graph goes stale
+the next cycle — the CLI prints a hint to that effect when you
+init or rebuild.
 
 ### Federation drills (sanity checks)
 

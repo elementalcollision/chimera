@@ -55,6 +55,28 @@ from .strategy import Planner, PlanResult
 logger = logging.getLogger(__name__)
 
 
+def graph_projection_enabled() -> bool:
+    """v4.62 (ADR 0081): is the Kuzu graph projection turned on?
+
+    The graph is OPTIONAL as of v4.62. Default: OFF. Opt in by setting
+    ``CHIMERA_GRAPH_ENABLED=1`` (or ``true`` / ``yes``). The legacy
+    ``CHIMERA_AUTO_GRAPH_UPDATE_DISABLED=1`` still forces off even when
+    the new var is enabled — back-compat for operators who pinned the
+    legacy var to disable updates back when they were default-on.
+
+    The CLI verbs (``chimera graph init/rebuild/query/snapshot``) are
+    always available regardless — they're explicit operator invocations.
+    This gate only controls the auto-refresh in the housekeeping phase.
+    """
+    enabled = os.environ.get("CHIMERA_GRAPH_ENABLED", "").lower() in (
+        "1", "true", "yes",
+    )
+    forced_off = os.environ.get(
+        "CHIMERA_AUTO_GRAPH_UPDATE_DISABLED", ""
+    ).lower() in ("1", "true", "yes")
+    return enabled and not forced_off
+
+
 @dataclass
 class LoopConfig:
     mind_dir: Path
@@ -308,10 +330,12 @@ class ChimeraLoop:
         # v4.32: incremental graph projection. Append-only diffs so the
         # graph stays current between operator-triggered full rebuilds
         # without paying the 230ms clear+rebuild every cycle.
+        #
+        # v4.62 (ADR 0081): the graph is now an OPTIONAL projection.
+        # ``graph_projection_enabled()`` returns False by default; opt in
+        # with CHIMERA_GRAPH_ENABLED=1.
         graph_counts: dict[str, int] = {}
-        if _os.environ.get("CHIMERA_AUTO_GRAPH_UPDATE_DISABLED") not in (
-            "1", "true", "yes",
-        ):
+        if graph_projection_enabled():
             try:
                 from ..memory import GraphStore, default_graph_dir
                 store = GraphStore(default_graph_dir())

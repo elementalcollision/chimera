@@ -1521,11 +1521,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result.ok else 1
     if args.command == "graph":
         from .core import LoopConfig
+        from .core.loop import graph_projection_enabled
         from .memory import GraphStore, default_graph_dir, open_and_init
 
         cfg = LoopConfig.from_env()
         sub_cmd = args.graph_command or "init"
         store = GraphStore(default_graph_dir())
+        # v4.62 (ADR 0081): emit a hint when the explicit CLI is used but
+        # the housekeeping auto-refresh isn't enabled — so the operator
+        # knows their hand-rebuilt graph will go stale next cycle.
+        if sub_cmd in ("init", "rebuild") and not graph_projection_enabled():
+            print(
+                "ℹ️  graph projection is currently OPT-IN (default off as of v4.62). "
+                "Set CHIMERA_GRAPH_ENABLED=1 for auto-refresh in housekeeping; "
+                "otherwise re-run `chimera graph rebuild` manually."
+            )
         if sub_cmd == "init":
             store.init_schema()
             print(f"chimera graph: schema ready at {store.path}")
