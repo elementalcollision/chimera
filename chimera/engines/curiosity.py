@@ -76,6 +76,7 @@ class CuriosityEngine(EngineBase):
 
     async def run(self, *, cycle: int) -> EngineResult:
         from ..core.act import ActExecutor
+        from ..core.engine_gates import curiosity_gate
         from ..core.mind import utc_now_iso
         from ..memory import finish_engine_run, start_engine_run
 
@@ -86,6 +87,28 @@ class CuriosityEngine(EngineBase):
         # ACT-vs-engine attribution for those calls is a documented
         # gap (ADR 0088 §"Non-goals").
         run_id = start_engine_run(self._db, engine=self.name, cycle=cycle)
+
+        # v4.70 (ADR 0089): the biggest behavioural fix from the
+        # post-mortem — require a substantive Morning Discovery
+        # before spending tokens on a research cycle. The 2026-05-19
+        # midday curiosity investigated "fresh session initiation;
+        # no prior history" (literally empty); the engine itself
+        # reflected on that anti-pattern that evening.
+        try:
+            chronicle_text = self._chronicle.path.read_text(encoding="utf-8")
+        except (OSError, AttributeError):
+            chronicle_text = None
+        gate = curiosity_gate(chronicle_text)
+        if not gate.allow:
+            finish_engine_run(
+                self._db, run_id, status="skipped", skip_reason=gate.reason,
+            )
+            return EngineResult(
+                engine=self.name,
+                skipped=True,
+                fired_at=utc_now_iso(),
+                failure_reason=gate.reason,
+            )
 
         seed = self._seed_topic or self._derive_seed_from_chronicle()
         brief = (

@@ -94,3 +94,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0086-doctor-cost-check.md](./0086-doctor-cost-check.md) | ADR 0086 — `chimera doctor` cost-caps check (v4.67) | Accepted (2026-05-20) |
 | [0087-hot-signatures-widget.md](./0087-hot-signatures-widget.md) | ADR 0087 — Hot-signatures dashboard widget (v4.68) | Accepted (2026-05-20) |
 | [0088-engine-telemetry.md](./0088-engine-telemetry.md) | ADR 0088 — Engine telemetry: `engine_runs` table + `caller` column (v4.69) | Accepted (2026-05-20) |
+| [0089-engine-signal-density-gates.md](./0089-engine-signal-density-gates.md) | ADR 0089 — Engine signal-density gates (v4.70) | Accepted (2026-05-20) |

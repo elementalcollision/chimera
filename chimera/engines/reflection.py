@@ -82,6 +82,22 @@ class ReflectionEngine(EngineBase):
                 failure_reason=reason,
             )
 
+        # v4.70 (ADR 0089): skip on quiet days. Reflection has a
+        # documented tendency to write generic "today was quiet"
+        # narratives on empty days (see 2026-05-19 chronicle).
+        from ..core.engine_gates import reflection_gate
+        gate = reflection_gate(self._db, cycle=cycle)
+        if not gate.allow:
+            finish_engine_run(
+                self._db, run_id, status="skipped", skip_reason=gate.reason,
+            )
+            return EngineResult(
+                engine=self.name,
+                skipped=True,
+                fired_at=utc_now_iso(),
+                failure_reason=gate.reason,
+            )
+
         model_id = (
             rung.config.model_id
             if rung.config.provider is ProviderKind.ANTHROPIC

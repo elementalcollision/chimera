@@ -82,6 +82,21 @@ class DiscoveryEngine(EngineBase):
                 failure_reason=reason,
             )
 
+        # v4.70 (ADR 0089): signal-density gate. Skip when recent
+        # cycles don't have enough api activity to distill.
+        from ..core.engine_gates import discovery_gate
+        gate = discovery_gate(self._db, cycle=cycle)
+        if not gate.allow:
+            finish_engine_run(
+                self._db, run_id, status="skipped", skip_reason=gate.reason,
+            )
+            return EngineResult(
+                engine=self.name,
+                skipped=True,
+                fired_at=utc_now_iso(),
+                failure_reason=gate.reason,
+            )
+
         model_id = (
             rung.config.model_id
             if rung.config.provider is ProviderKind.ANTHROPIC
