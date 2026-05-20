@@ -111,6 +111,21 @@ chimera escalations summary             # which signatures have failed at which 
 chimera escalations clear --grep foo    # forget specific learning
 ```
 
+### Pre-flight: estimate cost before a long-horizon run
+
+```bash
+chimera estimate                    # text projection with per-task breakdown
+chimera estimate --json             # structured payload
+chimera estimate --tier sonnet      # override default starting tier
+```
+
+Anchored to api_calls history when available, tier-typical token
+estimates otherwise. Flags tasks whose per-cycle projection exceeds
+the cycle cap (they'll trip on every cycle), and totals exceeding
+the rolling-hour cap. Honest heuristic — use the prior_failures
+column in the JSON output to find tasks worth rewriting before
+running.
+
 ### Inspect cost from the CLI
 
 ```bash

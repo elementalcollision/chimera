@@ -83,3 +83,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0075-task-conventions-and-tier-floor.md](./0075-task-conventions-and-tier-floor.md) | ADR 0075 — Task conventions + research-tier floor (v4.56) | Accepted (2026-05-20) |
 | [0076-rolling-cost-cap-and-cost-usd-population.md](./0076-rolling-cost-cap-and-cost-usd-population.md) | ADR 0076 — Rolling-hour cost cap + cost_usd population (v4.57) | Accepted (2026-05-20) |
 | [0077-cost-cli.md](./0077-cost-cli.md) | ADR 0077 — `chimera cost` CLI verb (v4.58) | Accepted (2026-05-20) |
+| [0078-cost-estimate.md](./0078-cost-estimate.md) | ADR 0078 — Pre-flight cost estimation (v4.59) | Accepted (2026-05-20) |

@@ -83,6 +83,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cycle number to report on (default: most recent).",
     )
 
+    estimate = sub.add_parser(
+        "estimate",
+        help="Pre-flight: predict total USD to clear the open INBOX once.",
+    )
+    estimate.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of formatted text.",
+    )
+    estimate.add_argument(
+        "--tier", default="haiku",
+        choices=("haiku", "sonnet", "opus"),
+        help="Default starting tier (research-floor + memory still apply).",
+    )
+
     ping = sub.add_parser(
         "ping",
         help="Stream a one-token reply from both providers (verifies API keys).",
@@ -524,6 +538,83 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  ⚠️  cycle spend OVER per-cycle cap (${cycle_cap:.2f})")
             if hour_cap > 0 and spend_60m >= hour_cap:
                 print(f"  ⚠️  60m spend OVER rolling-hour cap (${hour_cap:.2f})")
+        return 0
+
+    if args.command == "estimate":
+        # v4.59 (ADR 0078): pre-flight INBOX cost projection.
+        from .core import LoopConfig
+        from .core.budget import cycle_cost_cap_usd, rolling_hour_cap_usd
+        from .core.cost_estimate import estimate_inbox
+        from .memory import open_and_init
+
+        cfg = LoopConfig.from_env()
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+        inbox = cfg.mind_dir / "INBOX.md"
+        report = estimate_inbox(conn, inbox, default_tier=args.tier)
+
+        cycle_cap = cycle_cost_cap_usd()
+        hour_cap = rolling_hour_cap_usd()
+
+        if args.json:
+            import json as _json
+            print(_json.dumps({
+                "n_tasks": report.n_tasks,
+                "total_usd": report.total_usd,
+                "total_cycles": report.total_cycles,
+                "cycle_cap_usd": cycle_cap,
+                "rolling_hour_cap_usd": hour_cap,
+                "tasks": [
+                    {
+                        "task_text": t.task_text[:200],
+                        "tier": t.tier,
+                        "model_id": t.model_id,
+                        "estimated_cycles": t.estimated_cycles,
+                        "estimated_usd": t.estimated_usd,
+                        "used_history": t.used_history,
+                        "n_historical_cycles": t.n_historical_cycles,
+                        "prior_failures": t.prior_failures,
+                    }
+                    for t in report.tasks
+                ],
+            }, indent=2))
+        else:
+            print(f"chimera estimate  {report.n_tasks} open task(s)")
+            if report.n_tasks == 0:
+                print("  (inbox clear)")
+                return 0
+            print(
+                f"  total estimate     ${report.total_usd:>7.2f}"
+                f"  over ~{report.total_cycles} cycle(s)"
+            )
+            print(f"  per-cycle cap      ${cycle_cap:.2f}")
+            print(f"  rolling-hour cap   ${hour_cap:.2f}")
+            print()
+            for i, t in enumerate(report.tasks, 1):
+                src = "hist" if t.used_history else "tier-typical"
+                short = t.model_id.split("/")[-1] if "/" in t.model_id else t.model_id
+                preview = t.task_text.split("\n")[0][:60]
+                print(
+                    f"  [{i:2d}] ${t.estimated_usd:>7.2f}  "
+                    f"tier={t.tier:6s}  cycles={t.estimated_cycles}  "
+                    f"({src})  {short}"
+                )
+                print(f"        {preview}{'…' if len(t.task_text) > 60 else ''}")
+            # Warnings:
+            if cycle_cap > 0:
+                tripped = [t for t in report.tasks if t.estimated_usd / t.estimated_cycles > cycle_cap]
+                if tripped:
+                    print()
+                    print(
+                        f"  ⚠️  {len(tripped)} task(s) project per-cycle spend "
+                        f"> ${cycle_cap:.2f} cap; ACT will trip cost_cap on those."
+                    )
+            if hour_cap > 0 and report.total_usd > hour_cap:
+                print()
+                print(
+                    f"  ⚠️  total projection ${report.total_usd:.2f} exceeds "
+                    f"the rolling-60m cap ${hour_cap:.2f} — back-to-back cycles "
+                    f"may trip rolling_hour_cap. Consider splitting the run."
+                )
         return 0
 
     if args.command == "tiers":
