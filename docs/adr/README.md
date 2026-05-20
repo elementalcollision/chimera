@@ -80,3 +80,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0072-cost-runaway-guards.md](./0072-cost-runaway-guards.md) | ADR 0072 — Cost-runaway guards + opus ladder inversion (v4.53) | Accepted (2026-05-19) |
 | [0073-observability-tightening.md](./0073-observability-tightening.md) | ADR 0073 — Engine + cost observability tightening (v4.54) | Accepted (2026-05-20) |
 | [0074-audit-and-kfm-safety.md](./0074-audit-and-kfm-safety.md) | ADR 0074 — audit.py transaction safety + KFM bootstrap scoping (v4.55) | Accepted (2026-05-20) |
+| [0075-task-conventions-and-tier-floor.md](./0075-task-conventions-and-tier-floor.md) | ADR 0075 — Task conventions + research-tier floor (v4.56) | Accepted (2026-05-20) |

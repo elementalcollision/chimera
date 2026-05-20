@@ -148,6 +148,44 @@ def record_failure(
         return None
 
 
+#: v4.56 (ADR 0075): task-text keywords that signal research-shaped
+#: work — multi-step citation + synthesis that haiku consistently
+#: fails to complete in budget. The 2026-05-19 escalation postmortem
+#: (mind/overnight/escalation-postmortem.md §"Systematic patterns")
+#: identified this pattern explicitly: "research requires web_search +
+#: http_fetch + citation weaving + file writing — that's 4+ tool
+#: types. Haiku struggles to sequence them without exhausting rounds."
+#: When ANY of these keywords appears, the floor tier becomes sonnet
+#: regardless of the ``default_tier`` arg or escalation memory state.
+_RESEARCH_TASK_KEYWORDS: tuple[str, ...] = (
+    "peer-reviewed",
+    "peer reviewed",
+    "cite inline",
+    "citation",
+    "research and write",
+    "research and synthesize",
+    "research and synthesise",
+    "academic literature",
+    "named journalism",
+)
+
+
+def research_task_floor_tier(task_text: str) -> str | None:
+    """Return ``"sonnet"`` if the task is research-shaped, else None.
+
+    Pure heuristic — looks for the keyword set above in a lowered
+    copy of the task text. Operators can preview this with the test
+    fixtures in ``tests/test_research_tier_floor.py``.
+    """
+    if not task_text:
+        return None
+    lower = task_text.lower()
+    for kw in _RESEARCH_TASK_KEYWORDS:
+        if kw in lower:
+            return "sonnet"
+    return None
+
+
 def recommended_tier(
     conn: sqlite3.Connection,
     *,
@@ -161,13 +199,25 @@ def recommended_tier(
     the incoming task's signature by ≥ ``overlap_threshold`` (Jaccard).
     For every such match at tier T, we promote one rung. So:
 
-      - 0 prior failures      → default_tier
+      - 0 prior failures      → default_tier (with research-floor lift)
       - 1 prior haiku failure → sonnet
       - 1 prior sonnet failure → opus
       - any prior opus failure → opus (top of ladder)
 
-    Bound: never below ``default_tier``; never above ``opus``.
+    v4.56 (ADR 0075): if ``task_text`` matches the research-task
+    heuristic, the effective floor becomes ``sonnet`` regardless of
+    the caller-supplied ``default_tier``. Saves the haiku→sonnet
+    round-trip on tasks that haiku cannot complete by construction.
+
+    Bound: never below ``default_tier`` (or the research floor,
+    whichever is higher); never above ``opus``.
     """
+    # v4.56: apply the research-task floor before consulting memory.
+    floor = research_task_floor_tier(task_text)
+    rank = {t: i for i, t in enumerate(_TIER_ORDER)}
+    if floor is not None and rank.get(floor, -1) > rank.get(default_tier, -1):
+        default_tier = floor
+
     incoming = _signature(task_text)
     if not incoming:
         return default_tier
@@ -194,14 +244,17 @@ def recommended_tier(
         return default_tier
 
     # Highest tier we previously failed at → start one above that.
-    rank = {t: i for i, t in enumerate(_TIER_ORDER)}
     worst_failed_idx = max(
         (rank.get(t, -1) for t in matched_tiers), default=-1
     )
     if worst_failed_idx < 0:
         return default_tier
     next_idx = min(worst_failed_idx + 1, len(_TIER_ORDER) - 1)
-    return _TIER_ORDER[next_idx]
+    promoted = _TIER_ORDER[next_idx]
+    # v4.56: never demote below the research-task floor.
+    if rank.get(promoted, -1) < rank.get(default_tier, -1):
+        return default_tier
+    return promoted
 
 
 # ── v4.48: operator readers ──────────────────────────────────

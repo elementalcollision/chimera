@@ -144,6 +144,27 @@ chimera scenario federation_http_drill      # HTTP transport with bearer auth
 | Mutation queue growing fast | `chimera mutations health` — duplicates get absorbed in-place via recurrence_count (v4.19) |
 | Fingerprint write errors on macOS | Kuzu single-file DB; sidecar fix is in v4.43 — verify [ADR 0069](./adr/0069-round-boundary-instrumentation.md) note about file-vs-directory |
 
+## Writing tasks for the agent
+
+v4.56 ([ADR 0075](./adr/0075-task-conventions-and-tier-floor.md)).
+The 2026-05-19 escalation postmortem (`mind/overnight/escalation-postmortem.md`)
+identified two task-shape anti-patterns that consistently burn rounds:
+
+- **"Pick two modules from chimera/core/"** forces filesystem
+  discovery before the real work. **Name the modules explicitly.**
+- **"Research and write four sections each with citations"** is
+  four parallel tasks bundled as one. **Split them, or accept that
+  haiku will hit `max_rounds` and v4.46 escalation memory will spend
+  the next cycle on sonnet.** The agent now auto-floors research-
+  shaped task text at the sonnet tier (keyword detection in
+  `chimera.core.escalation.research_task_floor_tier`), but splitting
+  is still the right pattern for parallel-section research.
+
+If a task signature accumulates ≥ 2 failures, `chimera escalations
+summary` will surface it under `⚠️ HOT SIGNATURES` (v4.54 / ADR 0073).
+That's the signal that the **task text** needs rewriting, not just
+the tier.
+
 ## Cost discipline
 
 - `chimera tiers --json` mirrors current model prices into `state/tiers.json`

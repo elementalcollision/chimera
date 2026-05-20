@@ -71,6 +71,25 @@ exists, a long-horizon run is in flight. Stick to docs.
   layout changes: increment `STORAGE_LAYOUT` + `STORAGE_PINS` in
   [control-plane/components/CanvasShell.tsx](control-plane/components/CanvasShell.tsx).
   We're currently at v14.
+- **Task-text shape conventions** (v4.56 / [ADR 0075](docs/adr/0075-task-conventions-and-tier-floor.md)):
+  - **Code-review tasks must NAME the modules.** "Pick TWO modules
+    from `chimera/core/`" forces the agent to spend rounds on
+    discovery before doing the review. Say
+    "Review `chimera/memory/audit.py` and `chimera/core/kfm.py`" —
+    or accept that the task will burn its budget on filesystem
+    exploration.
+  - **Research-shaped task text auto-floors at sonnet.** Any task
+    containing "peer-reviewed", "cite inline", "research and write",
+    "academic literature", or "named journalism" routes through
+    `chimera.core.escalation.research_task_floor_tier()` which
+    lifts the starting tier to sonnet regardless of `default_tier`.
+    Haiku cannot complete research-shaped tasks in one cycle by
+    construction (web_search + http_fetch + citation weaving + file
+    writing is 4+ tool types — too many to sequence in budget).
+  - **Multi-section tasks should split, not bundle.** A task asking
+    for "four sections, each with citations" is four parallel
+    tasks; bundle-then-fanout patterns thrash. Either split at
+    inbox time or accept that the task is fragmentation-prone.
 
 ## Tool surface (what the agent itself can call)
 
