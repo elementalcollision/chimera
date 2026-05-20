@@ -70,6 +70,19 @@ def _build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Run one cycle of the agent loop (stub).")
     run.add_argument("prompt", nargs="?", help="Optional ad-hoc prompt to enqueue.")
 
+    cost = sub.add_parser(
+        "cost",
+        help="Show windowed spend (cycle, 15m, 60m, total) with band classification.",
+    )
+    cost.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of formatted text.",
+    )
+    cost.add_argument(
+        "--cycle", type=int, default=None,
+        help="Cycle number to report on (default: most recent).",
+    )
+
     ping = sub.add_parser(
         "ping",
         help="Stream a one-token reply from both providers (verifies API keys).",
@@ -419,6 +432,100 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if not result.failures else 1
         parser.error(f"unknown emergence subcommand: {sub_cmd}")
         return 2
+    if args.command == "cost":
+        # v4.58 (ADR 0077): operator-facing windowed spend report.
+        # Mirrors the dashboard cost-rate widget for headless / SSH use.
+        from .core import LoopConfig
+        from .core.budget import (
+            cycle_cost_cap_usd,
+            cycle_spend_usd,
+            rolling_hour_cap_usd,
+            rolling_spend_usd,
+        )
+        from .memory import open_and_init
+
+        cfg = LoopConfig.from_env()
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+
+        # Resolve cycle: explicit arg, else max(cycle) from api_calls.
+        if args.cycle is not None:
+            cycle_num = args.cycle
+        else:
+            row = conn.execute(
+                "SELECT MAX(cycle) AS c FROM api_calls"
+            ).fetchone()
+            cycle_num = int(row["c"] or 0)
+
+        cycle_usd = cycle_spend_usd(conn, cycle_num) if cycle_num > 0 else 0.0
+        spend_15m = rolling_spend_usd(conn, minutes=15)
+        spend_60m = rolling_spend_usd(conn, minutes=60)
+        # Total: token-driven, all-time, error-free.
+        try:
+            rows = conn.execute(
+                "SELECT model_id, "
+                "  COALESCE(SUM(input_tokens), 0), "
+                "  COALESCE(SUM(output_tokens), 0) "
+                "FROM api_calls WHERE error IS NULL GROUP BY model_id"
+            ).fetchall()
+        except Exception:
+            rows = []
+        from .core.budget import _price_table as _bp_pt
+        table = _bp_pt()
+        total_usd = 0.0
+        by_model: list[tuple[str, float]] = []
+        for model_id, in_tok, out_tok in rows:
+            in_price, out_price = table.get(model_id, (0.0, 0.0))
+            c = (in_tok / 1_000_000.0) * in_price + (out_tok / 1_000_000.0) * out_price
+            total_usd += c
+            by_model.append((model_id, c))
+        by_model.sort(key=lambda x: -x[1])
+
+        # Band classification mirrors lib/cost.ts classifyCostRate().
+        usd_per_min_15 = spend_15m / 15.0 if spend_15m > 0 else 0.0
+        def _band(rate: float) -> str:
+            if rate <= 0: return "off"
+            if rate < 0.10: return "green"
+            if rate <= 0.50: return "amber"
+            return "red"
+        band = _band(usd_per_min_15)
+
+        cycle_cap = cycle_cost_cap_usd()
+        hour_cap = rolling_hour_cap_usd()
+
+        if args.json:
+            import json as _json
+            print(_json.dumps({
+                "cycle": cycle_num,
+                "cycle_spend_usd": round(cycle_usd, 4),
+                "cycle_cap_usd": cycle_cap,
+                "spend_15m_usd": round(spend_15m, 4),
+                "spend_60m_usd": round(spend_60m, 4),
+                "rolling_hour_cap_usd": hour_cap,
+                "usd_per_min_15m": round(usd_per_min_15, 4),
+                "band": band,
+                "total_usd": round(total_usd, 4),
+                "by_model": [{"model_id": m, "cost_usd": round(c, 4)} for m, c in by_model],
+            }, indent=2))
+        else:
+            print(f"chimera cost  band={band}  ($/min over 15m: ${usd_per_min_15:.3f})")
+            print(f"  cycle {cycle_num:>3d} spend  ${cycle_usd:>7.2f}  (cap ${cycle_cap:.2f})")
+            print(f"  15m rolling    ${spend_15m:>7.2f}")
+            print(f"  60m rolling    ${spend_60m:>7.2f}  (cap ${hour_cap:.2f})")
+            print(f"  total          ${total_usd:>7.2f}")
+            if by_model:
+                print()
+                print("  by model (descending):")
+                for m, c in by_model[:6]:
+                    short = m.split("/")[-1] if "/" in m else m
+                    print(f"    {short:35s}  ${c:>7.2f}")
+            # Visual cue for over-cap conditions even in non-JSON path.
+            if cycle_cap > 0 and cycle_usd >= cycle_cap:
+                print()
+                print(f"  ⚠️  cycle spend OVER per-cycle cap (${cycle_cap:.2f})")
+            if hour_cap > 0 and spend_60m >= hour_cap:
+                print(f"  ⚠️  60m spend OVER rolling-hour cap (${hour_cap:.2f})")
+        return 0
+
     if args.command == "tiers":
         from .providers.tiers import TIER_LADDERS
         if args.json:

@@ -111,6 +111,24 @@ chimera escalations summary             # which signatures have failed at which 
 chimera escalations clear --grep foo    # forget specific learning
 ```
 
+### Inspect cost from the CLI
+
+```bash
+chimera cost                       # text report with band + warnings
+chimera cost --json                # structured payload for scripts
+chimera cost --cycle 17 --json     # spend on a specific historical cycle
+```
+
+Pipe into shell guards:
+
+```bash
+band=$(chimera cost --json | jq -r .band)
+if [ "$band" = "red" ]; then
+  echo "Cost rate red — stopping"
+  exit 1
+fi
+```
+
 ### Verify providers + state
 
 ```bash
