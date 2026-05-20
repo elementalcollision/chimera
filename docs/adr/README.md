@@ -78,3 +78,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0070-model-utilization-widget.md](./0070-model-utilization-widget.md) | ADR 0070 — Model utilization (engine pressure) widget (v4.51) | Accepted (2026-05-19) |
 | [0071-http-bind-security.md](./0071-http-bind-security.md) | ADR 0071 — HTTP bind security guard (v4.52) | Accepted (2026-05-19) |
 | [0072-cost-runaway-guards.md](./0072-cost-runaway-guards.md) | ADR 0072 — Cost-runaway guards + opus ladder inversion (v4.53) | Accepted (2026-05-19) |
+| [0073-observability-tightening.md](./0073-observability-tightening.md) | ADR 0073 — Engine + cost observability tightening (v4.54) | Accepted (2026-05-20) |

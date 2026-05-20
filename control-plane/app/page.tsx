@@ -2,6 +2,7 @@ import {
   allMutations,
   allApiCallTokenRows,
   allApiCallCostHistoryRows,
+  apiCallTokenRowsLastMinutes,
   listEntities,
   ontologyAudit,
   queueHealth,
@@ -14,7 +15,7 @@ import {
   toolFanoutByModel,
   toolFanoutHistory,
 } from "@/lib/db";
-import { costByFanout, costByModel, totalCost } from "@/lib/cost";
+import { computeCostRate, costByFanout, costByModel, totalCost } from "@/lib/cost";
 import { costHistory } from "@/lib/cost-history";
 import {
   groupTrustJournal,
@@ -30,6 +31,7 @@ import { readFragmentation } from "@/lib/fragmentation";
 import { readHeartbeat, readMindFile, readTrustState } from "@/lib/mind";
 
 import CanvasShell, { ViewPreset, WidgetDef } from "@/components/CanvasShell";
+import CostAlarmWidget from "@/components/widgets/CostAlarmWidget";
 import CostOverTimeWidget from "@/components/widgets/CostOverTimeWidget";
 import StatusWidget from "@/components/widgets/StatusWidget";
 import TokenCostWidget from "@/components/widgets/TokenCostWidget";
@@ -75,6 +77,9 @@ export default async function HomePage() {
   const costHist = costHistory(allApiCallCostHistoryRows(), 24);
   const buckets = costByModel(costRows);
   const cost = totalCost(buckets);
+  // v4.54 (ADR 0073): cost-rate alarm — rolling 15-min spend.
+  const costRateBuckets = costByModel(apiCallTokenRowsLastMinutes(15));
+  const costRate = computeCostRate(costRateBuckets, 15);
   const driftLog = readDriftLog(60);
   const fragmentation = readFragmentation(20);
   const pendingCount = muts.filter((m) => m.status === "pending").length;
@@ -101,6 +106,13 @@ export default async function HomePage() {
       group: "cost", layout: { x: 5, y: 0, w: 7, h: 5 },
       minW: 5, minH: 5,
       body: <TokenCostWidget buckets={buckets} total={cost} />,
+    },
+    {
+      // v4.54 (ADR 0073): cost-rate alarm — 15m rolling $/min with band.
+      id: "cost_alarm", title: "Cost rate (15m)", eyebrow: "alarm", icon: "activity",
+      group: "cost", layout: { x: 0, y: 16, w: 4, h: 4 },
+      minW: 3, minH: 4,
+      body: <CostAlarmWidget rate={costRate} />,
     },
     {
       id: "cost_history", title: "Cost over time", eyebrow: "last 24h", icon: "coins",

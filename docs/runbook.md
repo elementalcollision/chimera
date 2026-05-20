@@ -18,8 +18,20 @@ The repo doesn't ship a built-in scheduler; use a shell loop:
 
 ```bash
 set -a; source .env; set +a
-export CHIMERA_ENGINES_ENABLED=1
-for i in $(seq 1 8); do
+# v4.54 (ADR 0073): engines default OFF for long-horizon runs.
+# Curiosity/Discovery/Reflection are pure upside in short interactive
+# use but compound cost in long-horizon mode — they add tasks faster
+# than ACT can verify them, and on the opus tier those exploratory
+# tasks compound spend. Operator can opt in if needed:
+#   export CHIMERA_ENGINES_ENABLED=1   # only for short runs (seq < 8)
+SEQ=${SEQ:-8}
+if [ "$SEQ" -ge 8 ] && [ -z "${CHIMERA_ENGINES_ENABLED:-}" ]; then
+  export CHIMERA_ENGINES_ENABLED=0
+fi
+# v4.53 (ADR 0072): per-cycle $ cap — defaults to $2.00 if unset.
+export CHIMERA_CYCLE_COST_CAP_USD=${CHIMERA_CYCLE_COST_CAP_USD:-2.00}
+
+for i in $(seq 1 "$SEQ"); do
   echo "=== cycle $i @ $(date +%H:%M:%S) ==="
   uv run chimera run 2>&1 | tee -a /tmp/chimera-longrun.log | tail -12
   # Exit early when INBOX is clear.
@@ -31,7 +43,10 @@ done
 
 The agent learns across cycles via the v4.46 task-escalation memory:
 a task that fails at haiku on cycle N auto-promotes to sonnet on
-cycle N+1, and gets a larger round budget too (v4.47).
+cycle N+1, and gets a larger round budget too (v4.47). The
+[ADR 0072](./adr/0072-cost-runaway-guards.md) per-cycle $ cap stops
+the loop if a single cycle's spend exceeds `CHIMERA_CYCLE_COST_CAP_USD`
+(default $2.00).
 
 ## What the dashboard tells you
 
@@ -41,6 +56,7 @@ cycle N+1, and gets a larger round budget too (v4.47).
 |---|---|---|
 | Status | Cycle, trust tier, drift composite | drift > 0.30 → plan demotion imminent |
 | Token cost / Cost over time | Spend per model | Sudden spike → check ladder routing |
+| Cost rate (15m) | Rolling $/min with band (green/amber/red) | RED → kill the run; AMBER → review what's running |
 | Drift composite | Per-cycle sparkline | Trending up → drift detectors firing |
 | Phase timings | Per-phase wall-clock | act dominates → tool calls heavy |
 | Ontology / Audit | KFM entity counts; stale + dead | dead > 0 → entities never touched |

@@ -483,6 +483,7 @@ def main(argv: list[str] | None = None) -> int:
         from .core.escalation import (
             clear_escalations,
             escalation_summary,
+            hot_signatures,
             list_escalations,
         )
         from .memory import open_and_init
@@ -510,15 +511,32 @@ def main(argv: list[str] | None = None) -> int:
             summary = escalation_summary(conn)
             if not summary:
                 print("chimera escalations summary: (none)")
-                return 0
-            print(f"chimera escalations summary: {len(summary)} signature(s)")
-            for sig, by_tier in sorted(
-                summary.items(), key=lambda kv: -sum(kv[1].values()),
-            )[:20]:
-                bits = ", ".join(f"{t}×{n}" for t, n in sorted(by_tier.items()))
-                tokens = (sig.split(",")[:5]) or ["(empty)"]
-                preview = " ".join(tokens) + ("…" if len(sig.split(",")) > 5 else "")
-                print(f"  {bits:30s}  tokens: {preview}")
+            else:
+                print(f"chimera escalations summary: {len(summary)} signature(s)")
+                for sig, by_tier in sorted(
+                    summary.items(), key=lambda kv: -sum(kv[1].values()),
+                )[:20]:
+                    bits = ", ".join(f"{t}×{n}" for t, n in sorted(by_tier.items()))
+                    tokens = (sig.split(",")[:5]) or ["(empty)"]
+                    preview = " ".join(tokens) + ("…" if len(sig.split(",")) > 5 else "")
+                    print(f"  {bits:30s}  tokens: {preview}")
+            # v4.54 (ADR 0073): A17 — surface hot signatures (≥2 failures)
+            # at the bottom of the summary so the operator sees them
+            # without an extra command. These are the candidates for
+            # task-text rewriting rather than tier promotion.
+            hot = hot_signatures(conn, threshold=2)
+            if hot:
+                print()
+                print(f"⚠️  HOT SIGNATURES (≥2 failures — review task text, do not just promote tier):")
+                for h in hot[:10]:
+                    tiers = "/".join(h.tiers) if h.tiers else "?"
+                    print(
+                        f"  ×{h.total_failures}  tiers={tiers:18s}  "
+                        f"cycles={h.first_seen_cycle}→{h.last_seen_cycle}  "
+                        f"last={h.last_finish_reason}"
+                    )
+                    if h.excerpt:
+                        print(f"      {h.excerpt}…")
             return 0
         if sub_cmd == "clear":
             if not args.grep and not args.all:

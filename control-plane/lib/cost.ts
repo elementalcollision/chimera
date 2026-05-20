@@ -120,6 +120,63 @@ export function totalCost(buckets: CostBucket[]): number {
   return buckets.reduce((acc, b) => acc + b.totalCost, 0);
 }
 
+// v4.54 (ADR 0073): cost-rate alarm helper.
+//
+// Computes USD-per-minute over a rolling window from api_calls rows
+// already filtered to that window by the reader. Returns the rate and
+// a colour band so widgets and CLI checks can agree on the threshold
+// classification. Thresholds chosen against the 2026-05-19 burn
+// baseline ($229 over 135 minutes = $1.70/min, deep red).
+//
+// Bands:
+//   green:  < $0.10/min   (normal interactive use)
+//   amber:  $0.10–0.50    (sustained sonnet+ work; review)
+//   red:    > $0.50/min   (likely thrash; investigate immediately)
+//   off:    no rows OR window=0
+export type CostBand = "off" | "green" | "amber" | "red";
+
+export interface CostRate {
+  totalUsd: number;
+  minutesWindow: number;
+  usdPerMin: number;
+  band: CostBand;
+  // Top contributor for headline display.
+  topModel: string | null;
+  topUsd: number;
+}
+
+export function classifyCostRate(usdPerMin: number): CostBand {
+  if (!isFinite(usdPerMin) || usdPerMin <= 0) return "off";
+  if (usdPerMin < 0.1) return "green";
+  if (usdPerMin <= 0.5) return "amber";
+  return "red";
+}
+
+export function computeCostRate(
+  buckets: CostBucket[],
+  minutes: number,
+): CostRate {
+  const total = totalCost(buckets);
+  const m = Math.max(0, minutes);
+  const usdPerMin = m > 0 ? total / m : 0;
+  let topModel: string | null = null;
+  let topUsd = 0;
+  for (const b of buckets) {
+    if (b.totalCost > topUsd) {
+      topUsd = b.totalCost;
+      topModel = b.modelId;
+    }
+  }
+  return {
+    totalUsd: total,
+    minutesWindow: m,
+    usdPerMin,
+    band: m > 0 && total > 0 ? classifyCostRate(usdPerMin) : "off",
+    topModel,
+    topUsd,
+  };
+}
+
 // v4.37: cost per fan-out bucket.
 //
 // Each row is one ACT API call. ``tool_uses_count`` is how many tool

@@ -272,6 +272,76 @@ def escalation_summary(conn: sqlite3.Connection) -> dict[str, dict[str, int]]:
     return out
 
 
+@dataclass
+class HotSignature:
+    """A task signature that has accumulated ≥ ``threshold`` failures.
+
+    v4.54 (ADR 0073) — surfaced to operators because the
+    escalation-postmortem analysis showed that two failures on the same
+    signature is the inflection point where "tier was wrong" tips into
+    "task text needs rewriting." The summary view is for routine
+    inspection; this list is the *alarm* — these signatures should
+    surface to the human, not silently re-attempt.
+    """
+
+    signature: str
+    total_failures: int
+    tiers: list[str]
+    first_seen_cycle: int
+    last_seen_cycle: int
+    last_finish_reason: str
+    excerpt: str
+
+
+def hot_signatures(
+    conn: sqlite3.Connection, *, threshold: int = 2,
+) -> list[HotSignature]:
+    """Return signatures that have failed ≥ ``threshold`` times.
+
+    Threshold default 2 matches the escalation-postmortem heuristic.
+    Sorted by total_failures desc so the worst offenders surface first.
+    Empty result is the healthy state — most days will return [].
+    """
+    try:
+        rows = conn.execute(
+            "SELECT signature, "
+            "  COUNT(*) AS n, "
+            "  GROUP_CONCAT(DISTINCT tier) AS tiers, "
+            "  MIN(cycle) AS first_cycle, "
+            "  MAX(cycle) AS last_cycle "
+            "FROM task_escalations "
+            "GROUP BY signature "
+            "HAVING n >= ? "
+            "ORDER BY n DESC, last_cycle DESC",
+            (threshold,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    out: list[HotSignature] = []
+    for r in rows:
+        sig = r["signature"]
+        # Pull the most recent row for excerpt + finish_reason context.
+        detail = conn.execute(
+            "SELECT finish_reason, task_text FROM task_escalations "
+            "WHERE signature = ? ORDER BY cycle DESC LIMIT 1",
+            (sig,),
+        ).fetchone()
+        finish_reason = detail["finish_reason"] if detail else ""
+        task_text = detail["task_text"] if detail else ""
+        excerpt = task_text[:120].replace("\n", " ") if task_text else ""
+        tiers_csv = r["tiers"] or ""
+        out.append(HotSignature(
+            signature=sig,
+            total_failures=int(r["n"]),
+            tiers=sorted(set(tiers_csv.split(","))) if tiers_csv else [],
+            first_seen_cycle=int(r["first_cycle"]),
+            last_seen_cycle=int(r["last_cycle"]),
+            last_finish_reason=finish_reason or "",
+            excerpt=excerpt,
+        ))
+    return out
+
+
 def clear_escalations(
     conn: sqlite3.Connection,
     *,

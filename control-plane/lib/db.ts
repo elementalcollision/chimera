@@ -110,6 +110,32 @@ export function allApiCallTokenRows(): Array<{
     }>;
 }
 
+// v4.54 (ADR 0073): rows from the last N minutes for cost-rate alarm.
+// Same shape as allApiCallTokenRows but time-bounded; the caller passes
+// to costByModel + totalCost from lib/cost.ts and divides by the window
+// to get $/min. NULL-error filter mirrors the other readers.
+export function apiCallTokenRowsLastMinutes(minutes: number): Array<{
+  model_id: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+}> {
+  const db = getDb();
+  if (!db) return [];
+  // Bind as a string fragment because sqlite's datetime modifier doesn't
+  // parametrize cleanly with bound integers — clamp to a safe range.
+  const m = Math.max(1, Math.min(1440, Math.floor(minutes)));
+  return db
+    .prepare(
+      `SELECT model_id, input_tokens, output_tokens FROM api_calls ` +
+      `WHERE error IS NULL AND created_at >= datetime('now', '-${m} minutes')`
+    )
+    .all() as Array<{
+      model_id: string;
+      input_tokens: number | null;
+      output_tokens: number | null;
+    }>;
+}
+
 export function pendingMutations(): Mutation[] {
   const db = getDb();
   if (!db) return [];
