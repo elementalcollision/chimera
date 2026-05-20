@@ -16,6 +16,14 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
+# Load provider keys (ANTHROPIC_API_KEY, OPENROUTER_API_KEY, …).
+if [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
+fi
+
 # ── configuration ──────────────────────────────────────────────
 HARD_TOTAL_CAP_USD="${HARD_TOTAL_CAP_USD:-10.00}"
 SAFETY_BUFFER_USD="${SAFETY_BUFFER_USD:-0.50}"

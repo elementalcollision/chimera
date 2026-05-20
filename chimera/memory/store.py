@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS api_calls (
     caller          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_calls_cycle ON api_calls(cycle);
-CREATE INDEX IF NOT EXISTS idx_api_calls_caller ON api_calls(caller);
+-- idx_api_calls_caller is created after the v4.69 ALTER below so
+-- pre-v4.69 DBs don't trip on the missing column during executescript.
 
 CREATE TABLE IF NOT EXISTS ladder_outcomes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
