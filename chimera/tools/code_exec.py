@@ -73,6 +73,16 @@ CODE_EXEC_SCHEMA: dict[str, Any] = {
 
 
 def _allowed_roots() -> list[Path]:
+    """Returns [mind, state, shared_parent?].
+
+    v4.74 (2026-05-20): include the shared parent (repo root) when mind +
+    state are siblings so relative cwds like ``"mind"`` or ``"state"``
+    join onto repo root rather than onto the mind/ directory itself.
+    Matches the L-2 fix shipped in shell.py at v4.4. The bug it cured:
+    a model passing ``cwd="mind"`` had it joined onto roots[0] (already
+    ``…/mind``) producing ``mind/mind/…`` — surfaced in the 2026-05-20
+    long-cycle test.
+    """
     roots: list[Path] = []
     mind = os.environ.get("CHIMERA_MIND_DIR")
     state = os.environ.get("CHIMERA_STATE_DIR")
@@ -81,16 +91,27 @@ def _allowed_roots() -> list[Path]:
         roots.append(Path(state).resolve())
     else:
         roots.append((Path.cwd() / "state").resolve())
+    if roots[0].parent == roots[1].parent:
+        roots.append(roots[0].parent)
     return roots
+
+
+def _default_cwd() -> Path:
+    """Default cwd for code_exec. Repo root when mind+state share one;
+    otherwise mind. Picked so ``'mind/x'`` and ``'state/x'`` both resolve.
+    """
+    roots = _allowed_roots()
+    return roots[2] if len(roots) >= 3 else roots[0]
 
 
 def _resolve_cwd(cwd_arg: str | None) -> Path:
     roots = _allowed_roots()
+    base = _default_cwd()
     if cwd_arg is None:
-        return roots[0]
+        return base
     candidate = Path(cwd_arg)
     if not candidate.is_absolute():
-        candidate = (roots[0] / candidate).resolve()
+        candidate = (base / candidate).resolve()
     else:
         candidate = candidate.resolve()
     if not any(_is_relative_to(candidate, r) for r in roots):

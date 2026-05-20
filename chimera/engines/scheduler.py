@@ -37,6 +37,16 @@ def _engine_individually_enabled(name: EngineName) -> bool:
     return os.environ.get(key, "1") not in ("0", "false", "False")
 
 
+def _session_mode_on() -> bool:
+    """v4.74 (ADR 0092): opt-in session-relative engine routing.
+
+    Default OFF — preserves the v1.1 daily-rhythm behaviour. Operators
+    with ad-hoc evening/weekend sessions opt in by setting
+    ``CHIMERA_ENGINE_SESSION_MODE=1``.
+    """
+    return os.environ.get("CHIMERA_ENGINE_SESSION_MODE", "0") in ("1", "true", "True")
+
+
 def engine_enable_snapshot() -> dict[str, bool]:
     """Operator-facing view of which engines are currently enabled."""
     return {
@@ -93,13 +103,23 @@ class EngineScheduler:
         *,
         now: dt.datetime | None = None,
         force: EngineName | None = None,
+        session_id: str | None = None,
     ) -> EngineName | None:
         """Return which engine (if any) is due to run.
 
-        - ``force`` bypasses both the time window AND the per-day gate.
-        - Otherwise: pick the engine whose UTC window contains ``now`` AND
-          which hasn't fired yet today.
-        - Reflection's window wraps midnight; "today" is anchored at UTC.
+        - ``force`` bypasses every gate (manual operator override).
+        - In **UTC-window mode** (default): pick the engine whose UTC
+          window contains ``now`` AND which hasn't fired yet *today*.
+          Reflection's window wraps midnight; "today" is anchored UTC.
+        - In **session-relative mode** (``CHIMERA_ENGINE_SESSION_MODE=1``,
+          v4.74 / ADR 0092): the time-window check is BYPASSED. Engines
+          fire in priority order (discovery → curiosity → reflection),
+          at most one per cycle, each at most once per *session* rather
+          than once per UTC day. ``session_id`` (e.g. the loop's
+          ``session_started_at``) is the dedup key. This was added
+          after the 2026-05-20 long-cycle test where an evening-PDT
+          operator session caught Curiosity skipping 54 times because
+          Discovery's UTC window had already passed.
         """
         ts = now or _utc_now()
         if force:
@@ -109,6 +129,9 @@ class EngineScheduler:
         # cycles where the 60-90s engine cost is unwanted.
         if os.environ.get("CHIMERA_ENGINES_ENABLED", "1") == "0":
             return None
+        if _session_mode_on() and session_id:
+            return self._pick_due_session(session_id)
+        # ── UTC-window mode (default) ─────────────────────
         today = ts.strftime("%Y-%m-%d")
         hour = ts.hour
         candidate: EngineName | None = None
@@ -127,6 +150,23 @@ class EngineScheduler:
             return None
         return candidate
 
+    def _pick_due_session(self, session_id: str) -> EngineName | None:
+        """v4.74 (ADR 0092): session-relative routing.
+
+        Engines fire in priority order; the first one not yet fired in
+        this session wins. The per-engine enable flag still applies.
+        ``mark_ran`` stores the session_id under a namespaced key so
+        UTC-mode state stays untouched.
+        """
+        key_prefix = "session:"
+        for name in ("discovery", "curiosity", "reflection"):
+            if not _engine_individually_enabled(name):  # type: ignore[arg-type]
+                continue
+            if self._last_runs.get(key_prefix + name) == session_id:
+                continue
+            return name  # type: ignore[return-value]
+        return None
+
     @staticmethod
     def _window_contains(hour: int, start: int, end: int) -> bool:
         """Inclusive-of-start, exclusive-of-end; handles wrap (start > end)."""
@@ -134,9 +174,21 @@ class EngineScheduler:
             return start <= hour < end
         return hour >= start or hour < end
 
-    def mark_ran(self, engine: EngineName, *, now: dt.datetime | None = None) -> None:
+    def mark_ran(
+        self,
+        engine: EngineName,
+        *,
+        now: dt.datetime | None = None,
+        session_id: str | None = None,
+    ) -> None:
         ts = now or _utc_now()
         self._last_runs[engine] = ts.strftime("%Y-%m-%d")
+        # v4.74 (ADR 0092): also record the session-keyed dedup when in
+        # session mode and a session_id was supplied. Storing both means
+        # the operator can flip session mode on/off without losing
+        # either dedup history.
+        if session_id and _session_mode_on():
+            self._last_runs[f"session:{engine}"] = session_id
         self._save()
 
     def snapshot(self) -> dict[str, str]:

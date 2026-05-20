@@ -476,7 +476,10 @@ class ChimeraLoop:
             self._record_phase_activity("plan", details={"skipped": True, "engine": None})
             self._log_phase("PLAN: skipped (no engines available)")
             return
-        due = self._engine_scheduler.pick_due()
+        # v4.74 (ADR 0092): pass session_id so session-mode dedup works.
+        due = self._engine_scheduler.pick_due(
+            session_id=self._state.session_started_at,
+        )
         if due is None:
             self._record_phase_activity("plan", details={"skipped": True, "engine": None})
             self._log_phase("PLAN: skipped (no engine due)")
@@ -487,7 +490,9 @@ class ChimeraLoop:
             return
         result = await engine.run(cycle=self._report.cycle)  # type: ignore[attr-defined]
         if not result.failure_reason and not result.skipped:
-            self._engine_scheduler.mark_ran(due)  # type: ignore[arg-type]
+            self._engine_scheduler.mark_ran(  # type: ignore[arg-type]
+                due, session_id=self._state.session_started_at,
+            )
         self._report.engine_fired = due
         self._report.engine_summary = result.summary or result.failure_reason
         self._record_phase_activity(
