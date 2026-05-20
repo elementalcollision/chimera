@@ -196,6 +196,14 @@ def init_schema(conn: sqlite3.Connection) -> None:
         )
     except sqlite3.OperationalError:
         pass
+    # v4.61 (ADR 0080): wiki FTS5 search index. Idempotent; degrades to
+    # no-op log warning if FTS5 isn't compiled into this SQLite build.
+    try:
+        from .wiki_search import ensure_wiki_index
+        ensure_wiki_index(conn)
+    except Exception:  # noqa: BLE001
+        # Don't let a missing FTS5 module break the rest of init.
+        pass
     conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
 
 

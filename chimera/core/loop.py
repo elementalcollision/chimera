@@ -319,6 +319,21 @@ class ChimeraLoop:
             except Exception:
                 logger.exception("auto-graph-update failed; continuing")
 
+        # v4.61 (ADR 0080): refresh the FTS5 wiki index. mtime-gated
+        # so unchanged files cost nothing; new/edited files re-index
+        # incrementally. Skipped iff CHIMERA_AUTO_WIKI_INDEX_DISABLED=1.
+        wiki_index_counts: dict[str, int] = {}
+        if _os.environ.get("CHIMERA_AUTO_WIKI_INDEX_DISABLED") not in (
+            "1", "true", "yes",
+        ):
+            try:
+                from ..memory.wiki_search import update_wiki_index
+                wiki_index_counts = update_wiki_index(
+                    self._db, self.config.mind_dir / "wiki",
+                )
+            except Exception:
+                logger.exception("auto-wiki-index update failed; continuing")
+
         details: dict[str, Any] = {}
         if archived:
             details["archived_count"] = len(archived)
@@ -329,6 +344,15 @@ class ChimeraLoop:
                 for k, v in graph_counts.items():
                     if v:
                         details[f"graph_{k.lower()}"] = v
+        if wiki_index_counts:
+            churn = sum(
+                v for k, v in wiki_index_counts.items() if k != "unchanged"
+            )
+            if churn:
+                details["wiki_index_churn"] = churn
+                for k, v in wiki_index_counts.items():
+                    if v and k != "unchanged":
+                        details[f"wiki_{k}"] = v
         self._record_phase_activity(
             "housekeeping",
             details=details or None,

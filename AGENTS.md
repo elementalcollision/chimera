@@ -103,6 +103,7 @@ The agent's tool ring is:
 | `web_search` | Search engine query | `query` |
 | `spawn_sub_agent` | Recursive ACT with a brief | `brief` |
 | `mcp-<peer>-<tool>` | Peer MCP call (trust-gated) | per-tool |
+| `mind_search` | FTS5 search over `mind/wiki/` (v4.61) | `query` |
 
 Schemas live in `chimera/tools/*.py`. When a tool call goes through
 `Dispatcher.dispatch`, **any `ValueError | TypeError | KeyError`

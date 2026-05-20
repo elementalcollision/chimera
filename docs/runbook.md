@@ -115,6 +115,24 @@ chimera escalations summary             # which signatures have failed at which 
 chimera escalations clear --grep foo    # forget specific learning
 ```
 
+### Search the wiki
+
+```bash
+chimera search "datacentre water"        # text output
+chimera search "datacent*"               # prefix matching
+chimera search '"quick brown fox"'       # exact phrase
+chimera search "agonistic OR datacenter" --json
+chimera search "anything" --rebuild      # force index refresh first
+```
+
+FTS5 over `mind/wiki/`. Index refreshes each cycle via housekeeping
+(mtime-gated; unchanged files cost nothing). Disable with
+`CHIMERA_AUTO_WIKI_INDEX_DISABLED=1`.
+
+The agent uses the same index via the `mind_search` tool — it
+should try `mind_search` before `web_search` for any question
+the agent might already know about itself.
+
 ### Pre-flight: estimate cost before a long-horizon run
 
 ```bash

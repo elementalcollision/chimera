@@ -83,6 +83,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cycle number to report on (default: most recent).",
     )
 
+    search = sub.add_parser(
+        "search",
+        help="Full-text search over mind/wiki/ (FTS5).",
+    )
+    search.add_argument("query", help="FTS5 query (phrase, prefix, AND/OR/NOT).")
+    search.add_argument(
+        "--limit", type=int, default=8,
+        help="Max results to show (default 8, max 20).",
+    )
+    search.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of formatted text.",
+    )
+    search.add_argument(
+        "--rebuild", action="store_true",
+        help="Force a fresh index update before searching.",
+    )
+
     estimate = sub.add_parser(
         "estimate",
         help="Pre-flight: predict total USD to clear the open INBOX once.",
@@ -538,6 +556,71 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  ⚠️  cycle spend OVER per-cycle cap (${cycle_cap:.2f})")
             if hour_cap > 0 and spend_60m >= hour_cap:
                 print(f"  ⚠️  60m spend OVER rolling-hour cap (${hour_cap:.2f})")
+        return 0
+
+    if args.command == "search":
+        # v4.61 (ADR 0080): operator-facing FTS5 search over mind/wiki/.
+        from .core import LoopConfig
+        from .memory import open_and_init
+        from .memory.wiki_search import (
+            search_wiki,
+            update_wiki_index,
+            wiki_index_stats,
+        )
+
+        cfg = LoopConfig.from_env()
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+
+        if args.rebuild:
+            counts = update_wiki_index(conn, cfg.mind_dir / "wiki")
+            if not args.json:
+                churn = sum(v for k, v in counts.items() if k != "unchanged")
+                print(
+                    f"chimera search: index refresh — "
+                    f"added={counts.get('added',0)} "
+                    f"updated={counts.get('updated',0)} "
+                    f"deleted={counts.get('deleted',0)} "
+                    f"unchanged={counts.get('unchanged',0)}"
+                )
+
+        hits = search_wiki(conn, args.query, limit=args.limit)
+        stats = wiki_index_stats(conn)
+
+        if args.json:
+            import json as _json
+            print(_json.dumps({
+                "query": args.query,
+                "n_hits": len(hits),
+                "indexed_files": stats.get("indexed_files", 0),
+                "available": stats.get("available", False),
+                "hits": [
+                    {
+                        "path": h.path, "title": h.title,
+                        "snippet": h.snippet, "rank": h.rank,
+                    }
+                    for h in hits
+                ],
+            }, indent=2))
+            return 0
+
+        if not stats.get("available"):
+            print("chimera search: FTS5 unavailable in this SQLite build.")
+            return 1
+        if not hits:
+            print(
+                f"chimera search: 0 hits for {args.query!r}  "
+                f"(index has {stats.get('indexed_files', 0)} file(s))"
+            )
+            return 0
+        print(
+            f"chimera search: {len(hits)} hit(s) for {args.query!r}  "
+            f"(of {stats.get('indexed_files', 0)} indexed file(s))"
+        )
+        for i, h in enumerate(hits, 1):
+            print()
+            print(f"  [{i}] {h.title or '(no title)'}  (rank={h.rank:.2f})")
+            print(f"      mind/wiki/{h.path}")
+            print(f"      {h.snippet.strip()}")
         return 0
 
     if args.command == "estimate":
