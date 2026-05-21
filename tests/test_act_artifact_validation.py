@@ -111,3 +111,21 @@ def test_soak_test_task_line_is_caught(tmp_path: Path):
     assert expected == ["mind/research/loop-abort-investigation.md"]
     # File does not exist → still flagged missing.
     assert check_artifacts(expected, base_dir=tmp_path) == expected
+
+
+def test_soak_v3_wrapped_bullet_is_caught():
+    """v4.81 regression: the exact multi-line bullet from
+    scripts/long_cycle_soak_v3.sh that slipped past v4.79 because INBOX
+    parsing dropped the continuation line where the path lived. With
+    parse_inbox now folding wraps onto one task, expected_artifacts
+    must still find the path across a newline.
+    """
+    task = (
+        "Write all of the above to\n"
+        "`mind/research/loop-abort-investigation.md`. The file MUST end\n"
+        "with a section whose heading is EXACTLY:\n"
+        "`## READY-FOR-REMEDIATION`"
+    )
+    assert expected_artifacts(task) == [
+        "mind/research/loop-abort-investigation.md"
+    ]

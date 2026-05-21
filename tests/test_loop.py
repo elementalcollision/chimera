@@ -97,6 +97,46 @@ def test_parse_inbox_extracts_open_and_done_tasks(mind_dir: Path):
     assert tasks[3].text == "Last open task"
 
 
+def test_parse_inbox_joins_wrapped_continuation_lines(mind_dir: Path):
+    """v4.81 regression: a wrapped bullet whose continuation lines are
+    indented deeper than the marker must fold into one task. Soak v3
+    surfaced this: the path lived on the second line and ACT's NL
+    artifact regex (ADR 0093) never saw it because parse_inbox only
+    returned the first line.
+    """
+    path = mind_dir / "INBOX.md"
+    path.write_text(
+        "- [ ] Write all of the above to\n"
+        "  `mind/research/loop-abort-investigation.md`. The file MUST end\n"
+        "  with a section whose heading is EXACTLY:\n"
+        "  `## READY-FOR-REMEDIATION`\n"
+        "\n"
+        "- [ ] Next task\n",
+        encoding="utf-8",
+    )
+    tasks = parse_inbox(path)
+    assert len(tasks) == 2
+    assert tasks[0].text.startswith("Write all of the above to\n")
+    assert "`mind/research/loop-abort-investigation.md`" in tasks[0].text
+    assert "READY-FOR-REMEDIATION" in tasks[0].text
+    assert tasks[1].text == "Next task"
+
+
+def test_parse_inbox_continuation_does_not_swallow_dedented_lines(mind_dir: Path):
+    path = mind_dir / "INBOX.md"
+    path.write_text(
+        "- [ ] First bullet\n"
+        "  with continuation\n"
+        "not a continuation, dedented to col 0\n"
+        "- [ ] Second bullet\n",
+        encoding="utf-8",
+    )
+    tasks = parse_inbox(path)
+    assert len(tasks) == 2
+    assert tasks[0].text == "First bullet\nwith continuation"
+    assert tasks[1].text == "Second bullet"
+
+
 def test_mark_inbox_tasks_done_flips_only_requested_lines(mind_dir: Path):
     path = mind_dir / "INBOX.md"
     path.write_text(

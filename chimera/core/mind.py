@@ -91,23 +91,62 @@ def save_heartbeat(path: Path, state: HeartbeatState, body: str) -> None:
 
 
 def parse_inbox(path: Path) -> list[InboxTask]:
-    """Extract `- [ ]` and `- [x]` lines from mind/INBOX.md."""
+    """Extract `- [ ]` and `- [x]` lines from mind/INBOX.md.
+
+    v4.81: multi-line bullets. A wrapped bullet whose continuation lines
+    are indented deeper than the bullet's marker (and don't themselves
+    start a new ``- [ ]`` item) joins onto the parent task's text with a
+    single newline separator. Without this, ACT only saw the first
+    physical line of a wrapped task and ADR 0093's NL artifact regex
+    never got a chance to match a path that lived on the next line.
+    """
     if not path.exists():
         return []
+    lines = path.read_text(encoding="utf-8").splitlines()
     tasks: list[InboxTask] = []
-    for idx, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+    # Track each open task's indent (column where the `-` marker sits)
+    # so we can recognize continuation lines as "indented strictly more
+    # than the marker column".
+    indent_stack: list[int] = []
+    for idx, line in enumerate(lines):
         m = _INBOX_TASK_RE.match(line)
-        if not m:
-            continue
-        text = m.group("text")
-        src_match = _INBOX_SRC_RE.search(text)
-        tasks.append(
-            InboxTask(
-                text=text,
-                done=m.group("mark").lower() == "x",
-                line_index=idx,
-                source=src_match.group("src") if src_match else None,
+        if m:
+            text = m.group("text")
+            src_match = _INBOX_SRC_RE.search(text)
+            tasks.append(
+                InboxTask(
+                    text=text,
+                    done=m.group("mark").lower() == "x",
+                    line_index=idx,
+                    source=src_match.group("src") if src_match else None,
+                )
             )
+            indent_stack.append(len(m.group(1)))
+            continue
+        if not tasks or not indent_stack:
+            continue
+        stripped = line.strip()
+        if not stripped:
+            # Blank line ends the current bullet's continuation.
+            indent_stack.clear()
+            continue
+        leading = len(line) - len(line.lstrip())
+        if leading <= indent_stack[-1]:
+            # Dedented to the bullet's column or further left — no longer
+            # part of the wrapped task.
+            indent_stack.clear()
+            continue
+        # Continuation of the most recent bullet. Join with a newline so
+        # downstream regexes (artifact extraction, NL path matching) can
+        # span the wrap via ``\s+``.
+        prev = tasks[-1]
+        joined = f"{prev.text}\n{stripped}"
+        src_match = _INBOX_SRC_RE.search(joined)
+        tasks[-1] = InboxTask(
+            text=joined,
+            done=prev.done,
+            line_index=prev.line_index,
+            source=src_match.group("src") if src_match else prev.source,
         )
     return tasks
 
