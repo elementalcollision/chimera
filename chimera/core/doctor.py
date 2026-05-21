@@ -149,6 +149,30 @@ def checkpoint_wal(state_dir: Path) -> tuple[bool, str]:
     return True, f"checkpoint ok: {row}"
 
 
+def _check_shell_allowlist() -> CheckResult:
+    """v4.80: warn when an advertised shell allow-list entry isn't on PATH.
+
+    Soak v3 saw the model call ``rg`` (in the raw list) only to get
+    FileNotFoundError because ripgrep wasn't installed. The shell tool
+    now trims the advertised surface at import time; doctor surfaces the
+    gap so the operator can install the missing tool or accept the
+    trimmed surface explicitly.
+    """
+    import shutil
+    from ..tools.shell import RAW_ALLOWLIST, SAFE_COMMANDS
+    missing = sorted(cmd for cmd in RAW_ALLOWLIST if shutil.which(cmd) is None)
+    if not missing:
+        return CheckResult(
+            "shell_allowlist", "ok",
+            f"all {len(RAW_ALLOWLIST)} allow-listed tools present on PATH",
+        )
+    return CheckResult(
+        "shell_allowlist", "warn",
+        f"missing from PATH: {missing}. Advertised surface trimmed to "
+        f"{sorted(SAFE_COMMANDS)}. Install the missing tools or ignore.",
+    )
+
+
 def _check_graph_dependency() -> CheckResult:
     try:
         import kuzu  # noqa: F401
@@ -305,6 +329,7 @@ def run_checks() -> list[CheckResult]:
         _check_orphan_wal(state_dir),
         _check_sqlite(state_dir),
         _check_graph_dependency(),
+        _check_shell_allowlist(),
         _check_json_env("CHIMERA_MCP_SERVERS"),
         _check_json_env("CHIMERA_PEER_TOKENS"),
         _check_http_server_token(),

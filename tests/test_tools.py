@@ -316,6 +316,37 @@ async def test_shell_rejects_non_string_argv_items():
         await shell_handler({"argv": ["ls", 42]}, DispatchContext())
 
 
+def test_resolved_allowlist_filters_missing_tools(monkeypatch):
+    """v4.80: tools absent from PATH must not appear in the advertised
+    allow-list, so the model never wastes a round calling them."""
+    import chimera.tools.shell as shell_mod
+
+    def fake_which(cmd: str) -> str | None:
+        if cmd == "rg":
+            return None
+        return f"/usr/bin/{cmd}"
+
+    monkeypatch.setattr(shell_mod.shutil, "which", fake_which)
+    resolved = shell_mod._resolved_allowlist()
+    assert "rg" not in resolved
+    assert "ls" in resolved
+    assert "grep" in resolved
+
+
+@pytest.mark.asyncio
+async def test_shell_permission_error_reflects_resolved_allowlist(shell_env):
+    """PermissionError surface must show the trimmed allow-list — what the
+    model can actually call — not the raw advertised set."""
+    import chimera.tools.shell as shell_mod
+
+    with pytest.raises(PermissionError) as ei:
+        await shell_handler({"argv": ["bash", "-c", "echo no"]}, DispatchContext())
+    msg = str(ei.value)
+    assert "bash" in msg
+    for cmd in sorted(shell_mod.SAFE_COMMANDS):
+        assert repr(cmd) in msg or cmd in msg
+
+
 @pytest.mark.asyncio
 async def test_shell_handles_missing_program(shell_env):
     with pytest.raises(FileNotFoundError):

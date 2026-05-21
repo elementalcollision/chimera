@@ -278,6 +278,32 @@ def test_checkpoint_wal_noop_when_db_missing(tmp_path):
     assert "nothing to do" in msg
 
 
+def test_shell_allowlist_warns_when_tool_missing_from_path(monkeypatch):
+    """v4.80: doctor surfaces the gap when an advertised allow-list entry
+    isn't on PATH so the operator can install it or accept the trim."""
+    import chimera.core.doctor as doc_mod
+
+    real_which = doc_mod.__dict__.get("shutil")  # not imported at module top
+    import shutil as _shutil
+
+    def fake_which(cmd: str) -> str | None:
+        if cmd == "rg":
+            return None
+        return f"/usr/bin/{cmd}"
+
+    monkeypatch.setattr(_shutil, "which", fake_which)
+    result = _by_name(run_checks(), "shell_allowlist")
+    assert result.status == "warn"
+    assert "rg" in result.message
+
+
+def test_shell_allowlist_ok_when_all_present(monkeypatch):
+    import shutil as _shutil
+    monkeypatch.setattr(_shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
+    result = _by_name(run_checks(), "shell_allowlist")
+    assert result.status == "ok"
+
+
 def test_cost_caps_never_returns_error(monkeypatch, tmp_path):
     """Cost-cap state is operational, not config — even absurd spend
     should warn, not error."""

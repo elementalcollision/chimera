@@ -27,7 +27,12 @@ from .registry import ToolRegistry, default_registry
 
 # The whitelist is intentionally small and read-only-ish at MVP.
 # Concentric expansion (per ADR 0001) happens in later phases.
-SAFE_COMMANDS: frozenset[str] = frozenset(
+#
+# v4.80: filter the advertised allow-list by what's actually on PATH.
+# Soak v3 surfaced the model burning rounds when it called `rg` (in the
+# raw list) but ripgrep wasn't installed — ACT raised FileNotFoundError
+# and the model had to discover-and-retry. Trim the surface up front.
+RAW_ALLOWLIST: frozenset[str] = frozenset(
     {
         "ls",
         "cat",
@@ -45,6 +50,16 @@ SAFE_COMMANDS: frozenset[str] = frozenset(
         "which",
     }
 )
+
+
+def _resolved_allowlist() -> frozenset[str]:
+    """Subset of RAW_ALLOWLIST whose programs are present on PATH."""
+    return frozenset(cmd for cmd in RAW_ALLOWLIST if shutil.which(cmd) is not None)
+
+
+# Resolved once at import time; the cost of re-checking shutil.which on
+# every dispatch is wasted (PATH is effectively static in-process).
+SAFE_COMMANDS: frozenset[str] = _resolved_allowlist()
 
 
 SHELL_SCHEMA: dict[str, Any] = {
