@@ -116,3 +116,58 @@ The two checks are designed to layer:
 - chimera/core/act.py — `intended_code_paths`, `check_scope_evasion`,
   `DEFAULT_SYSTEM_PROMPT_EXTRA`.
 - tests/test_act_scope.py — regex + no-touch + fixture-replay tests.
+
+## Amendment — 2026-05-20 (v4.85)
+
+Soak v5 (`mind/postmortems/soak-v5-2026-05-20.md`, finding #5) exposed
+two structural gaps in the v4.82 implementation:
+
+1. **Gating to the clean-stop completion path only.** The scope-evasion
+   check was wrapped in `if completed:` so it never ran on the
+   max_rounds exit path. The soak v5 fixture "Implement the fix per
+   the sketch. Most likely files: `X` OR `Y`" task burned its round
+   budget without editing either named file and was recorded as
+   generic `max_rounds`, hiding the diagnosable signal from escalation
+   memory.
+
+2. **Lenient "touched" semantics on the max_rounds path.** The loose
+   `check_scope_evasion` heuristic accepts a path appearing in any
+   tool arg as evidence of a touch. For tasks where the agent spent
+   its budget *reading* the file (`cat chimera/...`) but never
+   writing, this check returns clean. On the max_rounds exit we want
+   the stricter signal: did anything actually land in `write_targets`?
+
+### Changes
+
+- New `check_scope_evasion_strict(intended, write_targets)` helper —
+  write-targets-only semantics. Read commands don't satisfy.
+- `ActExecutor` runs the strict check on the max_rounds exit. If the
+  INBOX named code paths and `write_targets` contains none of them
+  (and no missing artifacts already take the failure-mode slot), the
+  `max_rounds` finish is demoted to `scope_evasion` with a pluralised
+  reason `"scope evasion: named paths X, Y were not edited"`.
+  `unedited_paths` is populated on the returned `ActResult`.
+- Path extraction strengthened with an explicit backtick-only harvest
+  pass (`_BACKTICK_CODE_PATH_PATTERN`). The legacy loose pattern
+  already handled the multi-line "OR `X` OR `Y`" layout, parenthetical
+  paths, and continuation-line wraps; the strict pass documents and
+  guards that intent against future regex regressions. `intended_code_paths`
+  returns the union.
+- Negative case preserved: backticked symbol-like strings (e.g.
+  `` `function_name()` ``) don't match because neither pattern admits
+  a non-trusted-root prefix.
+
+### Validation
+
+- New tests in `tests/test_act_scope.py` cover the soak v5 OR-list
+  fixture, parenthetical paths, continuation-line wraps, the negative
+  symbol case, and the strict-check semantics.
+- Pairs with v4.84 (ADR 0097): once v4.85 demotes a max_rounds finish
+  to scope_evasion, the v4.84 remediation hint pipeline picks it up
+  on the retry — the two ship together for soak v6.
+
+### References (amendment)
+
+- soak v5 post-mortem — `mind/postmortems/soak-v5-2026-05-20.md` §5.
+- Fixture worktree — `/Users/dave/chimera-soak-v5-2026-05-21-0322`.
+- ADR 0097 — post-escalation remediation hints (paired).

@@ -200,6 +200,10 @@ class ChimeraLoop:
             self._planner = Planner(providers=self._act.providers, db=self._db)
         # Daily engines (Discovery / Curiosity / Reflection) — same gating.
         self._chronicle = ChronicleManager(self.config.mind_dir / "CHRONICLE.md")
+        # v4.84 (ADR 0097): give ACT a chronicle handle so three-strikes
+        # auto-skip can surface an operator-visible warning.
+        if self._act is not None:
+            self._act._chronicle = self._chronicle
         self._engine_scheduler = EngineScheduler(
             self.config.state_dir / "engines" / "last_runs.json"
         )

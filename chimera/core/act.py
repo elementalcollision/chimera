@@ -222,19 +222,37 @@ _NL_ARTIFACT_PATTERN = re.compile(
 # state/mind/docs). Soak v4 surfaced agents reading the path, then
 # writing a spec under mind/research/ instead of touching the file.
 # Disjoint from the artifact roots to keep the two checks independent.
+#
+# v4.85 (ADR 0096 amendment): the union of two passes. The first is the
+# legacy "path-shaped string anywhere in the text" regex — it already
+# catches most layouts, including the multi-line "Most likely files:
+# `X` OR `Y`" wrap that soak v5 surfaced. The second is an explicit
+# backtick-only harvest that documents the intent of the disjunctive-
+# list shape and gives us a guard against future regex regressions.
 _INTENDED_CODE_PATH_PATTERN = re.compile(
     r"`?((?:chimera|tests|scripts)/[A-Za-z0-9_./-]+"
     r"\.(?:py|md|ts|sh|toml|yaml|yml|json))`?"
 )
+_BACKTICK_CODE_PATH_PATTERN = re.compile(
+    r"`((?:chimera|tests|scripts)/[A-Za-z0-9_./-]+"
+    r"\.(?:py|md|ts|sh|toml|yaml|yml|json))`"
+)
 
 
 def intended_code_paths(task_text: str) -> list[str]:
-    """Return code-root paths the task names. Stable-ordered, deduped."""
+    """Return code-root paths the task names. Stable-ordered, deduped.
+
+    Union of the loose path-shape pattern and the strict backtick-only
+    pattern. The strict pass exists so the multi-line, parenthetical,
+    and OR-list layouts seen in soak v5 fixture 1.b are exercised by
+    their own dedicated regex — independent of the loose pass.
+    """
     seen: list[str] = []
-    for m in _INTENDED_CODE_PATH_PATTERN.finditer(task_text):
-        p = m.group(1)
-        if p not in seen:
-            seen.append(p)
+    for pattern in (_INTENDED_CODE_PATH_PATTERN, _BACKTICK_CODE_PATH_PATTERN):
+        for m in pattern.finditer(task_text):
+            p = m.group(1)
+            if p not in seen:
+                seen.append(p)
     return seen
 
 
@@ -260,6 +278,29 @@ def check_scope_evasion(
             blob_parts.append(str(v))
     blob = " ".join(blob_parts)
     return [p for p in intended if p not in blob]
+
+
+def check_scope_evasion_strict(
+    intended: list[str],
+    write_targets: list[str],
+) -> list[str]:
+    """Stricter variant: a path is "edited" only if it appears in
+    ``write_targets`` (populated by the post-tool write-intent extractor).
+
+    v4.85 (ADR 0096 amendment): soak v5 surfaced a task where the agent
+    spent 15+ rounds reading the named files (``cat chimera/...``) but
+    never edited them. The loose ``check_scope_evasion`` heuristic sees
+    the path string in the read command and treats it as a touch. On
+    the max_rounds exit path — where the agent failed to converge —
+    we want the stricter signal: did anything *actually get written*
+    to one of the named files? If not, demote the generic ``max_rounds``
+    finish to ``scope_evasion`` so the escalation memory carries the
+    diagnosable signal.
+    """
+    if not intended:
+        return []
+    targets = set(write_targets)
+    return [p for p in intended if p not in targets]
 
 
 def expected_artifacts(task_text: str) -> list[str]:
@@ -347,6 +388,7 @@ class ActExecutor:
         max_rounds: int = 12,
         max_tokens: int | None = None,
         system_prompt_extra: str = DEFAULT_SYSTEM_PROMPT_EXTRA,
+        chronicle: Any = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._providers = providers
@@ -359,6 +401,9 @@ class ActExecutor:
             max_tokens if max_tokens is not None else self._resolve_max_tokens(tier)
         )
         self._system_prompt_extra = system_prompt_extra
+        # v4.84 (ADR 0097): optional Chronicle for three-strikes warnings.
+        # Loop wires it in; tests and library callers can leave None.
+        self._chronicle = chronicle
 
     def _build_system_prompt(self, *, cycle: int) -> str:
         return build_system_prompt(
@@ -439,7 +484,53 @@ class ActExecutor:
             )
             self._tier = promoted_tier
 
-        result = await self._execute_inner(task_text, cycle=cycle, context=context)
+        # v4.84 (ADR 0097): post-escalation remediation. If priors exist
+        # for this signature, prepend a hint to the task text. At three
+        # strikes, skip the task entirely and write an operator warning
+        # to the chronicle.
+        from .remediation import (
+            SKIPPED_THREE_STRIKES,
+            chronicle_warning_body,
+            matching_escalations,
+            remediation_decision,
+        )
+        decision = remediation_decision(self._db, task_text=task_text)
+        if decision.skip:
+            logger.warning(
+                "act: skipping task after %d consecutive failures "
+                "(three-strikes); writing chronicle warning",
+                decision.matched_failures,
+            )
+            if self._chronicle is not None:
+                try:
+                    self._chronicle.upsert_section(
+                        section_name="Escalation Warnings",
+                        body=chronicle_warning_body(
+                            task_text,
+                            matching_escalations(self._db, task_text=task_text),
+                        ),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "chronicle.upsert_section raised on three-strikes warning",
+                    )
+            return ActResult(
+                task_text=task_text,
+                completed=False,
+                rounds=0,
+                finish_reason=SKIPPED_THREE_STRIKES,
+                failure_reason=(
+                    f"three-strikes auto-skip after "
+                    f"{decision.matched_failures} prior failures"
+                ),
+            )
+
+        result = await self._execute_inner(
+            task_text,
+            cycle=cycle,
+            context=context,
+            remediation_preamble=decision.preamble,
+        )
 
         # On any non-completion exit, record the failure so the NEXT
         # attempt at a similar signature picks a higher tier.
@@ -472,8 +563,16 @@ class ActExecutor:
         *,
         cycle: int,
         context: DispatchContext | None = None,
+        remediation_preamble: str = "",
     ) -> ActResult:
         ctx = context or DispatchContext()
+        # v4.84 (ADR 0097): preamble surfacing prior-attempt diagnosis.
+        # Prepend on the user message so it stays in the model's
+        # immediate context window even after long tool sequences.
+        user_message_text = (
+            f"{remediation_preamble}{task_text}" if remediation_preamble
+            else task_text
+        )
         # v4.42: continuation-context detection. If the task text references
         # artifact paths under mind/ or state/ that already exist on disk,
         # the prior cycle made progress; surface the partial state to the
@@ -492,7 +591,7 @@ class ActExecutor:
             system_prompt = f"{system_prompt}\n\n{grounding_guidance}"
         messages: list[Message] = [
             Message.system(system_prompt),
-            Message.user(task_text),
+            Message.user(user_message_text),
         ]
         tools_schema = self._dispatcher.registry.schemas()
         history: list[ToolCall] = []
@@ -905,15 +1004,32 @@ class ActExecutor:
                     "fragmentation log / auto-proposal failed; continuing"
                 )
 
+        # v4.85 (ADR 0096 amendment): scope_evasion on the max_rounds
+        # exit path. If the INBOX named source files and write_targets
+        # contains none of them, the agent burned its budget without
+        # editing the named scope — exactly the soak v5 "Implement the
+        # fix per the sketch" failure. Surface the diagnosable signal
+        # so escalation memory and the v4.84 remediation hint can use it.
+        intended_at_max = intended_code_paths(task_text)
+        unedited_at_max = check_scope_evasion_strict(intended_at_max, write_targets)
+        finish_reason_at_max = "max_rounds"
+        failure_reason_at_max = "exhausted max rounds without final stop"
+        if unedited_at_max and not missing_at_max:
+            finish_reason_at_max = "scope_evasion"
+            failure_reason_at_max = (
+                f"scope evasion: named paths {', '.join(unedited_at_max)} "
+                f"were not edited"
+            )
         return ActResult(
             task_text=task_text,
             completed=False,
             rounds=effective_max_rounds,
-            finish_reason="max_rounds",
+            finish_reason=finish_reason_at_max,
             write_targets=write_targets,
             tool_call_history=history,
             final_text=final_text,
             missing_artifacts=missing_at_max,
-            failure_reason="exhausted max rounds without final stop",
+            unedited_paths=unedited_at_max if finish_reason_at_max == "scope_evasion" else [],
+            failure_reason=failure_reason_at_max,
             api_call_count=api_call_count,
         )

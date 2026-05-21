@@ -13,6 +13,7 @@ from __future__ import annotations
 from chimera.core.act import (
     ToolCall,
     check_scope_evasion,
+    check_scope_evasion_strict,
     intended_code_paths,
 )
 
@@ -175,6 +176,82 @@ def test_soak_v4_fixture_spec_under_mind_flagged_as_evasion():
     # engaged the file, even if the edit landed elsewhere. The deeper
     # fabrication signal is covered by ADR 0095 (ungrounded_citation).
     assert check_scope_evasion(intended, history, []) == []
+
+
+# ── v4.85 (ADR 0096 amendment): multi-line / OR-list / parenthetical ─
+
+
+def test_soak_v5_fixture_or_list_continuation_lines():
+    """Exact text the agent received in soak v5 phase 2 — the bullet
+    that completed=True with zero chimera/ writes and no scope_evasion
+    firing. Both paths must be extracted.
+    """
+    task = (
+        "Implement the fix per the sketch. Most likely files:\n"
+        "`chimera/tools/loop_guard.py` (if the verdict was false-positive\n"
+        "and the heuristic needs adjustment) OR `chimera/core/act.py` (if\n"
+        "the verdict was correct and the response to a degenerate loop\n"
+        "needs to be smarter — re-prompt, escalate, decompose)."
+    )
+    assert intended_code_paths(task) == [
+        "chimera/tools/loop_guard.py",
+        "chimera/core/act.py",
+    ]
+
+
+def test_extracts_path_inside_parenthetical():
+    text = "Check the helper (see `chimera/core/act.py` for the impl)."
+    assert intended_code_paths(text) == ["chimera/core/act.py"]
+
+
+def test_extracts_path_on_continuation_line():
+    text = (
+        "Update the loop guard module so that\n"
+        "  `chimera/tools/loop_guard.py` resets correctly."
+    )
+    assert intended_code_paths(text) == ["chimera/tools/loop_guard.py"]
+
+
+def test_negative_backticked_symbol_is_not_a_path():
+    text = "Call `should_abort_loop()` from `function_name()` in the guard."
+    assert intended_code_paths(text) == []
+
+
+# ── v4.85: strict check (write_targets only) ────────────────────────
+
+
+def test_strict_evasion_path_in_read_command_still_unedited():
+    """The soak v5 gap: agent ran ``cat chimera/...`` (path appears in
+    args) but never wrote. The loose check returns clean; the strict
+    check correctly flags the path as unedited.
+    """
+    intended = ["chimera/tools/loop_guard.py"]
+    history = [
+        ToolCall(
+            name="shell",
+            args={"command": "cat chimera/tools/loop_guard.py"},
+        ),
+    ]
+    assert check_scope_evasion(intended, history, []) == []
+    assert check_scope_evasion_strict(intended, []) == intended
+
+
+def test_strict_evasion_clean_when_path_in_write_targets():
+    intended = ["chimera/tools/loop_guard.py"]
+    assert check_scope_evasion_strict(
+        intended, ["chimera/tools/loop_guard.py"],
+    ) == []
+
+
+def test_strict_evasion_empty_intended_returns_empty():
+    assert check_scope_evasion_strict([], ["chimera/core/act.py"]) == []
+
+
+def test_strict_evasion_partial_overlap():
+    intended = ["chimera/core/act.py", "chimera/tools/loop_guard.py"]
+    assert check_scope_evasion_strict(
+        intended, ["chimera/core/act.py"],
+    ) == ["chimera/tools/loop_guard.py"]
 
 
 def test_evasion_when_agent_only_writes_under_mind():

@@ -100,6 +100,12 @@ ESCALATING_FINISH_REASONS = frozenset({
     # v4.83 (ADR 0095): ungrounded citation in synthesis output.
     "scope_evasion",
     "ungrounded_citation",
+    # v4.84 (ADR 0097): the soak v5 retry pattern was scope_evasion →
+    # length → length. Without recording `length`, the three-strikes
+    # auto-skip never triggers and the budget burns silently. `length`
+    # is a real capability signal: the model needed more output budget
+    # than the tier allotted, so promotion is justified.
+    "length",
 })
 
 
