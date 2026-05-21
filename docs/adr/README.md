@@ -100,3 +100,5 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0092-session-relative-engine-mode.md](./0092-session-relative-engine-mode.md) | ADR 0092 — Session-relative engine routing + code_exec cwd fix (v4.74) | Accepted (2026-05-20) |
 | [0093-nl-artifact-validation.md](./0093-nl-artifact-validation.md) | ADR 0093 — NL artifact validation + non-empty check (v4.79) | Accepted (2026-05-20) |
 | [0094-operator-first-assess-priority.md](./0094-operator-first-assess-priority.md) | ADR 0094 — Operator-first ASSESS priority + INBOX provenance (v4.78) | Accepted (2026-05-20) |
+| [0095-synthesis-citation-grounding.md](./0095-synthesis-citation-grounding.md) | ADR 0095 — Synthesis-citation grounding check (v4.83) | Accepted (2026-05-20) |
+| [0096-scope-evasion-detection.md](./0096-scope-evasion-detection.md) | ADR 0096 — Scope-evasion detection + explicit writable-scope grant (v4.82) | Accepted (2026-05-20) |

@@ -31,6 +31,12 @@ from typing import Any
 
 from ..memory import record_api_call, record_ladder_outcome
 from ..prompts import build_system_prompt
+from .grounding import (
+    check_citation_grounding,
+    extract_cited_source_files,
+    extract_cited_symbols,
+    synthesis_guidance_for,
+)
 from ..providers import (
     AnthropicProvider,
     Message,
@@ -156,7 +162,17 @@ DEFAULT_SYSTEM_PROMPT_EXTRA = (
     "- Prefer the shell tool for read-only inspection of /mind and /state.\n"
     "- Use http_fetch / web_search when the task points outside the container.\n"
     "- Use code_exec for computation, not shell `bash -c`.\n"
-    "- When you have enough to answer, respond and stop."
+    "- When you have enough to answer, respond and stop.\n"
+    # v4.82 (ADR 0096): explicit writable-scope grant. Across four soaks
+    # the agent treated mind/ as the boundary of writable scope and
+    # produced spec docs under mind/research/ when INBOX tasks named
+    # source files under chimera/. Make the grant explicit so the model
+    # does not infer a constraint the runtime never imposed.
+    "- Writable roots in this worktree: chimera/, tests/, docs/, "
+    "mind/, scripts/, state/. The chimera/ source IS your code — when "
+    "an INBOX task names a path under chimera/ or tests/, edit that "
+    "file directly via shell or code_exec. Do NOT write a spec under "
+    "mind/ in lieu of patching the named file."
 )
 
 
@@ -172,6 +188,14 @@ class ActResult:
     failure_reason: str | None = None
     api_call_count: int = 0
     missing_artifacts: list[str] = field(default_factory=list)
+    # v4.83 (ADR 0095): symbols the synthesis text named but that don't
+    # appear in any cited source file. Populated only when
+    # finish_reason == "ungrounded_citation".
+    ungrounded_citations: list[str] = field(default_factory=list)
+    # v4.82 (ADR 0096): code-root paths the INBOX named that the agent
+    # never appeared to touch. Populated only when
+    # finish_reason == "scope_evasion".
+    unedited_paths: list[str] = field(default_factory=list)
 
 
 _ARTIFACT_PATTERN = re.compile(r"`((?:state|mind|docs)/[A-Za-z0-9_./-]+)`")
@@ -190,6 +214,52 @@ _NL_ARTIFACT_PATTERN = re.compile(
     r"\b(?:to|at|into|in)\s+`?((?:state|mind|docs)/[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,6})`?",
     re.IGNORECASE,
 )
+
+
+# v4.82 (ADR 0096): code-root paths the INBOX explicitly names. These
+# are SOURCE files the task is asking the agent to modify — distinct
+# from expected_artifacts() (which catches synthesis outputs under
+# state/mind/docs). Soak v4 surfaced agents reading the path, then
+# writing a spec under mind/research/ instead of touching the file.
+# Disjoint from the artifact roots to keep the two checks independent.
+_INTENDED_CODE_PATH_PATTERN = re.compile(
+    r"`?((?:chimera|tests|scripts)/[A-Za-z0-9_./-]+"
+    r"\.(?:py|md|ts|sh|toml|yaml|yml|json))`?"
+)
+
+
+def intended_code_paths(task_text: str) -> list[str]:
+    """Return code-root paths the task names. Stable-ordered, deduped."""
+    seen: list[str] = []
+    for m in _INTENDED_CODE_PATH_PATTERN.finditer(task_text):
+        p = m.group(1)
+        if p not in seen:
+            seen.append(p)
+    return seen
+
+
+def check_scope_evasion(
+    intended: list[str],
+    tool_call_history: list[ToolCall],
+    write_targets: list[str],
+) -> list[str]:
+    """Return intended paths that never appear in any tool call arg or
+    recorded write target.
+
+    Heuristic: a real edit to ``chimera/x.py`` will surface the path in
+    either a shell ``command`` arg (``sed -i ... chimera/x.py``), a
+    code_exec snippet, or the post-write ``write_targets`` list. If the
+    path appears nowhere, the agent never touched it — that's the
+    scope-evasion signal.
+    """
+    if not intended:
+        return []
+    blob_parts: list[str] = list(write_targets)
+    for call in tool_call_history:
+        for v in call.args.values():
+            blob_parts.append(str(v))
+    blob = " ".join(blob_parts)
+    return [p for p in intended if p not in blob]
 
 
 def expected_artifacts(task_text: str) -> list[str]:
@@ -412,6 +482,14 @@ class ActExecutor:
         system_prompt = self._build_system_prompt(cycle=cycle)
         if continuation_block:
             system_prompt = f"{system_prompt}\n\n{continuation_block}"
+        # v4.83 (ADR 0095): synthesis-task grounding guidance. When the
+        # task asks to read source file(s) and produce a verdict, prepend
+        # an explicit "quote before you cite" instruction. This is the
+        # cheapest of the three grounding controls and tends to dominate
+        # the others in practice.
+        grounding_guidance = synthesis_guidance_for(task_text)
+        if grounding_guidance:
+            system_prompt = f"{system_prompt}\n\n{grounding_guidance}"
         messages: list[Message] = [
             Message.system(system_prompt),
             Message.user(task_text),
@@ -625,12 +703,44 @@ class ActExecutor:
                 completed = response.stop_reason == "stop"
                 finish_reason = response.stop_reason
                 missing: list[str] = []
+                ungrounded: list[str] = []
                 if completed:
                     expected = expected_artifacts(task_text)
                     missing = check_artifacts(expected)
                     if missing:
                         completed = False
                         finish_reason = "artifact_missing"
+                # v4.83 (ADR 0095): grounding check. Only runs when the
+                # artifact check passed — fabricated content in a file
+                # that doesn't exist is already caught upstream.
+                if completed:
+                    cited_files = extract_cited_source_files(task_text)
+                    if cited_files:
+                        cited_symbols = extract_cited_symbols(
+                            response.text or ""
+                        )
+                        ungrounded = check_citation_grounding(
+                            cited_files, cited_symbols,
+                        )
+                        if ungrounded:
+                            completed = False
+                            finish_reason = "ungrounded_citation"
+                # v4.82 (ADR 0096): scope-evasion check. INBOX task named
+                # a path under chimera/|tests/|scripts/ but the agent
+                # produced no tool call referencing that path. Soak v4
+                # surfaced agents reading the named source file then
+                # writing a spec under mind/research/ instead of patching
+                # it. Only fires on the clean-stop completion path; the
+                # other failure modes already block the false-positive.
+                unedited: list[str] = []
+                if completed:
+                    intended = intended_code_paths(task_text)
+                    unedited = check_scope_evasion(
+                        intended, history, write_targets,
+                    )
+                    if unedited:
+                        completed = False
+                        finish_reason = "scope_evasion"
                 # v4.5 + v4.10: fragmentation is the same shape whether
                 # ACT ran out of rounds OR the model said `stop` without
                 # producing the artifact. Hook fires on either path.
@@ -655,6 +765,20 @@ class ActExecutor:
                         logger.exception(
                             "fragmentation log / auto-proposal failed; continuing"
                         )
+                if unedited and not missing and not ungrounded:
+                    failure_reason = (
+                        f"scope evasion: named paths {', '.join(unedited)} "
+                        f"were not edited"
+                    )
+                elif ungrounded and not missing:
+                    failure_reason = (
+                        f"ungrounded citations: {', '.join(ungrounded)} "
+                        f"(not found in cited source)"
+                    )
+                elif missing:
+                    failure_reason = f"missing artifacts: {', '.join(missing)}"
+                else:
+                    failure_reason = None
                 return ActResult(
                     task_text=task_text,
                     completed=completed,
@@ -665,9 +789,9 @@ class ActExecutor:
                     final_text=final_text,
                     api_call_count=api_call_count,
                     missing_artifacts=missing,
-                    failure_reason=(
-                        f"missing artifacts: {', '.join(missing)}" if missing else None
-                    ),
+                    ungrounded_citations=ungrounded,
+                    unedited_paths=unedited,
+                    failure_reason=failure_reason,
                 )
 
             # Append assistant turn with the model's tool_use blocks.
