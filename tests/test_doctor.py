@@ -320,3 +320,34 @@ def test_cost_caps_never_returns_error(monkeypatch, tmp_path):
     monkeypatch.setenv("CHIMERA_STATE_DIR", str(state_dir))
     r = _by_name(run_checks(), "cost_caps")
     assert r.status != "error"
+
+
+def test_concurrent_soak_runners_ok_when_none_alive(monkeypatch):
+    """v4.89: with no soak runners alive, the check is silent."""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    r = _by_name(run_checks(), "soak_runners")
+    assert r.status == "ok"
+
+
+def test_concurrent_soak_runners_warn_when_multiple_alive(monkeypatch):
+    """v4.89: surface the leftover-runner state class identified in soak v6
+    Failure A (mind/postmortems/soak-v6-2026-05-22.md)."""
+    import subprocess
+
+    stdout = (
+        "12345 /bin/bash scripts/long_cycle_soak_v6.sh\n"
+        "12399 /bin/bash scripts/long_cycle_soak_v6.sh\n"
+    )
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    r = _by_name(run_checks(), "soak_runners")
+    assert r.status == "warn"
+    assert "12345" in r.message and "12399" in r.message

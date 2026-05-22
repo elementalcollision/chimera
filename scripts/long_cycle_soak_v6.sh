@@ -20,6 +20,11 @@
 
 set -uo pipefail
 
+# shellcheck disable=SC1091
+. "$(dirname "$0")/_soak_common.sh"
+soak_refuse_concurrent "long_cycle_soak_v6.sh" || exit $?
+soak_install_killgroup_trap
+
 cd "$(dirname "$0")/.." || exit 1
 REPO_ROOT="$(pwd)"
 

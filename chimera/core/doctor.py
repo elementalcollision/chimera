@@ -317,6 +317,44 @@ def _check_trust_state(state_dir: Path, mind_dir: Path) -> CheckResult:
     )
 
 
+def _check_concurrent_soak_runners() -> CheckResult:
+    """v4.89: warn when more than one long_cycle_soak_*.sh is alive.
+
+    Soak v6 post-mortem (mind/postmortems/soak-v6-2026-05-22.md Failure A):
+    three failed launches shared a hardcoded log path because earlier
+    instances survived a partial pkill. The runners now refuse to start
+    when a sibling is alive; this check surfaces the leftover state to
+    the operator without needing to inspect ps by hand.
+    """
+    import shutil
+    import subprocess
+    pgrep = shutil.which("pgrep")
+    if not pgrep:
+        return CheckResult(
+            "soak_runners", "ok",
+            "pgrep unavailable; cannot inspect concurrent runners",
+        )
+    try:
+        out = subprocess.run(  # noqa: S603
+            [pgrep, "-fl", "long_cycle_(soak|remediation|multi_agent)"],
+            capture_output=True, text=True, timeout=2.0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return CheckResult("soak_runners", "ok", "pgrep failed; skipping")
+    lines = [ln for ln in out.stdout.splitlines() if ln.strip()]
+    if len(lines) <= 1:
+        return CheckResult(
+            "soak_runners", "ok",
+            f"{len(lines)} long_cycle runner(s) alive",
+        )
+    return CheckResult(
+        "soak_runners", "warn",
+        f"{len(lines)} long_cycle runners alive — likely orphaned. "
+        f"Stop with `pkill -f long_cycle_` before launching a new soak. "
+        f"Running: {[ln.split(None, 1)[0] for ln in lines]}",
+    )
+
+
 def run_checks() -> list[CheckResult]:
     """Run every check. Pure: writes nothing (beyond creating state/mind dirs)."""
     state_dir = Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
@@ -335,6 +373,7 @@ def run_checks() -> list[CheckResult]:
         _check_http_server_token(),
         _check_cost_caps(state_dir),
         _check_trust_state(state_dir, mind_dir),
+        _check_concurrent_soak_runners(),
         *_check_provider_keys(),
     ]
     return results
