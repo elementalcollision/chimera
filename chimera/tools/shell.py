@@ -32,6 +32,17 @@ from .registry import ToolRegistry, default_registry
 # Soak v3 surfaced the model burning rounds when it called `rg` (in the
 # raw list) but ripgrep wasn't installed — ACT raised FileNotFoundError
 # and the model had to discover-and-retry. Trim the surface up front.
+#
+# v4.108 (soak v13): add `du`, `diff`, `sort`, `uniq`, `comm` — the
+# specific commands soak v10 surfaced as missing during phase-2 work.
+# All five are non-interactive POSIX utilities, read-only or
+# bounded-write (none modify files without explicit destination
+# flags), and standard on Linux/macOS. The wider "concentric ring"
+# expansion (cp/mv/rm/tee/install/touch/etc.) the v13 agent proposed
+# is deliberately NOT included here — that crosses a write-capability
+# threshold that's an operator architecture decision, not a tactical
+# allow-list addition. See ADR 0001 §"Tool sandbox" for the
+# read-only-ish charter.
 RAW_ALLOWLIST: frozenset[str] = frozenset(
     {
         "ls",
@@ -55,6 +66,12 @@ RAW_ALLOWLIST: frozenset[str] = frozenset(
         "python3",
         "test",
         "uv",
+        # v4.108 — soak v10 surfaced
+        "du",
+        "diff",
+        "sort",
+        "uniq",
+        "comm",
     }
 )
 
