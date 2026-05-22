@@ -126,3 +126,10 @@ fabricates indefinitely with no trust cost) or correctly calibrated
   the rest of the soak does not slide into silent observer mode.
   Addresses soak v7 run-3's 10-minute T5→T0 collapse during phase-1
   investigation.
+- **v4.96 (shipped, see ADR 0101):** `artifact_incomplete` detector —
+  surfaces hollow-file writes (file exists but lacks a required
+  content marker like `## READY-FOR-REMEDIATION`). Joins the
+  finish-reason trust table at delta=1 (same severity as
+  `artifact_missing`). Addresses soak v8's 15-minute spin where the
+  agent reported `completed=True` on a 1632-byte investigation doc
+  that omitted the sentinel heading the task demanded.

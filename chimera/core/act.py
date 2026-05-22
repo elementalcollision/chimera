@@ -200,6 +200,11 @@ class ActResult:
     # also writing a tests/test_*.py file. Populated only when
     # finish_reason == "fix_without_test".
     untested_fix_paths: list[str] = field(default_factory=list)
+    # v4.96 (ADR 0101): ``[(path, missing_marker), ...]`` for artifacts
+    # the agent wrote that exist but lack a required content marker
+    # (e.g. a sentinel heading the task explicitly named). Populated
+    # only when finish_reason == "artifact_incomplete".
+    incomplete_artifacts: list[tuple[str, str]] = field(default_factory=list)
 
 
 _ARTIFACT_PATTERN = re.compile(r"`((?:state|mind|docs)/[A-Za-z0-9_./-]+)`")
@@ -438,6 +443,104 @@ def expected_artifacts(task_text: str) -> list[str]:
     for m in _NL_ARTIFACT_PATTERN.finditer(task_text):
         _add(m.group(1))
     return seen
+
+
+# v4.96 (ADR 0101): content-marker extraction. Soak v8 surfaced a
+# failure mode where the agent wrote the named artifact but omitted a
+# required content sentinel the task spelled out in formal language
+# ("The file MUST end with a section whose heading is EXACTLY:
+# `## READY-FOR-REMEDIATION`"). The file existed and was non-empty, so
+# check_artifacts() returned []; nothing else verified the sentinel.
+#
+# Extraction is deliberately conservative: only formal phrasings match,
+# because false-positives ("the agent MUST be careful") are worse than
+# false-negatives. Patterns recognized:
+#
+#   1. MUST contain `<marker>`
+#   2. MUST include `<marker>`
+#   3. MUST end with `<marker>`
+#   4. heading is EXACTLY: `<marker>`
+#   5. EXACTLY: `<marker>`  (when preceded by MUST or "heading is")
+#   6. the file must include `<marker>`
+#
+# Markers are backtick-quoted strings. We do not attempt to extract bare
+# headings without backticks — the explicit quoting is the operator
+# convention and the only signal we can extract without NLP heuristics.
+_CONTENT_MARKER_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # MUST end with `marker`
+    re.compile(r"MUST\s+end\s+with[^`\n]{0,80}?`([^`\n]+)`", re.IGNORECASE),
+    # MUST contain `marker`
+    re.compile(r"MUST\s+contain[^`\n]{0,80}?`([^`\n]+)`", re.IGNORECASE),
+    # MUST include `marker` / file must include `marker`
+    re.compile(r"MUST\s+include[^`\n]{0,80}?`([^`\n]+)`", re.IGNORECASE),
+    # heading is EXACTLY: `marker`  (covers "heading is EXACTLY:\n`...`")
+    re.compile(
+        r"heading\s+is\s+EXACTLY[^`]{0,40}?`([^`\n]+)`",
+        re.IGNORECASE,
+    ),
+    # MUST <verb> ... EXACTLY: `marker`
+    re.compile(
+        r"MUST[^.\n]{0,120}?EXACTLY[^`]{0,40}?`([^`\n]+)`",
+        re.IGNORECASE,
+    ),
+)
+
+
+def expected_content_markers(task_text: str) -> dict[str, list[str]]:
+    """Return ``{artifact_path: [marker, ...]}`` extracted from task text.
+
+    v4.96 (ADR 0101). The mapping is keyed by *every* artifact the
+    task names (from ``expected_artifacts``); markers found via
+    ``_CONTENT_MARKER_PATTERNS`` are attached to all of them. We don't
+    attempt to associate a marker with a specific path in multi-artifact
+    tasks because the natural-language link ("the file" → which file?)
+    is ambiguous; treating the marker as a requirement on every named
+    artifact is the conservative call.
+
+    Returns ``{}`` when no markers are found, even if the task names
+    artifacts. Empty list values are never produced.
+    """
+    markers: list[str] = []
+    for pat in _CONTENT_MARKER_PATTERNS:
+        for m in pat.finditer(task_text or ""):
+            value = m.group(1).strip()
+            if value and value not in markers:
+                markers.append(value)
+    if not markers:
+        return {}
+    paths = expected_artifacts(task_text)
+    if not paths:
+        return {}
+    return {p: list(markers) for p in paths}
+
+
+def check_content_markers(
+    markers_by_path: dict[str, list[str]],
+    *,
+    base_dir: Path | None = None,
+) -> list[tuple[str, str]]:
+    """Return ``[(path, missing_marker), ...]`` for any required markers
+    that are not present in the file at ``path``.
+
+    v4.96 (ADR 0101). Only inspects files that exist and are non-empty
+    (the upstream ``check_artifacts`` already catches absent/empty
+    files). A path missing from disk is silently skipped — that's
+    ``artifact_missing``'s job, not this detector's.
+    """
+    base = base_dir or Path.cwd()
+    missing: list[tuple[str, str]] = []
+    for rel, markers in markers_by_path.items():
+        p = base / rel
+        try:
+            if not p.exists() or not p.is_file() or p.stat().st_size == 0:
+                continue
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for marker in markers:
+            if marker not in content:
+                missing.append((rel, marker))
+    return missing
 
 
 def check_artifacts(
@@ -922,6 +1025,20 @@ class ActExecutor:
                     if missing:
                         completed = False
                         finish_reason = "artifact_missing"
+                # v4.96 (ADR 0101): content-marker check. The file
+                # exists (otherwise artifact_missing fired) but the
+                # task spelled out a required sentinel that the
+                # agent's write omitted. Soak v8 surfaced this when
+                # an investigation doc was written without the
+                # `## READY-FOR-REMEDIATION` heading the task
+                # demanded.
+                incomplete: list[tuple[str, str]] = []
+                if completed:
+                    markers_by_path = expected_content_markers(task_text)
+                    incomplete = check_content_markers(markers_by_path)
+                    if incomplete:
+                        completed = False
+                        finish_reason = "artifact_incomplete"
                 # v4.83 (ADR 0095): grounding check. Only runs when the
                 # artifact check passed — fabricated content in a file
                 # that doesn't exist is already caught upstream.
@@ -986,12 +1103,18 @@ class ActExecutor:
                         logger.exception(
                             "fragmentation log / auto-proposal failed; continuing"
                         )
-                if untested_fix and not unedited and not missing and not ungrounded:
+                if untested_fix and not unedited and not missing and not ungrounded and not incomplete:
                     failure_reason = (
                         f"fix without test: chimera/ source paths "
                         f"{', '.join(untested_fix)} were modified but no "
                         f"tests/test_*.py file was touched"
                     )
+                elif incomplete and not missing:
+                    pretty = ", ".join(
+                        f"`{path}` missing `{marker}`"
+                        for path, marker in incomplete
+                    )
+                    failure_reason = f"artifact incomplete: {pretty}"
                 elif unedited and not missing and not ungrounded:
                     failure_reason = (
                         f"scope evasion: named paths {', '.join(unedited)} "
@@ -1019,6 +1142,7 @@ class ActExecutor:
                     ungrounded_citations=ungrounded,
                     unedited_paths=unedited,
                     untested_fix_paths=untested_fix,
+                    incomplete_artifacts=incomplete,
                     failure_reason=failure_reason,
                 )
 

@@ -104,6 +104,11 @@ ESCALATING_FINISH_REASONS = frozenset({
     # source edit but skipped the regression test. Three strikes still
     # auto-skips so soak runs don't loop forever on the same gap.
     "fix_without_test",
+    # v4.96 (ADR 0101): artifact_incomplete — agent wrote the named
+    # file but it lacks a required content marker the task spelled out
+    # in formal language (MUST contain / MUST end with / EXACTLY).
+    # Distinct from artifact_missing: the file exists, it's just hollow.
+    "artifact_incomplete",
     # v4.84 (ADR 0097): the soak v5 retry pattern was scope_evasion →
     # length → length. Without recording `length`, the three-strikes
     # auto-skip never triggers and the budget burns silently. `length`

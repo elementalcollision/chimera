@@ -24,6 +24,7 @@ from .act import (
     _CHIMERA_SOURCE_PATH_PATTERN,
     _FIX_WITHOUT_TEST_EXCLUDED_SOURCES,
     expected_artifacts,
+    expected_content_markers,
     intended_code_paths,
 )
 from .escalation import EscalationRow, _signature
@@ -175,6 +176,39 @@ def _fix_without_test_hint(task_text: str) -> str:
     return f"{target_clause} {action_clause}"
 
 
+def _artifact_incomplete_hint(task_text: str) -> str:
+    """v4.96 (ADR 0101): the file exists but is missing a required
+    content marker the task spelled out. The remediation is mechanical
+    — append the missing marker to the existing file.
+    """
+    markers_by_path = expected_content_markers(task_text)
+    if not markers_by_path:
+        return (
+            "Your previous write produced the named file but it is "
+            "missing a content marker the task required (e.g. a sentinel "
+            "heading). Use code_exec to append the missing section. "
+            "Don't analyse — just append."
+        )
+    # One artifact, one marker → the most actionable hint.
+    items = list(markers_by_path.items())
+    if len(items) == 1 and len(items[0][1]) == 1:
+        path, (marker,) = items[0][0], items[0][1]
+        return (
+            f"Your write to `{path}` is missing the required marker "
+            f"`{marker}`. Use code_exec to append the missing section. "
+            f"Don't analyse — just append."
+        )
+    listed = "; ".join(
+        f"`{path}` needs " + ", ".join(f"`{m}`" for m in markers)
+        for path, markers in items
+    )
+    return (
+        "Your previous writes are missing required content markers: "
+        f"{listed}. Use code_exec to append each missing section. "
+        "Don't analyse — just append."
+    )
+
+
 def _max_rounds_hint(task_text: str) -> str:
     return (
         "Your previous attempt at this task exhausted its round budget "
@@ -206,6 +240,7 @@ _HINT_BY_REASON = {
     "artifact_missing": _artifact_missing_hint,
     "ungrounded_citation": _ungrounded_citation_hint,
     "fix_without_test": _fix_without_test_hint,
+    "artifact_incomplete": _artifact_incomplete_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,
     "degenerate_loop_abort": _max_rounds_hint,

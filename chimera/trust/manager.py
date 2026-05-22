@@ -50,6 +50,10 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     "scope_evasion": 2,
     "artifact_missing": 1,
     "fix_without_test": 1,
+    # v4.96 (ADR 0101): file exists but lacks a required content
+    # marker. Moderate severity — same shape as fix_without_test
+    # (incomplete delivery against a specified contract).
+    "artifact_incomplete": 1,
     "degenerate_loop_abort": 1,
     "ungrounded_citation": 0,
     "max_rounds": 0,
