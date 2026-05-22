@@ -118,6 +118,55 @@ def _entropy_hits(diff_text: str) -> list[str]:
     return hits
 
 
+def _check_inbox_honesty(
+    worktree: Path,
+) -> list[tuple[str, list[str]]]:
+    """v4.100 (ADR 0104): the pre-PR INBOX-honesty gate.
+
+    Parse ``<worktree>/mind/INBOX.md``. For every `[x]` bullet, extract
+    any expected_artifacts the bullet names; refuse the PR if any of
+    those artifacts is missing or empty on disk. Returns the list of
+    invalid claims; empty list means the INBOX is honest.
+
+    Unfalsifiable bullets (no artifact named) don't fire — the gate
+    can only verify claims with concrete deliverables.
+    """
+    inbox = worktree / "mind" / "INBOX.md"
+    if not inbox.exists() or not inbox.is_file():
+        return []
+    try:
+        text = inbox.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    # Import locally to keep submit_pr import-light for the CLI.
+    from .act import (
+        _inbox_bullet_artifacts,
+        _parse_inbox_tasks,
+        check_artifacts,
+        check_content_markers,
+        expected_content_markers,
+    )
+    invalid: list[tuple[str, list[str]]] = []
+    for _idx, state, task_text in _parse_inbox_tasks(text):
+        if state != "x":
+            continue
+        expected = _inbox_bullet_artifacts(task_text)
+        if not expected:
+            continue
+        missing = check_artifacts(expected, base_dir=worktree)
+        markers_by_path = expected_content_markers(task_text)
+        if markers_by_path:
+            incomplete = check_content_markers(
+                markers_by_path, base_dir=worktree,
+            )
+            for path, _marker in incomplete:
+                if path not in missing:
+                    missing.append(path)
+        if missing:
+            invalid.append((task_text, missing))
+    return invalid
+
+
 def _check_fix_without_test(changed_files: list[str]) -> list[str]:
     """v4.92 gate, applied across the full branch diff (not just one task)."""
     src = [
@@ -214,6 +263,24 @@ def validate(
         errors.append(
             "fix_without_test (v4.92 gate): chimera/ source touched without "
             f"tests/ counterpart: {', '.join(untested)}"
+        )
+
+    # v4.100 (ADR 0104): INBOX-honesty gate. If the branch's
+    # mind/INBOX.md has any `[x]` checkbox whose deliverable doesn't
+    # exist on disk, refuse the PR — the branch is shipping a lie.
+    invalid_inbox = _check_inbox_honesty(worktree)
+    if invalid_inbox:
+        listed = "; ".join(
+            f"{t[:60]!r} → missing {', '.join(m)}"
+            for t, m in invalid_inbox[:3]
+        )
+        more = (
+            f" (+{len(invalid_inbox) - 3} more)"
+            if len(invalid_inbox) > 3 else ""
+        )
+        errors.append(
+            "inbox_claim_invalid (v4.100 gate): mind/INBOX.md has `[x]` "
+            f"checkbox(es) whose deliverables don't exist{more}: {listed}"
         )
 
     if not allow_entropy:

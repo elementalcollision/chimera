@@ -209,6 +209,44 @@ def _artifact_incomplete_hint(task_text: str) -> str:
     )
 
 
+def _inbox_claim_invalid_hint(task_text: str) -> str:
+    """v4.100 (ADR 0104): the agent flipped a `[ ]`→`[x]` checkbox in
+    mind/INBOX.md without producing the bullet's deliverable. The
+    runtime has already reverted the checkbox; the model now needs to
+    actually do the work named in the task.
+
+    The remediation hint names the missing artifact when extractable
+    so the model knows the specific path to write.
+    """
+    from .act import _inbox_bullet_artifacts
+    expected = _inbox_bullet_artifacts(task_text)
+    if expected:
+        if len(expected) == 1:
+            return (
+                f"Your INBOX checkbox flip on this task claimed completion, "
+                f"but the deliverable `{expected[0]}` doesn't exist. Use "
+                f"code_exec to create the missing file. Don't analyse — "
+                f"just write it. The runtime has reverted the checkbox so "
+                f"the runner won't act on the lie; flipping it again "
+                f"without producing the file will fail the task again."
+            )
+        listed = ", ".join(f"`{p}`" for p in expected)
+        return (
+            f"Your INBOX checkbox flip on this task claimed completion, "
+            f"but the deliverables don't exist: {listed}. Use code_exec to "
+            f"create each missing file. Don't analyse — just write them. "
+            f"The runtime has reverted the checkbox; flipping it again "
+            f"without producing the files will fail the task again."
+        )
+    return (
+        "Your INBOX checkbox flip on this task claimed completion, but "
+        "the deliverable the bullet promised isn't on disk. Use code_exec "
+        "to do the work the bullet describes. Don't analyse — just write. "
+        "The runtime has reverted the checkbox so the runner won't act "
+        "on the lie."
+    )
+
+
 def _max_rounds_hint(task_text: str) -> str:
     return (
         "Your previous attempt at this task exhausted its round budget "
@@ -241,6 +279,7 @@ _HINT_BY_REASON = {
     "ungrounded_citation": _ungrounded_citation_hint,
     "fix_without_test": _fix_without_test_hint,
     "artifact_incomplete": _artifact_incomplete_hint,
+    "inbox_claim_invalid": _inbox_claim_invalid_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,
     "degenerate_loop_abort": _max_rounds_hint,

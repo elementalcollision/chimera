@@ -205,6 +205,11 @@ class ActResult:
     # (e.g. a sentinel heading the task explicitly named). Populated
     # only when finish_reason == "artifact_incomplete".
     incomplete_artifacts: list[tuple[str, str]] = field(default_factory=list)
+    # v4.100 (ADR 0104): ``[(task_text, [missing_artifact, ...]), ...]``
+    # for INBOX checkbox flips ([ ] → [x]) the agent made without producing
+    # the deliverable the bullet promised. Populated only when
+    # finish_reason == "inbox_claim_invalid".
+    invalid_inbox_claims: list[tuple[str, list[str]]] = field(default_factory=list)
 
 
 _ARTIFACT_PATTERN = re.compile(r"`((?:state|mind|docs)/[A-Za-z0-9_./-]+)`")
@@ -613,6 +618,266 @@ def check_artifacts(
     return missing
 
 
+# v4.100 (ADR 0104): INBOX-claim honesty check. Soak v9 surfaced a new
+# failure CLASS: the agent treated mind/INBOX.md as a write target,
+# flipping `[ ]` checkboxes to `[x]` without producing the deliverable
+# each bullet promised. None of the prior detectors caught it because
+# they check per-task completion against expected_artifacts/content
+# markers; the INBOX-edit itself is "in scope" and produces a non-empty
+# file. The platform treats INBOX as a *truth statement*: `[x]` means
+# the task is done. Lying about that propagates: the next cycle's
+# runner sees the checkbox and exits the phase.
+#
+# This detector compares prior vs. current INBOX state, extracts the
+# bullet text for each newly-flipped `[ ]`→`[x]`, and validates that
+# the bullet's expected_artifacts (v4.81) actually exist with required
+# content markers (v4.96). Bullets that don't name any artifact (e.g.
+# "Re-read the verdict") are unfalsifiable — they don't fire.
+
+# Anchored: must be the start of a line (allowing leading whitespace
+# for nested bullets), then the bullet marker, then the checkbox.
+_INBOX_CHECKBOX_LINE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<bullet>[-*+])\s+\[(?P<state>[ xX])\]\s?(?P<rest>.*)$",
+)
+
+# Paths considered "INBOX-shaped" task-list files. mind/INBOX.md is the
+# canonical one; the runner also writes to mind/inbox/*.md occasionally.
+_INBOX_WRITE_PATTERN = re.compile(
+    r"\bmind/(?:INBOX\.md|inbox/[A-Za-z0-9_./-]+\.md)\b"
+)
+
+
+def _is_inbox_write(write_targets: list[str]) -> bool:
+    """True iff any write_target points at an INBOX-shaped file."""
+    blob = " ".join(write_targets)
+    return bool(_INBOX_WRITE_PATTERN.search(blob))
+
+
+def _parse_inbox_tasks(text: str) -> list[tuple[int, str, str]]:
+    """Parse an INBOX markdown body into ``[(line_idx, state, task_text), ...]``.
+
+    ``state`` is ``" "`` (open) or ``"x"`` (done, lowercased). ``task_text``
+    is the bullet's first-line text plus any indented continuation lines
+    that follow (a paragraph or further bullets nested under it). The
+    line index is the 0-based position of the bullet's first line, used
+    so the caller can revert a specific checkbox without re-parsing.
+    """
+    lines = text.splitlines()
+    out: list[tuple[int, str, str]] = []
+    i = 0
+    while i < len(lines):
+        m = _INBOX_CHECKBOX_LINE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        state = m.group("state").lower()
+        if state == " ":
+            state = " "
+        else:
+            state = "x"
+        # Gather continuation lines: subsequent non-empty lines indented
+        # deeper than this bullet's indent, that are NOT themselves a
+        # top-level checkbox at the same depth.
+        bullet_indent = len(m.group("indent"))
+        body_parts = [m.group("rest")]
+        j = i + 1
+        while j < len(lines):
+            nxt = lines[j]
+            if not nxt.strip():
+                # blank line — peek ahead; if next non-blank is still
+                # indented continuation, include the blank.
+                k = j + 1
+                while k < len(lines) and not lines[k].strip():
+                    k += 1
+                if k >= len(lines):
+                    break
+                # Stop continuation at the next checkbox bullet, period.
+                if _INBOX_CHECKBOX_LINE.match(lines[k]):
+                    break
+                # Otherwise include this blank + jump to k
+                body_parts.append("")
+                j = k
+                continue
+            # If the next line is another checkbox (sibling), stop.
+            if _INBOX_CHECKBOX_LINE.match(nxt):
+                break
+            # Continuation only if indented past the bullet.
+            leading = len(nxt) - len(nxt.lstrip())
+            if leading <= bullet_indent:
+                break
+            body_parts.append(nxt.strip())
+            j += 1
+        task_text = " ".join(p for p in body_parts if p).strip()
+        out.append((i, state, task_text))
+        i = j
+    return out
+
+
+# v4.100 (ADR 0104): INBOX bullets can claim deliverables under ANY
+# writable root — state/, mind/, docs/ AND chimera/, tests/, scripts/.
+# expected_artifacts() (v4.81) only catches the synthesis-output roots;
+# intended_code_paths() catches the source roots. For INBOX-honesty
+# validation we want the union: every concrete file path a bullet
+# claims as a deliverable.
+def _inbox_bullet_artifacts(task_text: str) -> list[str]:
+    """Union of expected_artifacts + intended_code_paths for INBOX
+    checkbox validation. Stable-ordered, deduped.
+    """
+    seen: list[str] = []
+    for p in expected_artifacts(task_text):
+        if p not in seen:
+            seen.append(p)
+    for p in intended_code_paths(task_text):
+        if p not in seen:
+            seen.append(p)
+    return seen
+
+
+def check_inbox_claim_validity(
+    prior_inbox: str,
+    current_inbox: str,
+    write_targets: list[str],
+    *,
+    base_dir: Path | None = None,
+) -> list[tuple[str, list[str]]]:
+    """Return ``[(task_text, [missing_artifact, ...]), ...]`` for INBOX
+    checkbox flips ``[ ]`` → ``[x]`` in this cycle whose deliverables
+    don't actually exist on disk.
+
+    v4.100 (ADR 0104). Pure function: no DB access, no writes.
+
+    The check fires only when:
+      - ``write_targets`` includes an INBOX-shaped path (the agent's
+        recent calls touched the truth file), AND
+      - The same-position bullet flipped ``[ ]`` → ``[x]`` between
+        ``prior_inbox`` and ``current_inbox``, AND
+      - The bullet text names at least one ``expected_artifact`` (so the
+        claim is falsifiable), AND
+      - That artifact is missing/empty OR is missing a required
+        content marker the bullet itself spelled out.
+
+    Bullets that are already ``[x]`` in ``prior_inbox`` are NOT
+    re-validated — only newly-flipped claims trigger the check.
+    Unfalsifiable bullets ("Re-read the verdict") never fire.
+    """
+    if not _is_inbox_write(write_targets):
+        return []
+    prior_tasks = _parse_inbox_tasks(prior_inbox)
+    current_tasks = _parse_inbox_tasks(current_inbox)
+    # Pair by line index — the agent that flips a checkbox typically
+    # leaves the bullet text intact. If lines were reordered we miss
+    # the pairing (a conservative miss; the false-positive cost of
+    # cross-matching unrelated bullets is worse than the false-negative
+    # cost of skipping a reordered flip).
+    prior_by_line = {idx: (state, text) for idx, state, text in prior_tasks}
+    invalid: list[tuple[str, list[str]]] = []
+    for idx, cur_state, cur_text in current_tasks:
+        prior = prior_by_line.get(idx)
+        if prior is None:
+            continue
+        prior_state, prior_text = prior
+        if not (prior_state == " " and cur_state == "x"):
+            continue
+        # Use the *current* task text — the agent may have edited the
+        # bullet while flipping it; the claim attaches to what now reads
+        # as "done".
+        expected = _inbox_bullet_artifacts(cur_text)
+        if not expected:
+            # Unfalsifiable bullet — no artifact named. Skip.
+            continue
+        missing: list[str] = []
+        # Artifact-missing check.
+        missing.extend(check_artifacts(expected, base_dir=base_dir))
+        # Content-marker check on artifacts that DO exist.
+        markers_by_path = expected_content_markers(cur_text)
+        if markers_by_path:
+            incomplete = check_content_markers(
+                markers_by_path, base_dir=base_dir,
+            )
+            for path, _marker in incomplete:
+                if path not in missing:
+                    missing.append(path)
+        if missing:
+            invalid.append((cur_text, missing))
+    return invalid
+
+
+def revert_inbox_lie(
+    current_inbox: str,
+    invalid_claims: list[tuple[str, list[str]]],
+) -> str:
+    """Return a copy of ``current_inbox`` with the invalid `[x]` flips
+    reverted to `[ ]`.
+
+    v4.100 (ADR 0104). The lie has to be undone in the working tree,
+    not just the escalation log — otherwise the next cycle's runner
+    sees the checkbox and exits the phase prematurely.
+
+    Identifies the lines to revert by matching the bullet's task_text
+    against ``_parse_inbox_tasks(current_inbox)``. Lines whose parsed
+    task_text equals one of the invalid claims' task_texts are
+    rewritten with the checkbox flipped back. Other lines are left
+    untouched.
+    """
+    if not invalid_claims:
+        return current_inbox
+    invalid_texts = {t for t, _ in invalid_claims}
+    parsed = _parse_inbox_tasks(current_inbox)
+    revert_lines = {
+        idx for idx, _state, text in parsed if text in invalid_texts
+    }
+    if not revert_lines:
+        return current_inbox
+    lines = current_inbox.splitlines(keepends=True)
+    for idx in revert_lines:
+        ln = lines[idx]
+        # Rewrite the first `[x]` or `[X]` on this line back to `[ ]`.
+        # Only the checkbox marker — leave the rest of the line intact.
+        lines[idx] = re.sub(r"\[[xX]\]", "[ ]", ln, count=1)
+    return "".join(lines)
+
+
+def _read_inbox_now() -> str:
+    """Read mind/INBOX.md from cwd, returning "" if absent/unreadable.
+
+    Helper for the ACT-loop wiring of check_inbox_claim_validity (v4.100).
+    """
+    try:
+        p = Path.cwd() / "mind" / "INBOX.md"
+        if p.exists() and p.is_file():
+            return p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+    return ""
+
+
+def _revert_inbox_lies_on_disk(
+    invalid_claims: list[tuple[str, list[str]]],
+) -> None:
+    """Re-read mind/INBOX.md, apply ``revert_inbox_lie`` for each
+    invalid claim, and write the result back.
+
+    v4.100 (ADR 0104). Best-effort: any IO error is logged and ignored
+    so the ACT exit path stays robust. The escalation log still
+    captures the failure regardless of whether the disk revert succeeds.
+    """
+    if not invalid_claims:
+        return
+    try:
+        p = Path.cwd() / "mind" / "INBOX.md"
+        if not (p.exists() and p.is_file()):
+            return
+        current = p.read_text(encoding="utf-8", errors="replace")
+        reverted = revert_inbox_lie(current, invalid_claims)
+        if reverted != current:
+            p.write_text(reverted, encoding="utf-8")
+    except OSError:
+        logger.exception(
+            "failed to revert INBOX checkbox flip; escalation log "
+            "still captures the invalid claim",
+        )
+
+
 class ActExecutor:
     """Runs the tool-using inner loop for a single task."""
 
@@ -830,6 +1095,20 @@ class ActExecutor:
         remediation_preamble: str = "",
     ) -> ActResult:
         ctx = context or DispatchContext()
+        # v4.100 (ADR 0104): snapshot the INBOX state BEFORE the model
+        # runs so check_inbox_claim_validity can diff `[ ]`→`[x]` flips
+        # at the end of the task. Read-only snapshot — if the file
+        # doesn't exist or is unreadable, the diff is a no-op (no
+        # flips to find against an empty prior).
+        prior_inbox_text = ""
+        try:
+            inbox_path = Path.cwd() / "mind" / "INBOX.md"
+            if inbox_path.exists() and inbox_path.is_file():
+                prior_inbox_text = inbox_path.read_text(
+                    encoding="utf-8", errors="replace",
+                )
+        except OSError:
+            prior_inbox_text = ""
         # v4.84 (ADR 0097): preamble surfacing prior-attempt diagnosis.
         # Prepend on the user message so it stays in the model's
         # immediate context window even after long tool sequences.
@@ -1127,6 +1406,24 @@ class ActExecutor:
                     if untested_fix:
                         completed = False
                         finish_reason = "fix_without_test"
+                # v4.100 (ADR 0104): INBOX-claim honesty. The agent
+                # may have flipped a `[ ]` → `[x]` without producing
+                # the deliverable that bullet promised. Run AFTER all
+                # the per-task detectors so the cleaner-named failure
+                # mode wins when both fire. Revert the checkbox flip
+                # in the working tree so the next cycle's runner
+                # doesn't act on the lie.
+                invalid_inbox: list[tuple[str, list[str]]] = []
+                if completed:
+                    invalid_inbox = check_inbox_claim_validity(
+                        prior_inbox_text,
+                        _read_inbox_now(),
+                        write_targets,
+                    )
+                    if invalid_inbox:
+                        completed = False
+                        finish_reason = "inbox_claim_invalid"
+                        _revert_inbox_lies_on_disk(invalid_inbox)
                 # v4.5 + v4.10: fragmentation is the same shape whether
                 # ACT ran out of rounds OR the model said `stop` without
                 # producing the artifact. Hook fires on either path.
@@ -1151,7 +1448,16 @@ class ActExecutor:
                         logger.exception(
                             "fragmentation log / auto-proposal failed; continuing"
                         )
-                if untested_fix and not unedited and not missing and not ungrounded and not incomplete:
+                if invalid_inbox:
+                    pretty = "; ".join(
+                        f"{text[:80]!r} → missing {', '.join(m)}"
+                        for text, m in invalid_inbox
+                    )
+                    failure_reason = (
+                        "inbox claim invalid: agent flipped checkbox(es) "
+                        f"without producing the deliverable: {pretty}"
+                    )
+                elif untested_fix and not unedited and not missing and not ungrounded and not incomplete:
                     failure_reason = (
                         f"fix without test: chimera/ source paths "
                         f"{', '.join(untested_fix)} were modified but no "
@@ -1191,6 +1497,7 @@ class ActExecutor:
                     unedited_paths=unedited,
                     untested_fix_paths=untested_fix,
                     incomplete_artifacts=incomplete,
+                    invalid_inbox_claims=invalid_inbox,
                     failure_reason=failure_reason,
                 )
 
