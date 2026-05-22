@@ -115,6 +115,14 @@ fabricates indefinitely with no trust cost) or correctly calibrated
   tier, dwell time, last_readiness, last ~10 history events with
   `finish_reason=...` provenance, and the promotion threshold/dwell.
   `--json` for machine read, `--limit N` for history depth.
-- **v4.95 (queued):** soak runner emits warnings (or auto-promotes)
-  when mid-soak trust degrades, rather than silently sliding the
-  agent into observer mode.
+- **v4.95 (shipped):** `chimera trust degrade-check` CLI verb +
+  soak-runner integration. Between cycles, the runner captures a
+  baseline tier and calls `trust degrade-check --baseline N
+  --chronicle-path mind/SESSION_LOG.md`; the verb exits 10 (and
+  appends a chronicle warning with recent finish_reason-tagged demote
+  events) when the current tier has dropped ≥ `--threshold-drop`
+  tiers or reached T0. `SOAK_AUTO_PROMOTE_ON_DEGRADE=1` arms the
+  `--auto-promote` flag, which lifts the agent one tier above T0 so
+  the rest of the soak does not slide into silent observer mode.
+  Addresses soak v7 run-3's 10-minute T5→T0 collapse during phase-1
+  investigation.

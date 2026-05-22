@@ -45,6 +45,12 @@ MAX_ITERATIONS_PER_PHASE="${MAX_ITERATIONS_PER_PHASE:-200}"
 MAX_WALL_SECONDS="${MAX_WALL_SECONDS:-14400}"   # 4h total
 COOLDOWN_SECONDS="${COOLDOWN_SECONDS:-15}"
 
+# v4.95 (ADR 0100 follow-up): mid-soak trust degradation guard.
+#   SOAK_TRUST_DROP_THRESHOLD — warn if baseline-current ≥ N (default 2)
+#   SOAK_AUTO_PROMOTE_ON_DEGRADE — set to 1 to lift the agent back above T0
+SOAK_TRUST_DROP_THRESHOLD="${SOAK_TRUST_DROP_THRESHOLD:-2}"
+SOAK_AUTO_PROMOTE_ON_DEGRADE="${SOAK_AUTO_PROMOTE_ON_DEGRADE:-0}"
+
 export CHIMERA_CYCLE_BUDGET_USD="${CHIMERA_CYCLE_BUDGET_USD:-1.50}"
 export CHIMERA_TASK_BUDGET_USD="${CHIMERA_TASK_BUDGET_USD:-2.00}"
 export CHIMERA_ROLLING_HOUR_CAP_USD="${CHIMERA_ROLLING_HOUR_CAP_USD:-3.00}"
@@ -73,6 +79,39 @@ last_cycle_in_db() {
 }
 
 fp_ge() { awk -v a="$1" -v b="$2" 'BEGIN { exit (a+0 >= b+0) ? 0 : 1 }'; }
+
+# v4.95: read current tier from trust_state.json (0 if missing/unreadable).
+current_trust_tier() {
+    local f="$1/trust_state.json"
+    [ -f "$f" ] || { echo 0; return; }
+    python3 -c "import json,sys
+try:
+    print(int(json.load(open('$f')).get('current_tier', 0)))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0
+}
+
+# v4.95: invoke `chimera trust degrade-check` between cycles. Logs warning
+# and (optionally) auto-promotes. Exit code 10 = degraded.
+soak_check_trust_degradation() {
+    local baseline="$1"
+    local phase_name="$2"
+    local extra_args=()
+    if [ "$SOAK_AUTO_PROMOTE_ON_DEGRADE" = "1" ]; then
+        extra_args+=( --auto-promote )
+    fi
+    ( cd "$WORKTREE" && uv run chimera trust degrade-check \
+        --baseline "$baseline" \
+        --threshold-drop "$SOAK_TRUST_DROP_THRESHOLD" \
+        --chronicle-path "$WORKTREE/mind/SESSION_LOG.md" \
+        "${extra_args[@]}" ) >> "$LOG" 2>&1
+    local rc=$?
+    if [ "$rc" = "10" ]; then
+        log "  ⚠️  $phase_name trust degraded vs baseline=T$baseline (see SESSION_LOG.md)"
+    fi
+    return 0
+}
 
 # ── pre-flight ─────────────────────────────────────────────────
 log "─────────────────────────────────────────────────────────────"
@@ -208,8 +247,10 @@ phase_loop() {
 
     local iter=0
     local exit_reason=""
+    local trust_baseline
+    trust_baseline="$(current_trust_tier "$WORKTREE_STATE")"
 
-    log "── $phase_name start: cap=\$$cap_usd engines=$engines_enabled baseline=$phase_start_iso ──"
+    log "── $phase_name start: cap=\$$cap_usd engines=$engines_enabled baseline=$phase_start_iso trust=T$trust_baseline ──"
 
     while : ; do
         iter=$((iter + 1))
@@ -235,6 +276,7 @@ phase_loop() {
         ( cd "$WORKTREE" && uv run chimera run ) >> "$LOG" 2>&1 || {
             log "  chimera run non-zero exit (engine skips and gate denials are normal)"
         }
+        soak_check_trust_degradation "$trust_baseline" "$phase_name"
         sleep "$COOLDOWN_SECONDS"
     done
 

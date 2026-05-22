@@ -339,6 +339,41 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of recent history events to show (default 10).",
     )
     trust_budget.add_argument("--json", action="store_true")
+    trust_degrade = trust_sub.add_parser(
+        "degrade-check",
+        help=(
+            "Compare current tier against a baseline and warn (or auto-promote) "
+            "if it has degraded. Designed for soak runners to call between "
+            "cycles. See docs/adr/0100-graduated-trust-decrements.md "
+            "(follow-up chip v4.95)."
+        ),
+    )
+    trust_degrade.add_argument(
+        "--baseline", type=int, required=True,
+        help="Tier (0..5) at soak start. Degradation = current < baseline.",
+    )
+    trust_degrade.add_argument(
+        "--threshold-drop", type=int, default=2,
+        help="Emit warning if tier dropped by at least N tiers (default 2). "
+             "Reaching T0 always trips the warning regardless of drop size.",
+    )
+    trust_degrade.add_argument(
+        "--auto-promote", action="store_true",
+        help="If degraded, call promote() once to lift the agent above T0. "
+             "Idempotent: only promotes if current_tier < baseline.",
+    )
+    trust_degrade.add_argument(
+        "--chronicle-path", default=None,
+        help="If provided AND degraded, append a warning line to this file "
+             "(mind/SESSION_LOG.md style). Includes recent demote events with "
+             "finish_reason provenance.",
+    )
+    trust_degrade.add_argument(
+        "--history-limit", type=int, default=5,
+        help="Number of recent demote events to include in the warning "
+             "(default 5).",
+    )
+    trust_degrade.add_argument("--json", action="store_true")
 
     skills = sub.add_parser(
         "skills",
@@ -1362,6 +1397,93 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print("  recent events: (none)")
             return 0
+        if sub_cmd == "degrade-check":
+            from .core.mind import append_session_log
+
+            baseline = int(args.baseline)
+            if not 0 <= baseline <= 5:
+                parser.error(f"--baseline out of range: {baseline} (0..5)")
+            current = tm.tier.value
+            drop = baseline - current
+            threshold = max(1, int(args.threshold_drop))
+            degraded = drop >= threshold or (current == 0 and baseline > 0)
+
+            recent_demotes = [
+                ev for ev in tm.state.history
+                if ev.kind in ("demote", "lockdown")
+            ][-max(1, int(args.history_limit)):]
+
+            promoted_to: int | None = None
+            if degraded and args.auto_promote and current < baseline:
+                if tm.promote(reason=(
+                    f"v4.95 auto-promote-on-degrade: baseline=T{baseline} "
+                    f"current=T{current} drop={drop}"
+                )):
+                    promoted_to = tm.tier.value
+
+            chronicle_written = False
+            if degraded and args.chronicle_path:
+                from datetime import datetime, timezone
+                stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                lines = [
+                    f"- {stamp} ⚠️  trust degradation: baseline=T{baseline} "
+                    f"current=T{tm.tier.value} drop={drop} threshold={threshold}"
+                ]
+                for ev in recent_demotes:
+                    lines.append(
+                        f"    · {ev.timestamp} {ev.kind} "
+                        f"T{ev.from_tier}→T{ev.to_tier}  {ev.reason}"
+                    )
+                if promoted_to is not None:
+                    lines.append(
+                        f"    · auto-promoted to T{promoted_to} "
+                        f"(--auto-promote)"
+                    )
+                from pathlib import Path as _Path
+                append_session_log(_Path(args.chronicle_path), "\n".join(lines))
+                chronicle_written = True
+
+            payload = {
+                "baseline_tier": baseline,
+                "current_tier": tm.tier.value,
+                "drop": baseline - tm.tier.value,
+                "threshold_drop": threshold,
+                "degraded": degraded,
+                "auto_promoted_to": promoted_to,
+                "chronicle_written": chronicle_written,
+                "recent_demotes": [
+                    {
+                        "timestamp": ev.timestamp,
+                        "kind": ev.kind,
+                        "from_tier": ev.from_tier,
+                        "to_tier": ev.to_tier,
+                        "reason": ev.reason,
+                    }
+                    for ev in recent_demotes
+                ],
+            }
+
+            if getattr(args, "json", False):
+                print(_json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                status = "DEGRADED" if degraded else "ok"
+                print(
+                    f"chimera trust degrade-check: {status}  "
+                    f"baseline=T{baseline} current=T{tm.tier.value} "
+                    f"drop={baseline - tm.tier.value} threshold={threshold}"
+                )
+                if degraded and recent_demotes:
+                    print("  recent demote events:")
+                    for ev in recent_demotes:
+                        print(
+                            f"    {ev.timestamp} {ev.kind:11s} "
+                            f"T{ev.from_tier}→T{ev.to_tier}  {ev.reason}"
+                        )
+                if promoted_to is not None:
+                    print(f"  auto-promoted to T{promoted_to}")
+                if chronicle_written:
+                    print(f"  chronicle warning appended: {args.chronicle_path}")
+            return 10 if degraded else 0
         parser.error(f"unknown trust subcommand: {sub_cmd}")
         return 2
     if args.command == "mutations":
