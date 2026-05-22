@@ -129,6 +129,12 @@ ESCALATING_FINISH_REASONS = frozenset({
     # severity (one-tier demote) and same three-strikes path as
     # fix_without_test.
     "syntax_invalid",
+    # v4.102 (ADR 0106): witness_rejected — a second model READ the
+    # diff for a foundational code change and flagged structural,
+    # correctness, or convention issues. Recoverable with a hint
+    # (the witness names the concerns); routed through the same
+    # three-strikes path as syntax_invalid and fix_without_test.
+    "witness_rejected",
     # v4.84 (ADR 0097): the soak v5 retry pattern was scope_evasion →
     # length → length. Without recording `length`, the three-strikes
     # auto-skip never triggers and the budget burns silently. `length`

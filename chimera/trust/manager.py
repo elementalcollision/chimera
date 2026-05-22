@@ -70,6 +70,14 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # incomplete delivery against an implicit "code must parse"
     # contract. Recoverable with a hint; soak v10 surfaced the gap.
     "syntax_invalid": 1,
+    # v4.102 (ADR 0106): witness_rejected — a second model flagged
+    # structural / correctness / convention concerns on a foundational
+    # code change. Same bucket as ungrounded_citation (recoverable
+    # draft-quality signal): 0 demote. The hint carries the witness's
+    # concerns; the model fixes them in the next attempt. We rely on
+    # the three-strikes auto-skip + escalation memory to handle
+    # repeated witness failures rather than draining trust per touch.
+    "witness_rejected": 0,
     "degenerate_loop_abort": 1,
     "ungrounded_citation": 0,
     "max_rounds": 0,

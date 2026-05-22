@@ -277,6 +277,33 @@ def _syntax_invalid_hint(
     )
 
 
+def _witness_rejected_hint(
+    task_text: str,
+    witness_concerns: list[str] | None = None,
+) -> str:
+    """v4.102 (ADR 0106): the witness model read your diff and rejected it.
+
+    When the detector populated ``witness_concerns`` on the prior
+    ActResult, the hint includes the first three concerns verbatim so
+    the model knows exactly what to address. The DB-only path (where
+    only the finish_reason survives) falls back to a generic prompt.
+    """
+    if not witness_concerns:
+        return (
+            "Your write was rejected by code-review witness. Re-read "
+            "the file you wrote, look for structural defects "
+            "(dangling clauses, mismatched indent, off-by-one), and "
+            "rewrite. Don't analyse — just fix."
+        )
+    concerns_block = "\n  - ".join(witness_concerns[:3])
+    return (
+        f"Your code change was rejected by witness review:\n"
+        f"  - {concerns_block}\n\n"
+        f"Read the file, address each concern specifically, and "
+        f"rewrite. Don't analyse — just fix."
+    )
+
+
 def _max_rounds_hint(task_text: str) -> str:
     return (
         "Your previous attempt at this task exhausted its round budget "
@@ -311,6 +338,7 @@ _HINT_BY_REASON = {
     "artifact_incomplete": _artifact_incomplete_hint,
     "inbox_claim_invalid": _inbox_claim_invalid_hint,
     "syntax_invalid": _syntax_invalid_hint,
+    "witness_rejected": _witness_rejected_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,
     "degenerate_loop_abort": _max_rounds_hint,

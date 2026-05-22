@@ -32,6 +32,12 @@ from typing import Any
 
 from ..memory import record_api_call, record_ladder_outcome
 from ..prompts import build_system_prompt
+from .witness import (
+    capture_diff_for_witness,
+    should_witness,
+    witness_code_change,
+    witness_enabled,
+)
 from .grounding import (
     check_citation_grounding,
     extract_cited_source_files,
@@ -218,6 +224,11 @@ class ActResult:
     # and the runner spun on identical SyntaxError tracebacks for 13
     # minutes before the operator killed it.
     syntax_failures: list[tuple[str, str]] = field(default_factory=list)
+    # v4.102 (ADR 0106): witness review concerns. Populated only when
+    # finish_reason == "witness_rejected". Each entry is a one-sentence
+    # concern naming the file and the structural / correctness defect
+    # the witness model flagged. Capped at 5 by parse_verdict().
+    witness_concerns: list[str] = field(default_factory=list)
 
 
 _ARTIFACT_PATTERN = re.compile(r"`((?:state|mind|docs)/[A-Za-z0-9_./-]+)`")
@@ -1455,6 +1466,35 @@ class ActExecutor:
                     if syntax_failures:
                         completed = False
                         finish_reason = "syntax_invalid"
+                # v4.102 (ADR 0106): witness review for foundational
+                # code changes. Runs after syntax_invalid (the cheap
+                # parse-time gate) and before fix_without_test. The
+                # witness READS the diff and asks the semantic
+                # questions py_compile can't: structural sanity
+                # ("matched parens but dangling clause"), correctness
+                # vs task intent, obvious bugs, convention adherence.
+                # Soak v9 + v10 both shipped diffs no second model
+                # had read.
+                witness_concerns: list[str] = []
+                if completed and witness_enabled():
+                    witness_paths = should_witness(write_targets)
+                    if witness_paths:
+                        try:
+                            diff = capture_diff_for_witness(witness_paths)
+                            rung = self._pick_rung(requires_tools=False)
+                            provider = self._provider_for(rung)
+                            if provider is not None and diff.strip():
+                                verdict = await witness_code_change(
+                                    task_text, diff, witness_paths, provider,
+                                )
+                                if not verdict.approved:
+                                    completed = False
+                                    finish_reason = "witness_rejected"
+                                    witness_concerns = verdict.concerns
+                        except Exception:
+                            logger.exception(
+                                "witness review crashed; treating as approved"
+                            )
                 # v4.90 (ADR 0099): fix-without-test detection. Agent
                 # shipped a chimera/ source edit but never wrote a
                 # regression test. Soak v6 surfaced this exact pattern.
@@ -1514,6 +1554,9 @@ class ActExecutor:
                         "syntax invalid: agent wrote unparseable Python: "
                         f"{pretty}"
                     )
+                elif witness_concerns:
+                    pretty = "; ".join(witness_concerns[:3])
+                    failure_reason = f"witness rejected: {pretty}"
                 elif invalid_inbox:
                     pretty = "; ".join(
                         f"{text[:80]!r} → missing {', '.join(m)}"
@@ -1565,6 +1608,7 @@ class ActExecutor:
                     incomplete_artifacts=incomplete,
                     invalid_inbox_claims=invalid_inbox,
                     syntax_failures=syntax_failures,
+                    witness_concerns=witness_concerns,
                     failure_reason=failure_reason,
                 )
 

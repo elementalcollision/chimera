@@ -293,7 +293,72 @@ def validate(
                 "— pass --allow-entropy if false-positive"
             )
 
+    # v4.102 (ADR 0106): witness review on the cumulative branch diff.
+    # Defense-in-depth alongside the per-task ACT-time check — catches
+    # foundational-code defects that no single task tripped but that
+    # accumulated across the branch. Graceful: only runs when witness
+    # is enabled AND an API key is available; otherwise skipped silently
+    # so existing unit-tests / dry-runs still work.
+    witness_concerns = _maybe_witness_branch(worktree, base, files)
+    if witness_concerns:
+        listed = "; ".join(witness_concerns[:3])
+        errors.append(
+            f"witness_rejected (v4.102 gate): branch diff has unresolved "
+            f"witness concerns: {listed}"
+        )
+
     return branch, commits, errors
+
+
+def _maybe_witness_branch(
+    worktree: Path, base: str, files: list[str],
+) -> list[str]:
+    """Run the v4.102 witness gate on the cumulative branch diff.
+
+    Returns the list of concerns when the witness rejects, ``[]`` on
+    approval, and ``[]`` (silently) when witnessing is disabled or
+    the environment can't support a live provider call. We never raise
+    out of this helper; an unreachable witness must not block PR
+    submission — that's a strictly worse failure mode than a witness
+    that misses a defect.
+    """
+    import os
+    from .witness import should_witness, witness_enabled
+
+    if not witness_enabled():
+        return []
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return []
+    paths = should_witness(files)
+    if not paths:
+        return []
+    try:
+        import asyncio
+        from ..providers import AnthropicProvider
+        from .witness import witness_code_change
+
+        diff = _diff_text(worktree, base, "HEAD")
+        if not diff.strip():
+            return []
+        provider = AnthropicProvider()
+        verdict = asyncio.run(witness_code_change(
+            task_text=(
+                "Pre-PR review: cumulative branch diff vs "
+                f"`{base}`. Treat this as a single change spanning "
+                "all the listed paths; flag structural defects, "
+                "correctness gaps, or convention breaks."
+            ),
+            diff=diff[:64_000],
+            paths=paths,
+            provider=provider,
+        ))
+        if verdict.approved:
+            return []
+        return verdict.concerns
+    except Exception:
+        # Witness path is best-effort at PR time; never block on
+        # provider/network/import faults.
+        return []
 
 
 def _looks_like_worktree(worktree: Path) -> bool:
