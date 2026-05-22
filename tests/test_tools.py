@@ -233,6 +233,25 @@ def test_shell_safe_commands_is_nonempty():
     assert len(SAFE_COMMANDS) >= 10
 
 
+def test_shell_allowlist_includes_v4_108_additions():
+    """v4.108 (soak v13): du/diff/sort/uniq/comm landed for the
+    soak-v10-surfaced phase-2 work needs. They must be members of
+    SAFE_COMMANDS whenever they're present on PATH (the runner
+    filters via _resolved_allowlist), which is true on every
+    standard Linux/macOS installation.
+    """
+    import shutil
+    for cmd in ("du", "diff", "sort", "uniq", "comm"):
+        if shutil.which(cmd) is None:
+            # Skip — host doesn't have the binary; the runtime
+            # filter excludes it from SAFE_COMMANDS by design.
+            continue
+        assert cmd in SAFE_COMMANDS, (
+            f"{cmd!r} on PATH but missing from SAFE_COMMANDS "
+            f"(check RAW_ALLOWLIST in chimera/tools/shell.py)"
+        )
+
+
 @pytest.mark.asyncio
 async def test_shell_runs_safe_command(shell_env):
     mind, _ = shell_env
