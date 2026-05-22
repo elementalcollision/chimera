@@ -111,9 +111,10 @@ fabricates indefinitely with no trust cost) or correctly calibrated
 
 ## Follow-up chips
 
-- **v4.94 (queued):** `chimera trust budget` CLI verb — show current
-  tier, recent demote reasons, and what would re-promote. Would have
-  cut v7 run-3 diagnosis time substantially.
+- **v4.94 (shipped):** `chimera trust budget` CLI verb — shows current
+  tier, dwell time, last_readiness, last ~10 history events with
+  `finish_reason=...` provenance, and the promotion threshold/dwell.
+  `--json` for machine read, `--limit N` for history depth.
 - **v4.95 (queued):** soak runner emits warnings (or auto-promotes)
   when mid-soak trust degrades, rather than silently sliding the
   agent into observer mode.

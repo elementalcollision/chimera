@@ -326,6 +326,19 @@ def _build_parser() -> argparse.ArgumentParser:
     trust_revoke.add_argument("--reason", default="operator revoke")
     trust_lock = trust_sub.add_parser("lockdown", help="Immediate T0 lockdown.")
     trust_lock.add_argument("--reason", default="manual lockdown")
+    trust_budget = trust_sub.add_parser(
+        "budget",
+        help=(
+            "Show trust budget: tier, dwell time, readiness, last ~10 history "
+            "events with finish_reason provenance, and promotion thresholds. "
+            "See docs/adr/0100-graduated-trust-decrements.md (follow-up chip v4.94)."
+        ),
+    )
+    trust_budget.add_argument(
+        "--limit", type=int, default=10,
+        help="Number of recent history events to show (default 10).",
+    )
+    trust_budget.add_argument("--json", action="store_true")
 
     skills = sub.add_parser(
         "skills",
@@ -1299,6 +1312,56 @@ def main(argv: list[str] | None = None) -> int:
             ok = tm.lockdown(reason=args.reason)
             print(f"chimera trust: {'locked down' if ok else 'no-op (already T0)'}")
             return 0 if ok else 1
+        if sub_cmd == "budget":
+            limit = max(1, int(getattr(args, "limit", 10) or 10))
+            hours = tm.hours_in_current_tier()
+            dwell_hours_required = tm.min_dwell_seconds / 3600.0
+            history = list(tm.state.history)[-limit:]
+            if getattr(args, "json", False):
+                payload = {
+                    "tier": tm.tier.value,
+                    "tier_name": tm.tier.name,
+                    "tier_label": tm.tier.label,
+                    "hours_in_tier": round(hours, 2),
+                    "last_readiness": tm.state.last_readiness,
+                    "promotion_threshold": tm.promotion_threshold,
+                    "dwell_hours_required": dwell_hours_required,
+                    "history": [
+                        {
+                            "timestamp": ev.timestamp,
+                            "kind": ev.kind,
+                            "from_tier": ev.from_tier,
+                            "to_tier": ev.to_tier,
+                            "reason": ev.reason,
+                        }
+                        for ev in history
+                    ],
+                }
+                print(_json.dumps(payload, indent=2, sort_keys=True))
+                return 0
+            print(
+                f"chimera trust budget: {tm.tier.name} ({tm.tier.label})  "
+                f"tier={tm.tier.value}"
+            )
+            print(f"  hours_in_tier:        {hours:.2f}")
+            print(f"  last_readiness:       {tm.state.last_readiness:.2f}")
+            print(
+                f"  next promotion:       readiness ≥ "
+                f"{tm.promotion_threshold:.2f}  dwell ≥ "
+                f"{dwell_hours_required:.2f}h"
+            )
+            if tm.tier.value >= 5:
+                print("  (already at T5 — no further promotion)")
+            if history:
+                print(f"  recent events (last {len(history)}):")
+                for ev in history:
+                    print(
+                        f"    {ev.timestamp} {ev.kind:11s} "
+                        f"T{ev.from_tier}→T{ev.to_tier}  {ev.reason}"
+                    )
+            else:
+                print("  recent events: (none)")
+            return 0
         parser.error(f"unknown trust subcommand: {sub_cmd}")
         return 2
     if args.command == "mutations":
