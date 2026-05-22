@@ -65,6 +65,11 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # but not so severe that one slip nukes trust — three lies in
     # short order still escalate via successive demotes.
     "inbox_claim_invalid": 1,
+    # v4.101 (ADR 0105): syntax_invalid — agent shipped unparseable
+    # Python. Same severity as fix_without_test (one-tier demote):
+    # incomplete delivery against an implicit "code must parse"
+    # contract. Recoverable with a hint; soak v10 surfaced the gap.
+    "syntax_invalid": 1,
     "degenerate_loop_abort": 1,
     "ungrounded_citation": 0,
     "max_rounds": 0,

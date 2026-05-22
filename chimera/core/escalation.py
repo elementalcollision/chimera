@@ -121,6 +121,14 @@ ESCALATING_FINISH_REASONS = frozenset({
     # detector also reverts the checkbox in the working tree so the
     # next cycle's runner doesn't act on the lie.
     "inbox_claim_invalid",
+    # v4.101 (ADR 0105): syntax_invalid — agent wrote a *.py file that
+    # fails py_compile. Soak v10 surfaced this as a brand-new failure
+    # class: an incomplete `return ActResult(...)` block shipped to
+    # chimera/core/act.py and the runner spun on identical SyntaxError
+    # tracebacks for 13 minutes. Recoverable with a hint, so moderate
+    # severity (one-tier demote) and same three-strikes path as
+    # fix_without_test.
+    "syntax_invalid",
     # v4.84 (ADR 0097): the soak v5 retry pattern was scope_evasion →
     # length → length. Without recording `length`, the three-strikes
     # auto-skip never triggers and the budget burns silently. `length`

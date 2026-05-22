@@ -25,6 +25,7 @@ import asyncio
 import logging
 import re
 import sqlite3
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,13 @@ class ActResult:
     # the deliverable the bullet promised. Populated only when
     # finish_reason == "inbox_claim_invalid".
     invalid_inbox_claims: list[tuple[str, list[str]]] = field(default_factory=list)
+    # v4.101 (ADR 0105): ``[(path, error_msg), ...]`` for *.py paths the
+    # agent wrote that fail py_compile. Populated only when
+    # finish_reason == "syntax_invalid". Soak v10 surfaced this: the
+    # agent shipped a structurally invalid `return ActResult(...)` block
+    # and the runner spun on identical SyntaxError tracebacks for 13
+    # minutes before the operator killed it.
+    syntax_failures: list[tuple[str, str]] = field(default_factory=list)
 
 
 _ARTIFACT_PATTERN = re.compile(r"`((?:state|mind|docs)/[A-Za-z0-9_./-]+)`")
@@ -449,6 +457,42 @@ def check_phase_fix_without_test(changed_files: list[str]) -> list[str]:
     if has_test:
         return []
     return src
+
+
+def check_syntax_valid(write_targets: list[str]) -> list[tuple[str, str]]:
+    """Return ``[(path, error_msg), ...]`` for any *.py path in
+    ``write_targets`` that fails python compilation.
+
+    v4.101 (ADR 0105). Soak v10 (mind/postmortems/soak-v10-2026-05-22.md)
+    surfaced this gap: the agent wrote a structurally invalid
+    `return ActResult(...verdict = detect_degenerate_loop(history)...)`
+    block to chimera/core/act.py. The file failed to import at the next
+    cycle and the runner spun on identical SyntaxError tracebacks for
+    13 minutes before the operator killed it.
+
+    Non-Python paths and nonexistent paths are ignored — we never crash
+    on weird input. The check uses ``python3 -m py_compile`` so it
+    catches the same SyntaxErrors the import path would.
+    """
+    failures: list[tuple[str, str]] = []
+    for path in write_targets:
+        if not path.endswith(".py"):
+            continue
+        p = Path(path)
+        if not p.exists():
+            continue
+        try:
+            result = subprocess.run(
+                ["python3", "-m", "py_compile", str(p)],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            continue
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            msg = stderr.split("\n")[-1] if stderr else "py_compile failed"
+            failures.append((str(path), msg))
+    return failures
 
 
 def check_scope_evasion_strict(
@@ -1397,6 +1441,20 @@ class ActExecutor:
                     if unedited:
                         completed = False
                         finish_reason = "scope_evasion"
+                # v4.101 (ADR 0105): syntax-validity gate. The agent
+                # may have written a *.py file that fails to compile —
+                # soak v10 shipped exactly this (`return ActResult(...)`
+                # interrupted by a dedented statement). Run BEFORE
+                # fix_without_test: if syntax is broken, fixing that is
+                # the actionable next step regardless of whether tests
+                # exist. Identical-traceback spin is the prior failure
+                # mode this prevents.
+                syntax_failures: list[tuple[str, str]] = []
+                if completed:
+                    syntax_failures = check_syntax_valid(write_targets)
+                    if syntax_failures:
+                        completed = False
+                        finish_reason = "syntax_invalid"
                 # v4.90 (ADR 0099): fix-without-test detection. Agent
                 # shipped a chimera/ source edit but never wrote a
                 # regression test. Soak v6 surfaced this exact pattern.
@@ -1448,7 +1506,15 @@ class ActExecutor:
                         logger.exception(
                             "fragmentation log / auto-proposal failed; continuing"
                         )
-                if invalid_inbox:
+                if syntax_failures:
+                    pretty = "; ".join(
+                        f"`{path}`: {msg}" for path, msg in syntax_failures
+                    )
+                    failure_reason = (
+                        "syntax invalid: agent wrote unparseable Python: "
+                        f"{pretty}"
+                    )
+                elif invalid_inbox:
                     pretty = "; ".join(
                         f"{text[:80]!r} → missing {', '.join(m)}"
                         for text, m in invalid_inbox
@@ -1498,6 +1564,7 @@ class ActExecutor:
                     untested_fix_paths=untested_fix,
                     incomplete_artifacts=incomplete,
                     invalid_inbox_claims=invalid_inbox,
+                    syntax_failures=syntax_failures,
                     failure_reason=failure_reason,
                 )
 

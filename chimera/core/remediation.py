@@ -247,6 +247,36 @@ def _inbox_claim_invalid_hint(task_text: str) -> str:
     )
 
 
+def _syntax_invalid_hint(
+    task_text: str,
+    syntax_failures: list[tuple[str, str]] | None = None,
+) -> str:
+    """v4.101 (ADR 0105): soak v10 — agent wrote unparseable Python.
+
+    When the detector populated ``syntax_failures`` on the prior
+    ActResult, the hint names the offending paths and line errors so the
+    model goes straight to the broken region. Without that detail (the
+    DB-only path, where we only remember the finish_reason), the hint
+    falls back to a generic "read the file and fix it" instruction.
+    """
+    if not syntax_failures:
+        return (
+            "Your write produced invalid Python syntax. Read the file, "
+            "identify the structural issue, and rewrite cleanly. "
+            "Don't analyse — just fix the syntax."
+        )
+    parts: list[str] = []
+    for path, msg in syntax_failures[:3]:
+        parts.append(f"`{path}`: {msg}")
+    paths_section = "\n  - ".join(parts)
+    return (
+        f"Your write produced invalid Python syntax:\n  - {paths_section}\n\n"
+        f"Read the file context around the named line, identify the "
+        f"structural issue, and rewrite the affected block cleanly. "
+        f"Don't analyse — just fix the syntax."
+    )
+
+
 def _max_rounds_hint(task_text: str) -> str:
     return (
         "Your previous attempt at this task exhausted its round budget "
@@ -280,6 +310,7 @@ _HINT_BY_REASON = {
     "fix_without_test": _fix_without_test_hint,
     "artifact_incomplete": _artifact_incomplete_hint,
     "inbox_claim_invalid": _inbox_claim_invalid_hint,
+    "syntax_invalid": _syntax_invalid_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,
     "degenerate_loop_abort": _max_rounds_hint,
