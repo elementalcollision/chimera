@@ -104,11 +104,23 @@ ESCALATING_FINISH_REASONS = frozenset({
     # source edit but skipped the regression test. Three strikes still
     # auto-skips so soak runs don't loop forever on the same gap.
     "fix_without_test",
+    # v4.99 (ADR 0103): phase-scope fix-without-test. Per-task v4.92
+    # has a structural blindspot when a phase splits the fix and the
+    # test across separate tasks; the cumulative branch diff is
+    # checked at phase-end (soak v9 post-mortem, Failure B).
+    "phase_fix_without_test",
     # v4.96 (ADR 0101): artifact_incomplete — agent wrote the named
     # file but it lacks a required content marker the task spelled out
     # in formal language (MUST contain / MUST end with / EXACTLY).
     # Distinct from artifact_missing: the file exists, it's just hollow.
     "artifact_incomplete",
+    # v4.100 (ADR 0104): inbox_claim_invalid — agent flipped a
+    # `[ ]` → `[x]` checkbox in mind/INBOX.md without producing the
+    # deliverable the bullet promised. Soak v9 surfaced this as a new
+    # failure class: INBOX is a TRUTH STATEMENT, not storage. The
+    # detector also reverts the checkbox in the working tree so the
+    # next cycle's runner doesn't act on the lie.
+    "inbox_claim_invalid",
     # v4.84 (ADR 0097): the soak v5 retry pattern was scope_evasion →
     # length → length. Without recording `length`, the three-strikes
     # auto-skip never triggers and the budget burns silently. `length`

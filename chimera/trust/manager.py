@@ -50,10 +50,21 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     "scope_evasion": 2,
     "artifact_missing": 1,
     "fix_without_test": 1,
+    # v4.99 (ADR 0103): phase-scope variant — same severity as the
+    # per-task signal; the branch shipped a chimera/ edit without a
+    # tests/ counterpart even though no single task tripped v4.92.
+    "phase_fix_without_test": 1,
     # v4.96 (ADR 0101): file exists but lacks a required content
     # marker. Moderate severity — same shape as fix_without_test
     # (incomplete delivery against a specified contract).
     "artifact_incomplete": 1,
+    # v4.100 (ADR 0104): inbox claim invalid — agent flipped `[ ]`
+    # → `[x]` without producing the deliverable. Moderate severity:
+    # treats lying about completion as roughly as bad as
+    # fix_without_test (one-tier demote). Severe enough to penalise
+    # but not so severe that one slip nukes trust — three lies in
+    # short order still escalate via successive demotes.
+    "inbox_claim_invalid": 1,
     "degenerate_loop_abort": 1,
     "ungrounded_citation": 0,
     "max_rounds": 0,

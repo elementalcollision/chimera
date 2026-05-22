@@ -398,6 +398,54 @@ def check_fix_without_test(
     return src_paths
 
 
+def check_phase_fix_without_test(changed_files: list[str]) -> list[str]:
+    """Phase-scope variant of :func:`check_fix_without_test`.
+
+    Takes the cumulative file list of a branch diff (e.g. the output of
+    ``git diff --name-only main..HEAD``) and applies the same rule:
+    if any chimera/ source was touched across the phase WITHOUT a
+    tests/test_*.py file also being touched, return the offending paths.
+
+    v4.99 (ADR 0103). Soak v9 surfaced a structural blindspot in the
+    per-task v4.92 detector: a phase can split fix and test across
+    separate tasks, each task individually passing v4.92, and the
+    cumulative branch state violating the principle.
+
+    Soak v9 fixture: phase 2 had task A "Implement the fix" (wrote
+    `chimera/core/act.py`, no tests/ expected) and task B "Write a
+    regression test in tests/test_loop_guard.py" (write_targets empty).
+    Per-task v4.92 cleared both. The branch shipped a fix without a
+    test. This phase-scope check fires.
+
+    The per-task and phase-scope checks coexist: per-task catches the
+    obvious case quickly (fast feedback inside the loop); phase-scope
+    catches the split case at the phase boundary.
+
+    Exclusions match :func:`check_fix_without_test` exactly:
+    ``chimera/_version.py`` and ``chimera/__init__.py`` are bookkeeping
+    and not flagged alone. A "test" is a path under ``tests/`` whose
+    basename starts with ``test_`` (helpers don't count).
+    """
+    src: list[str] = []
+    for p in changed_files:
+        if not p.startswith("chimera/"):
+            continue
+        if not p.endswith(".py"):
+            continue
+        if p in _FIX_WITHOUT_TEST_EXCLUDED_SOURCES:
+            continue
+        if p not in src:
+            src.append(p)
+    if not src:
+        return []
+    has_test = any(
+        _TEST_PATH_PATTERN.fullmatch(p) is not None for p in changed_files
+    )
+    if has_test:
+        return []
+    return src
+
+
 def check_scope_evasion_strict(
     intended: list[str],
     write_targets: list[str],

@@ -20,6 +20,7 @@ from __future__ import annotations
 from chimera.core.act import (
     ToolCall,
     check_fix_without_test,
+    check_phase_fix_without_test,
     extract_write_targets_from_calls,
 )
 from chimera.core.remediation import (
@@ -330,3 +331,99 @@ def test_soak_v7_end_to_end_path():
     assert "chimera/tools/loop_guard.py" not in write_targets
     assert "chimera/core/act.py" not in write_targets
     assert check_fix_without_test(calls, write_targets) == []
+
+
+# ── v4.99 (ADR 0103): phase-scope fix_without_test ──────────────────
+
+
+def test_phase_scope_empty_diff_is_clean():
+    assert check_phase_fix_without_test([]) == []
+
+
+def test_phase_scope_mind_only_diff_is_clean():
+    # A phase that only touched investigation docs is not a "fix".
+    assert check_phase_fix_without_test([
+        "mind/research/loop-abort-investigation.md",
+        "mind/postmortems/soak-v9-2026-05-22.md",
+    ]) == []
+
+
+def test_phase_scope_chimera_with_test_is_clean():
+    # Both touched in the phase, even if they came from different tasks.
+    assert check_phase_fix_without_test([
+        "chimera/core/act.py",
+        "tests/test_act_completeness.py",
+    ]) == []
+
+
+def test_phase_scope_chimera_without_test_flags():
+    # Soak v9 fixture: phase 2 shipped chimera/core/act.py +15 lines
+    # across two [agent] commits; tests/ never appeared in the cumulative
+    # diff. Per-task v4.92 cleared each task individually. Phase-scope
+    # check fires.
+    assert check_phase_fix_without_test([
+        "chimera/core/act.py",
+    ]) == ["chimera/core/act.py"]
+
+
+def test_phase_scope_version_module_alone_excluded():
+    assert check_phase_fix_without_test(["chimera/_version.py"]) == []
+
+
+def test_phase_scope_init_module_alone_excluded():
+    assert check_phase_fix_without_test(["chimera/__init__.py"]) == []
+
+
+def test_phase_scope_helpers_does_not_count_as_test():
+    # tests/helpers.py is not a test_*.py regression — phase still flags.
+    assert check_phase_fix_without_test([
+        "chimera/core/act.py",
+        "tests/helpers.py",
+    ]) == ["chimera/core/act.py"]
+
+
+def test_phase_scope_nested_test_subdir_counts():
+    assert check_phase_fix_without_test([
+        "chimera/core/act.py",
+        "tests/integration/test_act_flow.py",
+    ]) == []
+
+
+def test_phase_scope_per_task_blindspot_soak_v9():
+    """Reproduce the exact soak v9 Failure B fixture.
+
+    Task A: write_targets = [chimera/core/act.py]; per-task v4.92 fires
+    if the task did not name a tests/ path — but this task didn't, so
+    per-task cleared. Task B: write_targets = [] (the agent claimed to
+    write tests/test_loop_guard.py but never did). Per-task cleared.
+
+    Cumulative branch diff: chimera/core/act.py touched, tests/ not.
+    Phase-scope fires.
+    """
+    # Per-task results across the phase (simulated):
+    task_a_per_task = check_fix_without_test(
+        [], ["chimera/core/act.py"],
+    )
+    task_b_per_task = check_fix_without_test([], [])
+    # NB: per-task on task A DOES return the file alone — v4.92 fires
+    # within the single task that writes chimera/ without a tests/
+    # sibling. The blindspot is the OTHER shape: the task text scoped
+    # only the source edit and never *named* a test file, so per-task
+    # write_targets correctly reflects the task's contract. The cross-
+    # task case below is where phase-scope earns its keep.
+    assert task_a_per_task == ["chimera/core/act.py"]
+    assert task_b_per_task == []
+
+    # The cumulative diff — phase-scope must fire.
+    cumulative = ["chimera/core/act.py"]
+    assert check_phase_fix_without_test(cumulative) == ["chimera/core/act.py"]
+
+
+def test_phase_scope_is_an_escalating_finish_reason():
+    from chimera.core.escalation import ESCALATING_FINISH_REASONS
+    assert "phase_fix_without_test" in ESCALATING_FINISH_REASONS
+
+
+def test_phase_scope_has_trust_delta():
+    from chimera.trust.manager import FINISH_REASON_TRUST_DELTAS
+    assert FINISH_REASON_TRUST_DELTAS["phase_fix_without_test"] == 1
