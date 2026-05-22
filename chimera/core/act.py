@@ -35,8 +35,13 @@ from ..prompts import build_system_prompt
 from .witness import (
     capture_diff_for_witness,
     should_witness,
-    witness_code_change,
     witness_enabled,
+)
+from .witness_panel import (
+    aggregate_concerns,
+    build_witness_panel,
+    panel_decision,
+    review_with_panel,
 )
 from .grounding import (
     check_citation_grounding,
@@ -1475,22 +1480,37 @@ class ActExecutor:
                 # vs task intent, obvious bugs, convention adherence.
                 # Soak v9 + v10 both shipped diffs no second model
                 # had read.
+                # v4.103 (ADR 0107): replace single witness with a
+                # cross-provider panel. Default panel: anthropic-sonnet
+                # + openrouter:deepseek-v4-pro + openrouter:gpt-5-pro.
+                # Voting: unanimous (any dissent → witness_rejected).
+                # The agent's own provider can appear at most once.
+                # Concerns from rejecting witnesses are tagged with
+                # [provider:model] so the remediation hint surfaces
+                # which witness raised what.
                 witness_concerns: list[str] = []
                 if completed and witness_enabled():
                     witness_paths = should_witness(write_targets)
                     if witness_paths:
                         try:
                             diff = capture_diff_for_witness(witness_paths)
-                            rung = self._pick_rung(requires_tools=False)
-                            provider = self._provider_for(rung)
-                            if provider is not None and diff.strip():
-                                verdict = await witness_code_change(
-                                    task_text, diff, witness_paths, provider,
+                            if diff.strip():
+                                rung = self._pick_rung(requires_tools=False)
+                                agent_kind = rung.config.provider
+                                panel = build_witness_panel(
+                                    agent_kind,
+                                    available=set(self._providers.keys()),
                                 )
-                                if not verdict.approved:
+                                labelled = await review_with_panel(
+                                    task_text, diff, witness_paths,
+                                    panel, self._providers.get,
+                                )
+                                if labelled and not panel_decision(
+                                    v for _, v in labelled
+                                ):
                                     completed = False
                                     finish_reason = "witness_rejected"
-                                    witness_concerns = verdict.concerns
+                                    witness_concerns = aggregate_concerns(labelled)
                         except Exception:
                             logger.exception(
                                 "witness review crashed; treating as approved"

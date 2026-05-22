@@ -254,6 +254,7 @@ async def witness_code_change(
     provider: Provider,
     tier: str | None = None,
     *,
+    model_id: str | None = None,
     max_tokens: int = 1024,
 ) -> WitnessVerdict:
     """Ask ``provider`` to review the code change.
@@ -263,6 +264,9 @@ async def witness_code_change(
     the provider that matches the requested tier; the default
     ``ActExecutor`` plumbing supplies an ``AnthropicProvider``.
 
+    ``model_id`` overrides tier resolution (v4.103: panel members
+    address OpenRouter rungs not in ``MODEL_TIERS``).
+
     Returns ``WitnessVerdict(approved=True, ...)`` on any unexpected
     error so a flaky provider never strands the agent.
     """
@@ -271,8 +275,9 @@ async def witness_code_change(
     if not diff.strip():
         return WitnessVerdict(approved=True, summary="empty diff; skipped")
 
-    tier_name = tier or witness_tier()
-    model_id, _provider_kind = _resolve_tier(tier_name)
+    if model_id is None:
+        tier_name = tier or witness_tier()
+        model_id, _provider_kind = _resolve_tier(tier_name)
 
     messages = [
         ChatMessage(role="user", content=_build_user_prompt(task_text, diff, paths)),

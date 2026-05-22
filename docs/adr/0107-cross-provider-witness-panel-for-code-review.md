@@ -1,13 +1,6 @@
 # ADR 0107 — Cross-provider witness panel for ACT code review (v4.103)
 
-**Status:** Proposed (2026-05-22) — depends on v4.102 (ADR pending) shipping first
-
-> Draft captured from operator refinement during the v4.101 ship-out
-> session. v4.102 (single-witness code review on foundational changes)
-> is queued but not yet implemented; v4.103 wires the existing
-> cross-provider panel infrastructure into that hook instead of using a
-> single same-provider witness. This ADR records the v4.103 spec so it
-> survives chip-queue churn.
+**Status:** Accepted (2026-05-22) — builds on ADR 0106 (v4.102)
 
 ## Context
 
