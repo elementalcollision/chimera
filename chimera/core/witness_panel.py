@@ -268,6 +268,8 @@ async def review_with_panel(
     paths: list[str],
     panel: list[PanelMember],
     provider_resolver: ProviderResolver,
+    *,
+    charter_excerpts: str = "",
 ) -> list[tuple[str, WitnessVerdict]]:
     """Run ``panel`` over ``diff`` in parallel; return ``[(label, verdict)]``.
 
@@ -306,6 +308,7 @@ async def review_with_panel(
             v = await witness_code_change(
                 task_text, chunk_diff, paths, provider,
                 model_id=m.model_id,
+                charter_excerpts=charter_excerpts,
             )
             chunk_verdicts.append(v)
         if any(not r.approved for r in chunk_verdicts):

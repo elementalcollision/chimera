@@ -34,6 +34,7 @@ from ..memory import record_api_call, record_ladder_outcome
 from ..prompts import build_system_prompt
 from .witness import (
     capture_diff_for_witness,
+    extract_charter_excerpts,
     should_witness,
     witness_enabled,
 )
@@ -1616,9 +1617,19 @@ class ActExecutor:
                                     agent_kind,
                                     available=set(self._providers.keys()),
                                 )
+                                # v4.110 (ADR 0110): anchor witnesses on
+                                # the modified files' leading docstrings
+                                # so threshold-crossing edits (e.g. the
+                                # v13 read-only-ish RAW_ALLOWLIST
+                                # expansion) get flagged regardless of
+                                # code-level quality.
+                                charter = extract_charter_excerpts(
+                                    witness_paths,
+                                )
                                 labelled = await review_with_panel(
                                     task_text, diff, witness_paths,
                                     panel, self._providers.get,
+                                    charter_excerpts=charter,
                                 )
                                 if labelled and not panel_decision(
                                     v for _, v in labelled

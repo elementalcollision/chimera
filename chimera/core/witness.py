@@ -185,7 +185,28 @@ _WITNESS_SYSTEM_PROMPT = (
     "of an iterable while iterating, `==` vs `is` for non-singletons.\n"
     "  4. CONVENTIONS — if surrounding code uses type hints / docstrings "
     "/ a particular logger / a particular dataclass shape, the change "
-    "should too. Don't flag stylistic preferences; flag clear breaks.\n\n"
+    "should too. Don't flag stylistic preferences; flag clear breaks.\n"
+    "  5. CHARTER ANCHORING (v4.110, ADR 0110) — if a `## Charter "
+    "excerpts` section is supplied below, treat its language as "
+    "load-bearing. The leading docstrings / module comments / ADR "
+    "pointers describe architectural constraints the file was "
+    "designed under. Ask: does this diff CROSS a threshold those "
+    "excerpts establish? Examples that MUST be flagged regardless "
+    "of code quality:\n"
+    "       • adding write-capability programs (cp, mv, rm, tee, "
+    "install, touch, mktemp, tar, gzip, etc.) to a surface the "
+    "excerpts describe as \"read-only\" or \"read-only-ish\";\n"
+    "       • removing or weakening a documented restriction "
+    "(\"intentionally small\", \"strict allow-list\", \"MUST NOT\");\n"
+    "       • expanding the security/sandbox scope past what the "
+    "excerpts (or a referenced ADR) sanction;\n"
+    "       • categorical changes to a list/registry the excerpts "
+    "mark as a quality gate, threshold, or boundary.\n"
+    "     Reject such changes with a concern naming the charter "
+    "phrase and the threshold being crossed, e.g. \"crosses "
+    "read-only-ish charter (shell.py L28): adds write-capable "
+    "`rm`/`mv`/`cp` to RAW_ALLOWLIST\". Operator decision, not a "
+    "tactical edit — better caught here than after merge.\n\n"
     "What NOT to flag: speculative refactors, comment density, "
     "doc-comment phrasing, anything you'd write as \"could be nicer\"."
     "\n\nOutput format: a single JSON object on one line:\n"
@@ -198,14 +219,74 @@ _WITNESS_SYSTEM_PROMPT = (
 )
 
 
-def _build_user_prompt(task_text: str, diff: str, paths: list[str]) -> str:
+def _build_user_prompt(
+    task_text: str,
+    diff: str,
+    paths: list[str],
+    charter_excerpts: str = "",
+) -> str:
     paths_block = ", ".join(f"`{p}`" for p in paths) or "(none)"
+    charter_block = ""
+    if charter_excerpts.strip():
+        charter_block = (
+            "## Charter excerpts (HEAD leading docstrings / module comments)\n\n"
+            "These are the architectural constraints the modified files were "
+            "designed under. Apply check 5 (CHARTER ANCHORING) against them.\n\n"
+            f"{charter_excerpts}\n\n"
+        )
     return (
         f"## Task that motivated the change\n\n{task_text}\n\n"
         f"## Files written\n\n{paths_block}\n\n"
+        f"{charter_block}"
         f"## Diff (synthetic pre/post by file)\n\n{diff}\n\n"
         f"Reply with the JSON verdict only."
     )
+
+
+# ── Charter excerpts (v4.110, ADR 0110) ───────────────────
+
+
+def extract_charter_excerpts(
+    paths: list[str],
+    *,
+    worktree: Path | None = None,
+    lines: int = 30,
+) -> str:
+    """Return the leading ``lines`` of each path's HEAD content.
+
+    The witness panel uses this to anchor on architectural language
+    the file's author embedded in its module docstring / leading
+    comments / ADR pointers. Soak v13 surfaced the gap: the panel
+    approved a write-capability expansion of ``RAW_ALLOWLIST`` ten
+    cycles in a row, because nothing in the prompt pointed at the
+    file's own "intentionally small and read-only-ish at MVP" line.
+
+    Pulled from HEAD (not the post-write working tree) so the
+    constraint language is the one the change is being measured
+    against, not the one the change may have edited away.
+    """
+    import subprocess
+
+    root = worktree or Path.cwd()
+    chunks: list[str] = []
+    for path in paths:
+        if not path.endswith(".py"):
+            continue
+        try:
+            r = subprocess.run(
+                ["git", "show", f"HEAD:{path}"],
+                cwd=str(root), capture_output=True, text=True, timeout=5,
+            )
+            pre = r.stdout if r.returncode == 0 else ""
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pre = ""
+        if not pre.strip():
+            continue
+        head = "\n".join(pre.splitlines()[:lines])
+        if not head.strip():
+            continue
+        chunks.append(f"=== {path} (first {lines} lines @ HEAD) ===\n{head}\n")
+    return "".join(chunks)
 
 
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
@@ -256,6 +337,7 @@ async def witness_code_change(
     *,
     model_id: str | None = None,
     max_tokens: int = 1024,
+    charter_excerpts: str = "",
 ) -> WitnessVerdict:
     """Ask ``provider`` to review the code change.
 
@@ -280,7 +362,10 @@ async def witness_code_change(
         model_id, _provider_kind = _resolve_tier(tier_name)
 
     messages = [
-        ChatMessage(role="user", content=_build_user_prompt(task_text, diff, paths)),
+        ChatMessage(
+            role="user",
+            content=_build_user_prompt(task_text, diff, paths, charter_excerpts),
+        ),
     ]
 
     pieces: list[str] = []
