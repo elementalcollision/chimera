@@ -104,3 +104,51 @@ fix ship without tests compounds into a maintenance liability.
 - `chimera/core/escalation.py`: `ESCALATING_FINISH_REASONS`.
 - `tests/test_act_completeness.py`: 16 cases covering normal,
   exclusion, soak v6 fixture, hint derivation.
+
+---
+
+## Amendment — v4.91 (2026-05-22)
+
+Soak v7 surfaced a critical false-positive in v4.90: the detector
+scanned `tool_call_history` arg values for chimera/X.py paths. This
+falsely fired on READ operations — `cat chimera/core/act.py`,
+`read_file(...)`, and even task descriptions echoed through tool args.
+
+Phase 1 of soak v7 was an investigation phase that asked the agent
+to READ several chimera/ files. Every one of those tasks escalated as
+`fix_without_test`, three-strikes auto-skipped, and phase 1 never
+produced the READY-FOR-REMEDIATION sentinel. `fix_without_test=4` in
+the escalations table with zero chimera/ writes and zero tests/ writes
+is the diagnostic signature.
+
+### v4.91 fix
+
+`check_fix_without_test` now inspects ONLY `write_targets` — paths the
+agent actually wrote during the task. Reading a chimera/ source file
+no longer counts as a fix. The `tool_call_history` parameter is kept
+for ABI compatibility but ignored.
+
+The v4.90 unit tests had constructed `tool_call_history` with paths
+in tool args and `write_targets=[]` — which passed under v4.90's
+arg-scanning behavior but would have hidden the false-positive. v4.91
+rewrites the test suite to populate `write_targets` directly, matching
+the real wiring shape, and adds three new regression cases for the
+v7 false-positive pattern:
+
+- `test_v4_91_reading_chimera_source_does_not_flag`
+- `test_v4_91_inbox_quoted_path_does_not_flag`
+- `test_v4_91_write_to_mind_does_not_flag_even_if_args_mention_chimera`
+
+### Lesson
+
+The "loose heuristic" comment in the v4.90 docstring ("a path is
+'touched' if it appears in any tool call arg value or in
+write_targets") was the bug, not the fix. Looseness in scope_evasion
+is fine — it errs toward catching the model when it's near the right
+file but writing somewhere else. Looseness in fix_without_test is
+catastrophic — reading is by far the more common operation, so a
+read-positive detector floods escalations and starves the agent of
+progress via three-strikes.
+
+The two detectors look superficially similar but have inverse risk
+profiles. They should not share heuristics.

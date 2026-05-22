@@ -306,28 +306,36 @@ _FIX_WITHOUT_TEST_EXCLUDED_SOURCES = frozenset({
 
 
 def check_fix_without_test(
-    tool_call_history: list[ToolCall],
+    tool_call_history: list[ToolCall],  # noqa: ARG001  (kept for ABI; v4.91 ignores it)
     write_targets: list[str],
 ) -> list[str]:
-    """Return chimera/ source paths the agent touched if NO tests/ path
-    was touched in the same task.
+    """Return chimera/ source paths the agent WROTE TO if NO tests/ path
+    was also written in the same task.
 
-    Uses the same loose heuristic as :func:`check_scope_evasion` — a
-    path is "touched" if it appears in any tool call arg value or in
-    ``write_targets``. ``chimera/_version.py`` and ``chimera/__init__.py``
-    are excluded (touching them alone is bookkeeping, not a fix).
+    v4.91 — corrected from v4.90. The original implementation scanned
+    tool-call arg values for chimera/X.py paths, which falsely fired on
+    READ operations (`cat chimera/core/act.py`, `read_file(...)`, even
+    INBOX bullets mentioning a path). Soak v7 surfaced this by escalating
+    every phase-1 investigation task as fix_without_test → all three
+    auto-skipped via three-strikes → no progress made.
+
+    The corrected detector inspects ONLY ``write_targets`` — paths the
+    agent *actually wrote to* during the task. Reading a chimera/ source
+    file no longer counts as a fix.
+
+    ``chimera/_version.py`` and ``chimera/__init__.py`` are excluded
+    (touching them alone is bookkeeping, not a fix).
 
     Returns the empty list when:
-      - no chimera/ source touch was detected, OR
-      - at least one tests/test_*.py path was also touched.
+      - no chimera/ source WAS WRITTEN, OR
+      - at least one tests/test_*.py path was also written.
+
+    The ``tool_call_history`` parameter is kept for ABI compatibility
+    with v4.90 callers but is no longer read.
     """
-    parts: list[str] = list(write_targets)
-    for call in tool_call_history:
-        for v in call.args.values():
-            parts.append(str(v))
-    blob = " ".join(parts)
+    write_blob = " ".join(write_targets)
     src_paths: list[str] = []
-    for m in _CHIMERA_SOURCE_PATH_PATTERN.finditer(blob):
+    for m in _CHIMERA_SOURCE_PATH_PATTERN.finditer(write_blob):
         p = m.group(1)
         if p in _FIX_WITHOUT_TEST_EXCLUDED_SOURCES:
             continue
@@ -335,7 +343,7 @@ def check_fix_without_test(
             src_paths.append(p)
     if not src_paths:
         return []
-    if _TEST_PATH_PATTERN.search(blob):
+    if _TEST_PATH_PATTERN.search(write_blob):
         return []
     return src_paths
 
