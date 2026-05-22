@@ -286,7 +286,11 @@ phase_loop() {
 }
 
 # ── phase 1 ────────────────────────────────────────────────────
-INVESTIGATION_DOC="$WORKTREE/mind/research/loop-abort-investigation.md"
+INVESTIGATION_DOC="$WORKTREE/$(soak_extract_sentinel_path "$WORKTREE/mind/INBOX.md")"
+if [ "$INVESTIGATION_DOC" = "$WORKTREE/" ]; then
+    log "FATAL: could not extract sentinel path from $WORKTREE/mind/INBOX.md"; exit 2
+fi
+log "phase-1 sentinel target: $INVESTIGATION_DOC"
 mkdir -p "$WORKTREE/mind/research"
 
 phase_loop "phase1" "$PHASE1_CAP_USD" "$START_ISO" "$INVESTIGATION_DOC" "0"
@@ -299,7 +303,7 @@ cat > "$WORKTREE/mind/INBOX.md" <<'INBOX_EOF'
 # Inbox — Soak v3 phase 2 (remediation, engines on)
 
 Phase 1's verdict and fix sketch are in
-`mind/research/loop-abort-investigation.md` under
+`mind/research/ping-pong-wiring-investigation.md` under
 `## READY-FOR-REMEDIATION`. Implement the fix.
 
 ## Phase 2 tasks
@@ -365,7 +369,7 @@ ls -la "$WORKTREE/mind/research/" 2>&1 | tee -a "$LOG"
 
 log ""
 log "Review: cd $WORKTREE && git log --oneline main..HEAD"
-log "        cat mind/research/loop-abort-investigation.md"
+log "        cat mind/research/ping-pong-wiring-investigation.md"
 log "        cat mind/research/loop-abort-remediation.md"
 log "        uv run pytest tests/test_loop_guard.py -q"
 

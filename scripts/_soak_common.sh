@@ -40,6 +40,24 @@ soak_refuse_concurrent() {
     return 0
 }
 
+soak_extract_sentinel_path() {
+    # Parse an INBOX.md and print the first backtick-quoted
+    # `mind/research/<name>.md` path. v7/v8/v9 runners were cloned
+    # forward from v6 with the INBOX text updated but a sibling
+    # INVESTIGATION_DOC constant left pointing at the v6 filename;
+    # the runner then grep-checked the wrong file for the
+    # READY-FOR-REMEDIATION sentinel and phase 1 spun forever even
+    # when the agent produced the correct deliverable. Extracting
+    # the target from the INBOX text removes the drift class.
+    local inbox="$1"
+    if [ ! -f "$inbox" ]; then
+        return 1
+    fi
+    grep -oE '`mind/research/[A-Za-z0-9_-]+\.md`' "$inbox" \
+        | head -n 1 \
+        | tr -d '`'
+}
+
 soak_install_killgroup_trap() {
     # Capture the parent PID at trap-install time so the trap function
     # uses the script's PID, not a subshell's.
