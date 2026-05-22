@@ -101,6 +101,62 @@ def test_derive_hint_max_rounds_pushes_tool_first():
     assert "tool" in hint.lower() or "code_exec" in hint or "write" in hint.lower()
 
 
+# ── v4.104 (ADR 0108): commit-task concrete-command remediation ─────
+
+
+_V12_COMMIT_TASK = (
+    "Commit your changes to the current branch with `[agent]` prefix "
+    "and a one-paragraph rationale. Multiple commits are fine."
+)
+
+
+def test_commit_task_max_rounds_gets_concrete_hint():
+    hint = derive_remediation_hint(_V12_COMMIT_TASK, "max_rounds")
+    assert hint is not None
+    assert "git add" in hint
+    assert '"git", "commit"' in hint
+    assert "shell" in hint.lower()
+
+
+def test_commit_task_length_gets_concrete_hint():
+    hint = derive_remediation_hint(_V12_COMMIT_TASK, "length")
+    assert hint is not None
+    assert "git add" in hint
+    assert '"git", "commit"' in hint
+
+
+def test_non_commit_task_max_rounds_uses_generic_hint():
+    task = "Write a synthesis to mind/research/x.md"
+    hint = derive_remediation_hint(task, "max_rounds")
+    assert hint is not None
+    assert "git commit" not in hint
+    assert "round budget" in hint.lower() or "exhausted" in hint.lower()
+
+
+def test_commit_task_first_attempt_no_hint(db):
+    """No prior escalations → empty preamble even for a commit task.
+    The concrete hint only fires on retry."""
+    d = remediation_decision(db, task_text=_V12_COMMIT_TASK)
+    assert d.skip is False
+    assert d.preamble == ""
+    assert d.matched_failures == 0
+
+
+def test_v12_fixture_task_dispatches_to_concrete_hint(db):
+    """End-to-end: feed the literal v12 task text plus a prior
+    max_rounds escalation, and assert the concrete-commands hint
+    surfaces in the preamble."""
+    record_failure(
+        db, task_text=_V12_COMMIT_TASK, tier="haiku",
+        finish_reason="max_rounds", rounds_used=20, cycle=1,
+    )
+    d = remediation_decision(db, task_text=_V12_COMMIT_TASK)
+    assert d.skip is False
+    assert "git add" in d.preamble
+    assert '"git", "commit"' in d.preamble
+    assert "[agent]" in d.preamble
+
+
 # ── matching_escalations ────────────────────────────────────
 
 

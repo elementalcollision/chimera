@@ -304,7 +304,67 @@ def _witness_rejected_hint(
     )
 
 
+_COMMIT_TASK_KEYWORDS = (
+    "git commit",
+    "stage and commit",
+    "commit your changes",
+    "make a commit",
+    "create a commit",
+    "commit the changes",
+    "[agent] prefix",
+)
+
+
+def _is_commit_task(task_text: str) -> bool:
+    """v4.104 (ADR 0108): identify commit-style tasks for concrete-command
+    remediation. Soak v12 showed the agent burning rounds reasoning about
+    what to commit instead of calling ``git`` — the fix is a hint that
+    spells out the exact shell invocations.
+
+    Matches keyword phrases (case-insensitive) plus the standalone word
+    ``commit`` when paired with stage/git context. Avoids matching prose
+    that mentions "commit" incidentally (e.g. "commitment", "commit log").
+    """
+    if not task_text:
+        return False
+    lowered = task_text.lower()
+    if any(kw in lowered for kw in _COMMIT_TASK_KEYWORDS):
+        return True
+    # Standalone "commit" verb at the start of the task or right after a
+    # boundary word — covers "Commit your changes…", "Stage and commit".
+    if "commit" in lowered and ("git" in lowered or "stage" in lowered
+                                or "branch" in lowered):
+        return True
+    return False
+
+
+_COMMIT_REMEDIATION_HINT = (
+    "Your previous attempt at committing ran out of rounds without "
+    "calling `git`. Run these EXACT shell commands via shell tool (do "
+    "NOT analyse — just run them):\n"
+    "\n"
+    "  1. shell argv=[\"git\", \"status\", \"--short\"]\n"
+    "  2. shell argv=[\"git\", \"add\", \"<each modified path from step 1>\"]\n"
+    "     (skip files under mind/wiki/ or anything you didn't intend\n"
+    "     to commit; do NOT use 'git add -A')\n"
+    "  3. shell argv=[\"git\", \"commit\", \"-m\", \"[agent] <one-line subject>\"]\n"
+    "  4. shell argv=[\"git\", \"log\", \"--oneline\", \"-3\"]\n"
+    "     to verify the commit landed\n"
+    "\n"
+    "If step 3 errors with \"Please tell me who you are\", run:\n"
+    "  shell argv=[\"git\", \"config\", \"user.email\", \"agent@chimera.local\"]\n"
+    "  shell argv=[\"git\", \"config\", \"user.name\", \"Chimera-Agent\"]\n"
+    "then retry step 3."
+)
+
+
+def _commit_remediation_hint(task_text: str) -> str:
+    return _COMMIT_REMEDIATION_HINT
+
+
 def _max_rounds_hint(task_text: str) -> str:
+    if _is_commit_task(task_text):
+        return _commit_remediation_hint(task_text)
     return (
         "Your previous attempt at this task exhausted its round budget "
         "without producing a deliverable. Reduce analysis prose; call "
@@ -314,6 +374,8 @@ def _max_rounds_hint(task_text: str) -> str:
 
 
 def _length_hint(task_text: str) -> str:
+    if _is_commit_task(task_text):
+        return _commit_remediation_hint(task_text)
     return (
         "Your previous attempt hit the output-token limit writing prose. "
         "Use code_exec or shell to perform the requested edit directly "
