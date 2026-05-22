@@ -24,6 +24,39 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# v4.93 (ADR 0100): graduated trust decrements by escalation severity.
+#
+# Soak v7 run-3 surfaced that uniform demotion treats every escalation
+# signal alike. 3× ungrounded_citation + 1× scope_evasion collapsed
+# T5 → T0 LOCKED before phase-2 could begin, even though the
+# ungrounded_citation events were the system working as designed:
+# v4.83 caught fabricated citations, the model retried, eventually
+# grounded correctly, and the phase-1 deliverable LANDED.
+#
+# The table below splits finish_reasons by what they imply:
+#   - silent_failure / scope_evasion: agent wrote (or claimed to write)
+#     against intent. Two-tier demote.
+#   - artifact_missing / fix_without_test: incomplete delivery against
+#     a specified contract. One-tier demote.
+#   - ungrounded_citation: draft-quality signal; the model recovers
+#     within the same task. Zero demote (logged, not punished).
+#   - max_rounds / length: capability/budget signals routed through
+#     tier-escalation memory, not trust. Zero demote.
+#
+# Reasons not in the table receive 0 by default — add them
+# deliberately, do not let unknown signals silently drain trust.
+FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
+    "silent_failure": 2,
+    "scope_evasion": 2,
+    "artifact_missing": 1,
+    "fix_without_test": 1,
+    "degenerate_loop_abort": 1,
+    "ungrounded_citation": 0,
+    "max_rounds": 0,
+    "length": 0,
+}
+
+
 class TrustTier(IntEnum):
     T0 = 0  # LOCKED
     T1 = 1  # SUPERVISED
@@ -237,6 +270,35 @@ class TrustManager:
         self._state.tier_entered_at = _utc_now_iso()
         self.save()
         return True
+
+    def apply_finish_reason(
+        self,
+        finish_reason: str,
+        *,
+        reason_suffix: str = "",
+    ) -> int:
+        """Demote according to ``FINISH_REASON_TRUST_DELTAS``.
+
+        Returns the number of tiers actually demoted (clamped at T0).
+        Unknown reasons demote 0 tiers — they are not silently penalized.
+        Events with delta=0 are logged at debug level only; no state
+        change, no history entry.
+        """
+        delta = FINISH_REASON_TRUST_DELTAS.get(finish_reason, 0)
+        if delta <= 0:
+            logger.debug(
+                "trust: finish_reason=%s delta=0 (no demote)", finish_reason
+            )
+            return 0
+        demoted = 0
+        for _ in range(delta):
+            reason = f"finish_reason={finish_reason} delta={delta}"
+            if reason_suffix:
+                reason += f" — {reason_suffix}"
+            if not self.demote(reason=reason):
+                break
+            demoted += 1
+        return demoted
 
     def maybe_autopromote(
         self,

@@ -643,6 +643,23 @@ class ChimeraLoop:
                 f"(rounds={result.rounds}, tools={len(result.tool_call_history)}, "
                 f"completed={result.completed})"
             )
+            # v4.93 (ADR 0100): graduated trust decrement keyed on
+            # finish_reason. ungrounded_citation / max_rounds / length
+            # demote 0 tiers; scope_evasion / silent_failure demote 2.
+            if not result.completed:
+                try:
+                    demoted = self._trust.apply_finish_reason(
+                        result.finish_reason,
+                        reason_suffix=f"cycle {self._report.cycle}",
+                    )
+                    if demoted:
+                        self._log_phase(
+                            f"ACT: trust demoted {demoted} tier(s) → "
+                            f"{self._trust.tier.name} "
+                            f"({result.finish_reason})"
+                        )
+                except Exception:
+                    logger.exception("trust apply_finish_reason failed; continuing")
 
         self._record_phase_activity(
             "act",
