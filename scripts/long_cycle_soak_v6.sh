@@ -48,7 +48,7 @@ export CHIMERA_PROPOSER_SCORING_ENABLED=1
 export CHIMERA_ENGINE_SESSION_MODE=1   # v4.74 ADR 0092 — session-mode for phase 2
 
 READY_MARKER="## READY-FOR-REMEDIATION"
-LOG="$REPO_ROOT/state/long_cycle_v6_2026-05-21.log"
+LOG="$REPO_ROOT/state/long_cycle_v6_${STAMP}.log"
 mkdir -p "$REPO_ROOT/state"
 : > "$LOG"
 
