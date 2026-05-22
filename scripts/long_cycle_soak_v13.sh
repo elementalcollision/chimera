@@ -174,58 +174,64 @@ export CHIMERA_MIND_DIR="$WORKTREE/mind"
 cat > "$WORKTREE/mind/INBOX.md" <<'INBOX_EOF'
 # Inbox — Soak v13 phase 1 (investigation only, engines off)
 
-Soak v6 (post-mortem at `mind/postmortems/soak-v6-2026-05-22.md`)
-shipped `detect_ping_pong()` to `chimera/tools/loop_guard.py` (ADR
-0098). The function is exported and tested but NOT YET CALLED by
-ACT. Per ADR 0098, the wiring decision was deferred.
+Soak v10 (post-mortem at `mind/postmortems/soak-v10-2026-05-22.md`)
+surfaced a missing entry in `chimera/tools/shell.py::RAW_ALLOWLIST`:
+the agent tried to run `du` during phase 2 and got a PermissionError
+because `du` was not in the allow-list. Several other low-risk
+read-only commands are also missing (`diff`, `sort`, `uniq`, `comm`).
 
-This soak's task is to land that wiring — both the call site
-change AND the regression test. v4.90's `fix_without_test`
-detector will catch any attempt to ship one without the other.
+The pattern of "tactical allow-list expansion" was established by
+v4.86 (sed, awk) and v4.88 (git, mkdir, python3, test, uv). Both
+shipped as one-file changes plus a sanity test. This soak runs the
+same shape against the v10-surfaced gap.
 
 ## Phase 1 tasks (investigation)
 
-- [ ] Read `chimera/tools/loop_guard.py` and confirm
-  `detect_ping_pong` exists, is exported, and what its signature
-  is (it takes `history`, `min_cycle_length`, `max_cycle_length`,
-  `abort_at_repeats` — verify).
+- [ ] Read `chimera/tools/shell.py` and list the current contents
+  of `RAW_ALLOWLIST`. Confirm the structure (frozenset of strings)
+  and confirm `du`, `diff`, `sort`, `uniq`, `comm` are absent.
 
-- [ ] Read `chimera/core/act.py` around the existing
-  `detect_degenerate_loop(history)` call site. Note exactly:
-  what variable holds `history`, what happens on `LoopVerdict.ABORT`,
-  and what happens on `LoopVerdict.OK` / `WARN`.
+- [ ] Read `tests/test_tools.py` and find the existing test that
+  asserts `SAFE_COMMANDS` membership. Note the exact assertion
+  pattern (`assert "ls" in SAFE_COMMANDS`) and the
+  `len(SAFE_COMMANDS) >= 10` floor.
 
-- [ ] Read `docs/adr/0098-ping-pong-loop-detection.md` §"Wiring"
-  — it sketches two integration choices: combine-verdicts vs
-  separate-finish_reason. Form an opinion on which is right and
-  why. Be specific about the trade-off.
+- [ ] Verify each candidate is safe for the argv-only shell tool:
+  `du` (read-only disk usage), `diff` (file comparison),
+  `sort` (stream sort), `uniq` (dedupe), `comm` (line compare).
+  None should require `-i` or shell metacharacters under normal use.
+  Confirm `which du && which diff && which sort && which uniq &&
+  which comm` on the local PATH.
 
 - [ ] Write all of the above to
-  `mind/research/ping-pong-wiring-investigation.md`. The file MUST
-  end with a section whose heading is EXACTLY:
+  `mind/research/shell-allowlist-expansion.md`. The file MUST end
+  with a section whose heading is EXACTLY:
   `## READY-FOR-REMEDIATION`
-  Under that heading: (a) the chosen wiring approach in one
-  sentence; (b) the exact lines of `chimera/core/act.py` that
-  need to change; (c) a pseudocode test that would distinguish
-  ping-pong from degenerate-loop firing.
+  Under that heading: (a) the chosen set of commands to add in one
+  sentence; (b) the exact line(s) of `chimera/tools/shell.py` that
+  need to change; (c) the assertion to add in `tests/test_tools.py`
+  that locks the new entries in.
 
 Do NOT modify any source files in phase 1. Investigation only.
 
-## Phase 2 tasks (implementation — engines on)
+## Phase 2 tasks (will be injected by the runner after sentinel)
 
-After phase 1 produces the READY-FOR-REMEDIATION sentinel, phase 2
-INBOX (which the runner will inject) will request:
+- Edit `chimera/tools/shell.py` RAW_ALLOWLIST to add the verified
+  commands (du, diff, sort, uniq, comm — or whichever subset
+  phase 1 verified safe)
+- Add a test in `tests/test_tools.py` asserting the new entries
+  are members of SAFE_COMMANDS
+- Commit with `[agent]` prefix and rationale referencing soak v10
+- Run targeted tests and write the result line to
+  `mind/research/shell-allowlist-remediation.md`
 
-- Wire `detect_ping_pong` into `chimera/core/act.py` per the sketch
-- Write the regression test in `tests/test_guards.py` — at least
-  3 cases proving ping-pong abort fires independently of
-  degenerate-loop abort
-- Update ADR 0098's §"Wiring" status from "deferred" to "landed"
-
-Phase 2 is where v4.90's `fix_without_test` detector will be tested:
-any modification to `chimera/core/act.py` without a matching
-modification to `tests/test_guards.py` (or another tests/ file)
-should trigger the new finish_reason.
+Phase 2 exercises:
+  - v4.92/99 fix_without_test (chimera/ + tests/ touched together)
+  - v4.101 syntax_invalid (the edits must parse)
+  - v4.102/103 witness panel (cross-provider review of the diff)
+  - v4.104 commit-task remediation (concrete git invocation hint)
+  - v4.105 OR-disjunction in scope_evasion (task names one source
+    file — should be a trivial pass)
 INBOX_EOF
 
 log "phase-1 INBOX seeded (4 tasks)"
@@ -300,38 +306,36 @@ PHASE2_START_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
 log "phase 2 baseline: $PHASE2_START_ISO"
 
 cat > "$WORKTREE/mind/INBOX.md" <<'INBOX_EOF'
-# Inbox — Soak v3 phase 2 (remediation, engines on)
+# Inbox — Soak v13 phase 2 (remediation, engines on)
 
-Phase 1's verdict and fix sketch are in
-`mind/research/ping-pong-wiring-investigation.md` under
-`## READY-FOR-REMEDIATION`. Implement the fix.
+Phase 1's verified candidates and remediation sketch are in
+`mind/research/shell-allowlist-expansion.md` under
+`## READY-FOR-REMEDIATION`. Implement the expansion.
 
 ## Phase 2 tasks
 
-- [ ] Re-read the verdict and fix sketch. If you still endorse them,
-  proceed. If not, write a one-paragraph "revised plan" at the top
-  of `mind/research/loop-abort-remediation.md` explaining what
-  changed and why.
+- [ ] Re-read the verified set from phase 1. If a candidate
+  command didn't pass the `which` check, drop it. If you still
+  endorse the rest, proceed.
 
-- [ ] Implement the fix per the sketch. Most likely files:
-  `chimera/tools/loop_guard.py` (if the verdict was false-positive
-  and the heuristic needs adjustment) OR `chimera/core/act.py` (if
-  the verdict was correct and the response to a degenerate loop
-  needs to be smarter — re-prompt, escalate, decompose).
+- [ ] Edit `chimera/tools/shell.py` to add the verified entries
+  to `RAW_ALLOWLIST` (the frozenset literal near the top of the
+  file). Preserve alphabetical or grouping convention if there
+  is one. Do NOT touch any other surface in the file.
 
-- [ ] Write a regression test in `tests/test_loop_guard.py` (or
-  `tests/test_act_loop.py` as appropriate) that captures the
-  reproducing case and asserts the new behaviour. The test must
-  FAIL against the unpatched code and PASS against the patched
-  code.
+- [ ] Add a test in `tests/test_tools.py` asserting that each
+  newly-added command is a member of `SAFE_COMMANDS` after
+  `_resolved_allowlist()` runs. Follow the existing pattern
+  (`assert "ls" in SAFE_COMMANDS`).
 
 - [ ] Commit your changes to the current branch with `[agent]`
-  prefix and a one-paragraph rationale. Multiple commits are fine.
+  prefix and a one-paragraph rationale referencing soak v10's
+  surfacing of `du`. Multiple commits are fine.
 
 - [ ] Run the targeted test file: `uv run pytest
-  tests/test_loop_guard.py tests/test_act_loop.py -q` and write
-  the summary line into `mind/research/loop-abort-remediation.md`
-  under `## Test results`.
+  tests/test_tools.py -q` and write the summary line into
+  `mind/research/shell-allowlist-remediation.md` under
+  `## Test results`.
 
 You are on the soak branch; push is scoped-out via a per-worktree
 config override. The operator reviews the branch after the run.
