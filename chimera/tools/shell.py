@@ -50,6 +50,11 @@ RAW_ALLOWLIST: frozenset[str] = frozenset(
         "stat",
         "file",
         "which",
+        "git",
+        "mkdir",
+        "python3",
+        "test",
+        "uv",
     }
 )
 
