@@ -104,12 +104,14 @@ def test_build_panel_prefers_other_providers_first() -> None:
         size=3,
     )
     assert len(panel) == 3
-    # First two should be OpenRouter (other than agent's provider).
-    assert panel[0].provider_kind == ProviderKind.OPENROUTER
-    assert panel[1].provider_kind == ProviderKind.OPENROUTER
-    # Agent's own provider appears at most once.
+    # All three should be OpenRouter — v4.111 expanded the pool to 5
+    # (4 OpenRouter + 1 Anthropic), so with size=3 and the agent on
+    # Anthropic, the other-provider preference fills the whole panel
+    # before the agent's own provider gets a slot.
+    assert all(m.provider_kind == ProviderKind.OPENROUTER for m in panel)
+    # Agent's own provider appears at most once (zero is fine).
     own = [m for m in panel if m.provider_kind == ProviderKind.ANTHROPIC]
-    assert len(own) == 1
+    assert len(own) <= 1
 
 
 def test_build_panel_skips_unavailable_provider() -> None:
@@ -122,6 +124,78 @@ def test_build_panel_skips_unavailable_provider() -> None:
     # of the default panel is OpenRouter and gets skipped.
     assert all(m.provider_kind == ProviderKind.ANTHROPIC for m in panel)
     assert len(panel) <= 1
+
+
+def test_build_panel_seed_rotates_member_selection() -> None:
+    """v4.111: pool=5, panel=3 → different seeds select different members.
+
+    The pool has 4 OpenRouter members + 1 Anthropic. With panel_size=3
+    and the agent on Anthropic, two distinct seeds must produce at
+    least one differing label, otherwise the rotation is dead.
+    """
+    a = build_witness_panel(
+        ProviderKind.ANTHROPIC,
+        available={ProviderKind.ANTHROPIC, ProviderKind.OPENROUTER},
+        size=3,
+        seed=0,
+    )
+    b = build_witness_panel(
+        ProviderKind.ANTHROPIC,
+        available={ProviderKind.ANTHROPIC, ProviderKind.OPENROUTER},
+        size=3,
+        seed=7,
+    )
+    assert {m.label for m in a} != {m.label for m in b}, (
+        f"rotation failed: seed=0 → {[m.label for m in a]}, "
+        f"seed=7 → {[m.label for m in b]}"
+    )
+
+
+def test_build_panel_seed_is_deterministic() -> None:
+    """Same seed → same panel (no hidden global state)."""
+    a = build_witness_panel(
+        ProviderKind.ANTHROPIC,
+        available={ProviderKind.ANTHROPIC, ProviderKind.OPENROUTER},
+        size=3, seed=42,
+    )
+    b = build_witness_panel(
+        ProviderKind.ANTHROPIC,
+        available={ProviderKind.ANTHROPIC, ProviderKind.OPENROUTER},
+        size=3, seed=42,
+    )
+    assert [m.label for m in a] == [m.label for m in b]
+
+
+def test_build_panel_no_seed_preserves_declaration_order() -> None:
+    """When seed is None, ordering must match the v4.103 contract.
+
+    Tests and fixtures (v10 replay, v13 charter) rely on the first
+    three members being the historical default panel.
+    """
+    panel = build_witness_panel(
+        ProviderKind.ANTHROPIC,
+        available={ProviderKind.ANTHROPIC, ProviderKind.OPENROUTER},
+        size=3,
+        # seed intentionally omitted
+    )
+    assert [m.label for m in panel[:2]] == [
+        "openrouter:deepseek-v4-pro",
+        "openrouter:gpt-5-pro",
+    ]
+
+
+def test_build_panel_seed_still_enforces_agent_once() -> None:
+    """Rotation must not break the v4.103 agent-once rule."""
+    for s in range(10):
+        panel = build_witness_panel(
+            ProviderKind.ANTHROPIC,
+            available={ProviderKind.ANTHROPIC, ProviderKind.OPENROUTER},
+            size=3, seed=s,
+        )
+        own = [m for m in panel if m.provider_kind == ProviderKind.ANTHROPIC]
+        assert len(own) <= 1, (
+            f"seed={s}: agent provider appears {len(own)} times"
+        )
 
 
 def test_build_panel_warns_when_single_provider(

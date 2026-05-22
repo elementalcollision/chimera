@@ -1616,6 +1616,12 @@ class ActExecutor:
                                 panel = build_witness_panel(
                                     agent_kind,
                                     available=set(self._providers.keys()),
+                                    # v4.111: rotate panel composition
+                                    # across cycles so any one model's
+                                    # idiosyncratic bias averages out
+                                    # over a soak. Deterministic per
+                                    # cycle for reproducibility.
+                                    seed=cycle,
                                 )
                                 # v4.110 (ADR 0110): anchor witnesses on
                                 # the modified files' leading docstrings

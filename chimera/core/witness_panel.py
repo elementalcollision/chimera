@@ -91,10 +91,12 @@ class PanelMember:
     context_tokens: int = 200_000
 
 
-# Default panel: Anthropic sonnet + two distinct OpenRouter providers.
-# Captured here rather than in tiers.json because v4.103's contract is
-# "cross-provider witness for code review" and the membership is tied
-# to that contract, not to general tier routing.
+# Default panel POOL (v4.111): five members; ``build_witness_panel``
+# picks ``panel_size()`` of them per call. Pool > panel_size so the
+# active panel rotates across cycles (see ``seed`` arg below). Captured
+# here rather than in tiers.json because the contract is "cross-provider
+# witness for code review" and membership is tied to that contract, not
+# to general tier routing.
 _DEFAULT_PANEL: tuple[PanelMember, ...] = (
     PanelMember(
         "anthropic:sonnet", ProviderKind.ANTHROPIC,
@@ -108,6 +110,18 @@ _DEFAULT_PANEL: tuple[PanelMember, ...] = (
         "openrouter:gpt-5-pro", ProviderKind.OPENROUTER,
         "openai/gpt-5-pro", context_tokens=400_000,
     ),
+    # v4.111 additions — operator-selected for additional gradient
+    # diversity across soaks. Same OpenRouter provider kind; rotation
+    # picks among them per cycle so any single model's idiosyncratic
+    # bias gets averaged out.
+    PanelMember(
+        "openrouter:qwen-3.7-max", ProviderKind.OPENROUTER,
+        "qwen/qwen3.7-max", context_tokens=1_000_000,
+    ),
+    PanelMember(
+        "openrouter:glm-4.7", ProviderKind.OPENROUTER,
+        "z-ai/glm-4.7", context_tokens=200_000,
+    ),
 )
 
 
@@ -117,6 +131,7 @@ def build_witness_panel(
     *,
     size: int | None = None,
     require_diversity: bool | None = None,
+    seed: int | None = None,
 ) -> list[PanelMember]:
     """Pick up to ``size`` panel members enforcing provider diversity.
 
@@ -129,7 +144,17 @@ def build_witness_panel(
       - When ``require_diversity`` is true and only one provider is
         configured, returns a degraded panel and logs a warning — the
         soak runner is responsible for surfacing that.
+      - v4.111: when ``seed`` is supplied (typically the cycle index
+        or a task-signature hash), the "others" pool is shuffled
+        deterministically before picking. Pool size (5) exceeds
+        default panel size (3), so seeded shuffling causes the
+        active panel to rotate across cycles while remaining
+        reproducible for a given seed. When ``seed`` is None, the
+        original declaration order is preserved so unit tests and
+        the v10/v13 fixture replays stay deterministic.
     """
+    import random
+
     n = size if size is not None else panel_size()
     diversity = (
         require_diversity if require_diversity is not None
@@ -142,6 +167,8 @@ def build_witness_panel(
 
     others = [m for m in pool if m.provider_kind != agent_provider_kind]
     own = [m for m in pool if m.provider_kind == agent_provider_kind]
+    if seed is not None:
+        random.Random(seed).shuffle(others)
     ordered = others + own
 
     picked: list[PanelMember] = []
