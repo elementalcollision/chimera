@@ -14,6 +14,7 @@ from chimera.core.act import (
     ToolCall,
     check_scope_evasion,
     check_scope_evasion_strict,
+    intended_code_path_groups,
     intended_code_paths,
 )
 
@@ -252,6 +253,160 @@ def test_strict_evasion_partial_overlap():
     assert check_scope_evasion_strict(
         intended, ["chimera/core/act.py"],
     ) == ["chimera/tools/loop_guard.py"]
+
+
+# ── v4.105 (ADR 0109): OR-disjunction grouping ──────────────────────
+
+
+def test_groups_or_disjunction_into_single_group():
+    """Soak v12 fixture (task 1). 'Most likely files: X OR Y' →
+    satisfying either branch satisfies the requirement.
+    """
+    task = (
+        "Implement the fix per the sketch. Most likely files:\n"
+        "`chimera/tools/loop_guard.py` (if false-positive)\n"
+        "OR `chimera/core/act.py` (if correct detection)."
+    )
+    groups = intended_code_path_groups(task)
+    assert groups == [
+        frozenset({"chimera/tools/loop_guard.py", "chimera/core/act.py"}),
+    ]
+
+
+def test_groups_lowercase_or_in_parenthetical():
+    """Soak v12 fixture (task 2). 'in `X` (or `Y` as appropriate)'."""
+    task = (
+        "Write a regression test in `tests/test_loop_guard.py` "
+        "(or `tests/test_act_loop.py` as appropriate)."
+    )
+    groups = intended_code_path_groups(task)
+    assert groups == [
+        frozenset({"tests/test_loop_guard.py", "tests/test_act_loop.py"}),
+    ]
+
+
+def test_groups_singleton_for_solo_path():
+    task = "Patch `chimera/core/act.py` to handle the edge case."
+    assert intended_code_path_groups(task) == [
+        frozenset({"chimera/core/act.py"}),
+    ]
+
+
+def test_groups_separate_when_sentence_break_between_paths():
+    """'Edit X. Then update Y.' — both required, not an OR."""
+    task = "Edit `chimera/core/act.py`. Then update `tests/test_x.py`."
+    groups = intended_code_path_groups(task)
+    assert groups == [
+        frozenset({"chimera/core/act.py"}),
+        frozenset({"tests/test_x.py"}),
+    ]
+
+
+def test_groups_separate_when_joined_by_and():
+    """'X and Y' — both required, not an OR."""
+    task = "Update `chimera/core/act.py` and `tests/test_x.py` together."
+    groups = intended_code_path_groups(task)
+    assert groups == [
+        frozenset({"chimera/core/act.py"}),
+        frozenset({"tests/test_x.py"}),
+    ]
+
+
+def test_groups_transitive_or_chain():
+    """'X or Y or Z' collapses into a single 3-path group."""
+    task = "Edit `chimera/a.py` or `chimera/b.py` or `chimera/c.py`."
+    groups = intended_code_path_groups(task)
+    assert groups == [
+        frozenset({"chimera/a.py", "chimera/b.py", "chimera/c.py"}),
+    ]
+
+
+def test_groups_mixed_or_and_required():
+    """'Edit X. Then write a test in Y or Z.' → 2 groups."""
+    task = (
+        "Edit `chimera/core/act.py`. Then write a regression test in "
+        "`tests/test_a.py` or `tests/test_b.py`."
+    )
+    groups = intended_code_path_groups(task)
+    assert groups == [
+        frozenset({"chimera/core/act.py"}),
+        frozenset({"tests/test_a.py", "tests/test_b.py"}),
+    ]
+
+
+def test_groups_empty_for_no_paths():
+    assert intended_code_path_groups("No files named here.") == []
+
+
+# ── v4.105: scope_evasion respects OR-disjunctions ──────────────────
+
+
+def test_scope_evasion_satisfied_by_either_branch_loose():
+    """Soak v12 task 1 reproduction: agent wrote loop_guard.py,
+    never touched act.py. With OR-grouping, this is NOT evasion.
+    """
+    groups = [
+        frozenset({"chimera/tools/loop_guard.py", "chimera/core/act.py"}),
+    ]
+    history = [
+        ToolCall(
+            name="code_exec",
+            args={
+                "code": (
+                    "Path('chimera/tools/loop_guard.py').write_text('x')"
+                ),
+            },
+        ),
+    ]
+    assert check_scope_evasion(groups, history, []) == []
+
+
+def test_scope_evasion_strict_satisfied_by_either_branch():
+    """Soak v12 strict-at-max_rounds reproduction. write_targets
+    contains only one branch of the disjunction → satisfied.
+    """
+    groups = [
+        frozenset({"chimera/tools/loop_guard.py", "chimera/core/act.py"}),
+    ]
+    assert check_scope_evasion_strict(
+        groups, ["chimera/tools/loop_guard.py"],
+    ) == []
+
+
+def test_scope_evasion_strict_unsatisfied_when_neither_branch_written():
+    groups = [
+        frozenset({"chimera/tools/loop_guard.py", "chimera/core/act.py"}),
+    ]
+    # Reports BOTH paths so the operator sees the full disjunction.
+    assert check_scope_evasion_strict(groups, []) == [
+        "chimera/core/act.py",
+        "chimera/tools/loop_guard.py",
+    ]
+
+
+def test_scope_evasion_strict_mixed_group_satisfied_and_required():
+    """Required path missing, OR-group satisfied → only required reported."""
+    groups = [
+        frozenset({"chimera/core/act.py"}),  # required
+        frozenset({"tests/test_a.py", "tests/test_b.py"}),  # either-or
+    ]
+    assert check_scope_evasion_strict(
+        groups, ["tests/test_a.py"],  # act.py missing
+    ) == ["chimera/core/act.py"]
+
+
+def test_scope_evasion_accepts_flat_list_for_back_compat():
+    """Existing callers passing list[str] still work — each path is a
+    singleton group.
+    """
+    assert check_scope_evasion(
+        ["chimera/core/act.py"],
+        [ToolCall(name="shell", args={"command": "cat chimera/core/act.py"})],
+        [],
+    ) == []
+    assert check_scope_evasion_strict(
+        ["chimera/core/act.py"], [],
+    ) == ["chimera/core/act.py"]
 
 
 def test_evasion_when_agent_only_writes_under_mind():

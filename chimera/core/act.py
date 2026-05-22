@@ -295,28 +295,126 @@ def intended_code_paths(task_text: str) -> list[str]:
     return seen
 
 
+# v4.105 (ADR 0109): OR-disjunction detection. Soak v12 surfaced
+# scope_evasion firing on a task that read "Most likely files: `X` OR
+# `Y`" — the agent correctly satisfied the disjunction by editing one
+# branch, but the strict check at max_rounds required BOTH paths in
+# write_targets and demoted max_rounds→scope_evasion. The fix groups
+# paths joined by "or"/"OR" between path tokens into a single
+# frozenset; the scope checks then require AT LEAST ONE path per group
+# to be touched, not every path.
+_OR_BETWEEN_PATHS_RE = re.compile(r"\bor\b", re.IGNORECASE)
+# A sentence break between two paths means they're separate
+# requirements ("Edit `X`. Then update `Y`."). Recognize ``.``/``!``/
+# ``?`` followed by whitespace + capital, or a blank line.
+_SENTENCE_BREAK_RE = re.compile(r"[.!?]\s+(?=[A-Z`])|\n\s*\n")
+
+
+def intended_code_path_groups(task_text: str) -> list[frozenset[str]]:
+    """Return intended paths grouped by OR-disjunction.
+
+    Each returned ``frozenset`` is a group of alternatives — the task
+    is satisfied if ANY one path in the group is touched. Paths NOT
+    joined by an "or" connective form singleton groups (still
+    required).
+
+    Detection: for each adjacent pair of path matches in the text,
+    look at the gap between them. If the gap contains a bare ``or`` /
+    ``OR`` token and no sentence break, the paths are alternatives.
+    Transitive closure handles ``X or Y or Z``.
+    """
+    matches: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for pattern in (_INTENDED_CODE_PATH_PATTERN, _BACKTICK_CODE_PATH_PATTERN):
+        for m in pattern.finditer(task_text):
+            p = m.group(1)
+            if p in seen:
+                continue
+            seen.add(p)
+            matches.append((m.start(), m.end(), p))
+    if not matches:
+        return []
+    matches.sort(key=lambda t: t[0])
+    paths_in_order = [p for _, _, p in matches]
+    parent = list(range(len(paths_in_order)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    for idx in range(len(matches) - 1):
+        _, a_end, _ = matches[idx]
+        b_start, _, _ = matches[idx + 1]
+        between = task_text[a_end:b_start]
+        if _SENTENCE_BREAK_RE.search(between):
+            continue
+        if _OR_BETWEEN_PATHS_RE.search(between):
+            union(idx, idx + 1)
+
+    groups: dict[int, list[str]] = {}
+    order: list[int] = []
+    for i, p in enumerate(paths_in_order):
+        root = find(i)
+        if root not in groups:
+            groups[root] = []
+            order.append(root)
+        groups[root].append(p)
+    return [frozenset(groups[r]) for r in order]
+
+
+def _normalize_intended_groups(
+    intended: "Sequence[str | frozenset[str]]",
+) -> list[frozenset[str]]:
+    """Accept either flat ``list[str]`` (each path = singleton group)
+    or pre-grouped ``list[frozenset[str]]``. Returns groups form.
+    """
+    out: list[frozenset[str]] = []
+    for item in intended:
+        if isinstance(item, frozenset):
+            if item:
+                out.append(item)
+        else:
+            out.append(frozenset({item}))
+    return out
+
+
 def check_scope_evasion(
-    intended: list[str],
+    intended: "Sequence[str | frozenset[str]]",
     tool_call_history: list[ToolCall],
     write_targets: list[str],
 ) -> list[str]:
-    """Return intended paths that never appear in any tool call arg or
-    recorded write target.
+    """Return intended paths from unsatisfied disjunction groups.
 
     Heuristic: a real edit to ``chimera/x.py`` will surface the path in
     either a shell ``command`` arg (``sed -i ... chimera/x.py``), a
-    code_exec snippet, or the post-write ``write_targets`` list. If the
-    path appears nowhere, the agent never touched it — that's the
-    scope-evasion signal.
+    code_exec snippet, or the post-write ``write_targets`` list. If
+    NO path in a group appears anywhere, the agent never touched any
+    branch of that requirement — that's the scope-evasion signal.
+
+    Accepts a flat ``list[str]`` for backward compat (each path
+    becomes its own singleton group). Use
+    :func:`intended_code_path_groups` for OR-aware grouping.
     """
-    if not intended:
+    groups = _normalize_intended_groups(intended)
+    if not groups:
         return []
     blob_parts: list[str] = list(write_targets)
     for call in tool_call_history:
         for v in call.args.values():
             blob_parts.append(str(v))
     blob = " ".join(blob_parts)
-    return [p for p in intended if p not in blob]
+    unedited: list[str] = []
+    for group in groups:
+        if not any(p in blob for p in group):
+            unedited.extend(sorted(group))
+    return unedited
 
 
 # v4.90 (ADR 0099): fix-without-test detection. Soak v6 produced a
@@ -513,11 +611,12 @@ def check_syntax_valid(write_targets: list[str]) -> list[tuple[str, str]]:
 
 
 def check_scope_evasion_strict(
-    intended: list[str],
+    intended: "Sequence[str | frozenset[str]]",
     write_targets: list[str],
 ) -> list[str]:
-    """Stricter variant: a path is "edited" only if it appears in
-    ``write_targets`` (populated by the post-tool write-intent extractor).
+    """Stricter variant: a group is "satisfied" only if AT LEAST ONE of
+    its paths appears in ``write_targets`` (populated by the post-tool
+    write-intent extractor).
 
     v4.85 (ADR 0096 amendment): soak v5 surfaced a task where the agent
     spent 15+ rounds reading the named files (``cat chimera/...``) but
@@ -528,11 +627,24 @@ def check_scope_evasion_strict(
     to one of the named files? If not, demote the generic ``max_rounds``
     finish to ``scope_evasion`` so the escalation memory carries the
     diagnosable signal.
+
+    v4.105 (ADR 0109): accepts disjunction groups. Soak v12 surfaced
+    false-positive firings on ``X OR Y`` tasks where the agent
+    correctly satisfied the disjunction by writing one branch — the
+    strict check then flagged the other branch and demoted
+    max_rounds→scope_evasion. Accepting groups (or a flat list, where
+    each path is a singleton group) lets callers express "any one of
+    these is enough."
     """
-    if not intended:
+    groups = _normalize_intended_groups(intended)
+    if not groups:
         return []
     targets = set(write_targets)
-    return [p for p in intended if p not in targets]
+    unedited: list[str] = []
+    for group in groups:
+        if not any(p in targets for p in group):
+            unedited.extend(sorted(group))
+    return unedited
 
 
 def expected_artifacts(task_text: str) -> list[str]:
@@ -1451,9 +1563,11 @@ class ActExecutor:
                 # other failure modes already block the false-positive.
                 unedited: list[str] = []
                 if completed:
-                    intended = intended_code_paths(task_text)
+                    # v4.105 (ADR 0109): group OR-disjunctions so
+                    # "edit `X` OR `Y`" is satisfied by touching either.
+                    intended_groups = intended_code_path_groups(task_text)
                     unedited = check_scope_evasion(
-                        intended, history, write_targets,
+                        intended_groups, history, write_targets,
                     )
                     if unedited:
                         completed = False
@@ -1765,7 +1879,12 @@ class ActExecutor:
         # editing the named scope — exactly the soak v5 "Implement the
         # fix per the sketch" failure. Surface the diagnosable signal
         # so escalation memory and the v4.84 remediation hint can use it.
-        intended_at_max = intended_code_paths(task_text)
+        # v4.105 (ADR 0109): group OR-disjunctions. Soak v12 fired
+        # false-positive scope_evasion at max_rounds on tasks like
+        # "Most likely files: `X` OR `Y`" because the strict check
+        # required BOTH paths in write_targets; the agent had
+        # correctly written one.
+        intended_at_max = intended_code_path_groups(task_text)
         unedited_at_max = check_scope_evasion_strict(intended_at_max, write_targets)
         finish_reason_at_max = "max_rounds"
         failure_reason_at_max = "exhausted max rounds without final stop"
