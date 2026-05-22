@@ -20,7 +20,12 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from .act import expected_artifacts, intended_code_paths
+from .act import (
+    _CHIMERA_SOURCE_PATH_PATTERN,
+    _FIX_WITHOUT_TEST_EXCLUDED_SOURCES,
+    expected_artifacts,
+    intended_code_paths,
+)
 from .escalation import EscalationRow, _signature
 from .grounding import extract_cited_source_files
 
@@ -120,6 +125,56 @@ def _ungrounded_citation_hint(task_text: str) -> str:
     )
 
 
+def _fix_without_test_hint(task_text: str) -> str:
+    """v4.90 (ADR 0099): the soak v6 gap. Agent shipped a working fix
+    but skipped the regression test. Derive the corresponding test path
+    from the chimera/ source path the task most plausibly names.
+    """
+    # Prefer paths the task explicitly named under chimera/. Fall back
+    # to a generic phrasing when the task text mentions none.
+    intended = [
+        p for p in intended_code_paths(task_text)
+        if p.startswith("chimera/")
+        and p not in _FIX_WITHOUT_TEST_EXCLUDED_SOURCES
+    ]
+    if not intended:
+        # Pull any chimera/ source path mentioned anywhere (the task may
+        # reference it without our intended-path regex matching).
+        for m in _CHIMERA_SOURCE_PATH_PATTERN.finditer(task_text or ""):
+            p = m.group(1)
+            if p in _FIX_WITHOUT_TEST_EXCLUDED_SOURCES:
+                continue
+            if p not in intended:
+                intended.append(p)
+    if intended:
+        src = intended[0]
+        # chimera/foo/bar.py → tests/test_bar.py (best-effort).
+        stem = src.rsplit("/", 1)[-1].removesuffix(".py")
+        test_path = f"tests/test_{stem}.py"
+        target_clause = (
+            f"Your previous attempt added code to `{src}` but didn't "
+            f"write a regression test."
+        )
+        action_clause = (
+            f"Use code_exec to create or modify `{test_path}` with at "
+            f"least 3 test cases covering normal/edge/threshold "
+            f"behaviour for the new function. Don't analyse — just "
+            f"write the tests."
+        )
+    else:
+        target_clause = (
+            "Your previous attempt modified chimera/ source but didn't "
+            "write a regression test."
+        )
+        action_clause = (
+            "Use code_exec to create or modify the corresponding "
+            "`tests/test_<module>.py` with at least 3 test cases "
+            "covering normal/edge/threshold behaviour. Don't analyse — "
+            "just write the tests."
+        )
+    return f"{target_clause} {action_clause}"
+
+
 def _max_rounds_hint(task_text: str) -> str:
     return (
         "Your previous attempt at this task exhausted its round budget "
@@ -150,6 +205,7 @@ _HINT_BY_REASON = {
     "scope_evasion": _scope_evasion_hint,
     "artifact_missing": _artifact_missing_hint,
     "ungrounded_citation": _ungrounded_citation_hint,
+    "fix_without_test": _fix_without_test_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,
     "degenerate_loop_abort": _max_rounds_hint,

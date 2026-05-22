@@ -196,6 +196,10 @@ class ActResult:
     # never appeared to touch. Populated only when
     # finish_reason == "scope_evasion".
     unedited_paths: list[str] = field(default_factory=list)
+    # v4.90 (ADR 0099): chimera/ source paths the agent touched without
+    # also writing a tests/test_*.py file. Populated only when
+    # finish_reason == "fix_without_test".
+    untested_fix_paths: list[str] = field(default_factory=list)
 
 
 _ARTIFACT_PATTERN = re.compile(r"`((?:state|mind|docs)/[A-Za-z0-9_./-]+)`")
@@ -278,6 +282,62 @@ def check_scope_evasion(
             blob_parts.append(str(v))
     blob = " ".join(blob_parts)
     return [p for p in intended if p not in blob]
+
+
+# v4.90 (ADR 0099): fix-without-test detection. Soak v6 produced a
+# genuine code edit (chimera/tools/loop_guard.py +43 lines) but the
+# agent never wrote the regression test in tests/. Completeness — not
+# orchestration, plumbing, reasoning, recovery, or tooling — is the
+# next frontier. A "fix" is evidence of touching a chimera/ source
+# file; the deliverable is incomplete without a corresponding
+# tests/test_*.py touch.
+_CHIMERA_SOURCE_PATH_PATTERN = re.compile(
+    r"(chimera/[A-Za-z0-9_./-]+\.py)"
+)
+_TEST_PATH_PATTERN = re.compile(
+    r"(tests/(?:[A-Za-z0-9_./-]+/)?test_[A-Za-z0-9_.-]+\.py)"
+)
+# Files that don't carry implementation logic — touching them alone
+# is not a "fix" and should not trigger the detector.
+_FIX_WITHOUT_TEST_EXCLUDED_SOURCES = frozenset({
+    "chimera/_version.py",
+    "chimera/__init__.py",
+})
+
+
+def check_fix_without_test(
+    tool_call_history: list[ToolCall],
+    write_targets: list[str],
+) -> list[str]:
+    """Return chimera/ source paths the agent touched if NO tests/ path
+    was touched in the same task.
+
+    Uses the same loose heuristic as :func:`check_scope_evasion` — a
+    path is "touched" if it appears in any tool call arg value or in
+    ``write_targets``. ``chimera/_version.py`` and ``chimera/__init__.py``
+    are excluded (touching them alone is bookkeeping, not a fix).
+
+    Returns the empty list when:
+      - no chimera/ source touch was detected, OR
+      - at least one tests/test_*.py path was also touched.
+    """
+    parts: list[str] = list(write_targets)
+    for call in tool_call_history:
+        for v in call.args.values():
+            parts.append(str(v))
+    blob = " ".join(parts)
+    src_paths: list[str] = []
+    for m in _CHIMERA_SOURCE_PATH_PATTERN.finditer(blob):
+        p = m.group(1)
+        if p in _FIX_WITHOUT_TEST_EXCLUDED_SOURCES:
+            continue
+        if p not in src_paths:
+            src_paths.append(p)
+    if not src_paths:
+        return []
+    if _TEST_PATH_PATTERN.search(blob):
+        return []
+    return src_paths
 
 
 def check_scope_evasion_strict(
@@ -840,6 +900,15 @@ class ActExecutor:
                     if unedited:
                         completed = False
                         finish_reason = "scope_evasion"
+                # v4.90 (ADR 0099): fix-without-test detection. Agent
+                # shipped a chimera/ source edit but never wrote a
+                # regression test. Soak v6 surfaced this exact pattern.
+                untested_fix: list[str] = []
+                if completed:
+                    untested_fix = check_fix_without_test(history, write_targets)
+                    if untested_fix:
+                        completed = False
+                        finish_reason = "fix_without_test"
                 # v4.5 + v4.10: fragmentation is the same shape whether
                 # ACT ran out of rounds OR the model said `stop` without
                 # producing the artifact. Hook fires on either path.
@@ -864,7 +933,13 @@ class ActExecutor:
                         logger.exception(
                             "fragmentation log / auto-proposal failed; continuing"
                         )
-                if unedited and not missing and not ungrounded:
+                if untested_fix and not unedited and not missing and not ungrounded:
+                    failure_reason = (
+                        f"fix without test: chimera/ source paths "
+                        f"{', '.join(untested_fix)} were modified but no "
+                        f"tests/test_*.py file was touched"
+                    )
+                elif unedited and not missing and not ungrounded:
                     failure_reason = (
                         f"scope evasion: named paths {', '.join(unedited)} "
                         f"were not edited"
@@ -890,6 +965,7 @@ class ActExecutor:
                     missing_artifacts=missing,
                     ungrounded_citations=ungrounded,
                     unedited_paths=unedited,
+                    untested_fix_paths=untested_fix,
                     failure_reason=failure_reason,
                 )
 
