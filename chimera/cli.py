@@ -498,6 +498,46 @@ def _build_parser() -> argparse.ArgumentParser:
     g_stress.add_argument("--repeat", type=int, default=10)
     g_stress.add_argument("--json", action="store_true")
 
+    # v4.97 (ADR 0102): operator-side PR submission for agent soak work.
+    sp = sub.add_parser(
+        "submit-pr",
+        help=(
+            "Open a PR from an agent soak worktree using the OPERATOR's "
+            "git config. Agent never holds push credentials."
+        ),
+    )
+    sp.add_argument(
+        "--worktree", required=True,
+        help="Absolute path to the soak worktree (e.g. /Users/.../chimera-soak-vN-...)",
+    )
+    sp.add_argument(
+        "--base", default="main",
+        help="Base branch for the PR (default: main).",
+    )
+    sp.add_argument("--title", default=None, help="PR title override.")
+    sp.add_argument("--body", default=None, help="PR body override.")
+    sp.add_argument(
+        "--body-from-postmortem", default=None,
+        help="Path to a post-mortem markdown file used as the PR body.",
+    )
+    sp.add_argument(
+        "--draft", action="store_true", default=True,
+        help="Open as draft (default: true).",
+    )
+    sp.add_argument(
+        "--no-draft", dest="draft", action="store_false",
+        help="Open as a ready-for-review PR.",
+    )
+    sp.add_argument(
+        "--dry-run", action="store_true",
+        help="Validate only; do not push or open a PR.",
+    )
+    sp.add_argument(
+        "--allow-entropy", action="store_true",
+        help="Bypass the high-entropy diff check (use after confirming the false positive).",
+    )
+    sp.add_argument("--json", action="store_true", help="Emit a JSON result.")
+
     return parser
 
 
@@ -2242,6 +2282,50 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         parser.error(f"unknown graph subcommand: {sub_cmd}")
         return 2
+    if args.command == "submit-pr":
+        # v4.97 (ADR 0102): operator-side PR submission for soak worktrees.
+        from .core.submit_pr import submit_pr
+
+        worktree = Path(args.worktree).resolve()
+        repo_root = Path(__file__).resolve().parents[1]
+        pm_path = (
+            Path(args.body_from_postmortem).resolve()
+            if args.body_from_postmortem else None
+        )
+
+        result = submit_pr(
+            worktree=worktree,
+            repo_root=repo_root,
+            base=args.base,
+            title=args.title,
+            body=args.body,
+            body_from_postmortem=pm_path,
+            draft=args.draft,
+            dry_run=args.dry_run,
+            allow_entropy=args.allow_entropy,
+        )
+
+        if args.json:
+            import json as _json
+            print(_json.dumps(result.to_dict(), indent=2))
+        else:
+            print(f"chimera submit-pr  branch={result.branch}")
+            for sha, subject in result.commits:
+                tag = "[agent]" if subject.startswith("[agent]") else "[op]"
+                print(f"  {tag} {sha[:8]}  {subject}")
+            if result.validation_errors:
+                print()
+                print("  ❌ validation errors:")
+                for e in result.validation_errors:
+                    print(f"    - {e}")
+            if result.dry_run and result.ok:
+                print()
+                print("  ✓ dry-run: all validations pass — would push + open PR")
+            elif result.ok:
+                print()
+                print(f"  ✓ PR opened: {result.pr_url}")
+        return 0 if result.ok else 1
+
     parser.error(f"unknown command: {args.command}")
     return 2
 
