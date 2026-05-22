@@ -152,3 +152,54 @@ progress via three-strikes.
 
 The two detectors look superficially similar but have inverse risk
 profiles. They should not share heuristics.
+
+---
+
+## Amendment — v4.92 (2026-05-22)
+
+Soak v7 run-2 (post-v4.91) reproduced the false-positive cascade:
+`fix_without_test=3` on the same READ tasks despite the v4.91
+detector-side fix. Root cause is one layer deeper: ``write_targets``
+itself is populated by ACT from ALL tool-call args via path-extraction
+heuristic (act.py:1055 in v4.91), so reading `cat chimera/X.py` lands
+the path in `write_targets` before any detector sees it. v4.91 fixed
+the consumer but not the producer.
+
+### v4.92 fix
+
+`extract_write_targets_from_calls(calls, existing=None)` is a new pure
+helper that filters by tool name. Only calls whose name is in
+`_WRITING_TOOL_NAMES = {"code_exec", "write_file", "edit_file",
+"create_file"}` contribute paths. The inline loop in ACT is replaced
+with a call to this helper.
+
+shell is excluded by design: it's argv-only with no shell
+metacharacters, so it cannot write to disk even when args mention
+paths. web_fetch / web_search / wiki_search are also excluded
+(read-only by definition). Only code_exec is a real writer today;
+the others are placeholders for hypothetical future write tools.
+
+### Test coverage added in v4.92
+
+Six new tests in `tests/test_act_completeness.py` covering the helper
+directly — these are tests that v4.90 and v4.91 lacked, because the
+write_targets-population path was inline in ACT (not testable in
+isolation). The new helper is testable, so the regression is now
+locked down:
+
+- `test_shell_reads_do_not_become_write_targets` — the v7 fixture
+- `test_code_exec_writes_do_become_write_targets`
+- `test_mixed_reads_and_writes_only_writes_count`
+- `test_web_fetch_and_search_do_not_become_write_targets`
+- `test_existing_targets_preserved_and_deduped`
+- `test_soak_v7_end_to_end_path` — full phase-1 fixture
+
+### Lesson
+
+**A detector that depends on an upstream signal can be fixed at the
+detector OR at the signal. v4.91 fixed at the detector and missed
+that the signal was itself wrong.** v4.92 fixes at the signal.
+
+The principle: when a heuristic detector triggers wrongly, audit
+what FILLS the input to the detector before patching the detector
+itself. If the inputs lie, the detector cannot save you.

@@ -291,6 +291,51 @@ def check_scope_evasion(
 # next frontier. A "fix" is evidence of touching a chimera/ source
 # file; the deliverable is incomplete without a corresponding
 # tests/test_*.py touch.
+# v4.92: only these tools can write to the filesystem. shell is argv-only
+# with no shell metacharacters (no `>`, no `|`, no `-i`), so it cannot
+# write even when args mention paths. web_fetch/web_search/wiki_search are
+# read-only by definition. Adding a new writing tool requires extending
+# this set.
+_WRITING_TOOL_NAMES: frozenset[str] = frozenset({
+    "code_exec",
+    "write_file",
+    "edit_file",
+    "create_file",
+})
+
+
+def extract_write_targets_from_calls(
+    calls: list[ToolCall],
+    existing: list[str] | None = None,
+) -> list[str]:
+    """Extract paths the agent ACTUALLY wrote to from a batch of tool calls.
+
+    Only calls whose tool name appears in :data:`_WRITING_TOOL_NAMES`
+    contribute. shell, web_fetch, wiki_search, and friends are read-only
+    and never write to the filesystem (shell is argv-only with no
+    metacharacters; the rest fetch remote data).
+
+    Pure helper — no side effects. Returns a fresh list. If ``existing``
+    is provided, its entries are preserved and new paths are de-duped
+    against it.
+
+    v4.92 introduction. Soak v7 surfaced: when `shell argv=["cat",
+    "chimera/X.py"]` (a READ) was treated as a write_target by the prior
+    inline loop in ACT, the fix_without_test detector falsely fired on
+    every investigation task. Filtering by tool name fixes the
+    write_targets-is-misnamed root cause.
+    """
+    out: list[str] = list(existing) if existing is not None else []
+    for call in calls:
+        if call.name not in _WRITING_TOOL_NAMES:
+            continue
+        blob = " ".join(map(str, call.args.values()))
+        for path in extract_target_paths(blob):
+            if path not in out:
+                out.append(path)
+    return out
+
+
 _CHIMERA_SOURCE_PATH_PATTERN = re.compile(
     r"(chimera/[A-Za-z0-9_./-]+\.py)"
 )
@@ -1049,13 +1094,14 @@ class ActExecutor:
             # the NEXT round can record the round-boundary latency.
             prior_tools_done_at = _time.perf_counter()
 
-            # Track write_targets the agent may have produced. The shell tool
-            # doesn't write, but future write tools will populate this via the
-            # path-extraction heuristic on tool args.
-            for call in history[-len(response.tool_uses) :]:
-                for path in extract_target_paths(" ".join(map(str, call.args.values()))):
-                    if path not in write_targets:
-                        write_targets.append(path)
+            # v4.92: track write_targets the agent ACTUALLY produced via
+            # writing tools (code_exec etc.). Reads via shell/web_fetch are
+            # excluded. See extract_write_targets_from_calls() for the soak
+            # v7 root-cause analysis.
+            recent_calls = history[-len(response.tool_uses):]
+            write_targets[:] = extract_write_targets_from_calls(
+                recent_calls, existing=write_targets,
+            )
 
             messages.append(Message.tool_results(tool_results))
 
