@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS task_escalations (
     signature       TEXT NOT NULL,       -- sorted-token frozenset of task_text
     task_text       TEXT NOT NULL,
     tier            TEXT NOT NULL,       -- tier used on the failed attempt
-    finish_reason   TEXT NOT NULL,       -- max_rounds | provider_error | artifact_missing | degenerate_loop_abort
+    finish_reason   TEXT NOT NULL,       -- max_rounds | provider_error | artifact_missing | degenerate_loop_abort | ping_pong_abort
     rounds_used     INTEGER NOT NULL,
     cycle           INTEGER NOT NULL,
     created_at      TEXT NOT NULL

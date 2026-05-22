@@ -66,6 +66,7 @@ from ..tools import (
     ToolCall,
     ToolDenied,
     detect_degenerate_loop,
+    detect_ping_pong,
     extract_target_paths,
     normalize_tool_input,
 )
@@ -1658,6 +1659,20 @@ class ActExecutor:
                     tool_call_history=history,
                     final_text=final_text,
                     failure_reason="aborted after repeated identical tool calls",
+                    api_call_count=api_call_count,
+                )
+
+            ping_verdict = detect_ping_pong(history)
+            if ping_verdict is LoopVerdict.ABORT:
+                return ActResult(
+                    task_text=task_text,
+                    completed=False,
+                    rounds=round_idx + 1,
+                    finish_reason="ping_pong_abort",
+                    write_targets=write_targets,
+                    tool_call_history=history,
+                    final_text=final_text,
+                    failure_reason="aborted after repeated alternating tool-call cycle",
                     api_call_count=api_call_count,
                 )
 

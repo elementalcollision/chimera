@@ -342,6 +342,7 @@ _HINT_BY_REASON = {
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,
     "degenerate_loop_abort": _max_rounds_hint,
+    "ping_pong_abort": _max_rounds_hint,
 }
 
 

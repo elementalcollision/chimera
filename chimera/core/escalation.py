@@ -96,6 +96,7 @@ ESCALATING_FINISH_REASONS = frozenset({
     "max_rounds",
     "artifact_missing",
     "degenerate_loop_abort",
+    "ping_pong_abort",
     # v4.82 (ADR 0096): scope evasion — named code path went unedited.
     # v4.83 (ADR 0095): ungrounded citation in synthesis output.
     "scope_evasion",

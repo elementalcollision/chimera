@@ -79,6 +79,7 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # repeated witness failures rather than draining trust per touch.
     "witness_rejected": 0,
     "degenerate_loop_abort": 1,
+    "ping_pong_abort": 1,
     "ungrounded_citation": 0,
     "max_rounds": 0,
     "length": 0,
