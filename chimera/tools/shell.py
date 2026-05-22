@@ -43,6 +43,8 @@ RAW_ALLOWLIST: frozenset[str] = frozenset(
         "pwd",
         "date",
         "grep",
+        "sed",
+        "awk",
         "rg",
         "find",
         "stat",
