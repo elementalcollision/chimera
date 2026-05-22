@@ -12,7 +12,7 @@ from .dispatch import (
     add_global_deny,
     clear_global_deny,
 )
-from .loop_guard import LoopVerdict, ToolCall, detect_degenerate_loop, normalize_tool_input
+from .loop_guard import LoopVerdict, ToolCall, detect_degenerate_loop, detect_ping_pong, normalize_tool_input
 from .registry import ToolEntry, ToolRegistry, default_registry
 from .code_exec import register_code_exec_tool
 from .mcp_client import (
@@ -63,6 +63,7 @@ __all__ = [
     "LoopVerdict",
     "ToolCall",
     "detect_degenerate_loop",
+    "detect_ping_pong",
     "normalize_tool_input",
     "extract_target_paths",
     "requires_write_intent",

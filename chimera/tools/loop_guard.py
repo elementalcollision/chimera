@@ -100,3 +100,46 @@ def normalize_tool_input(raw: Any) -> dict[str, Any]:
             return {}
         return parsed if isinstance(parsed, dict) else {}
     return {}
+
+
+
+def detect_ping_pong(
+    history: list[ToolCall],
+    *,
+    min_cycle_length: int = 2,
+    max_cycle_length: int = 3,
+    abort_at_repeats: int = 2,
+) -> LoopVerdict:
+    """Detect alternating (ping-pong) cycles in the tail of *history*.
+
+    Looks for a repeating pattern of length *min_cycle_length*..*max_cycle_length*
+    in the last ``(max_cycle_length * (abort_at_repeats + 1))`` entries.
+    Returns ``LoopVerdict.ABORT`` when the same cycle appears *abort_at_repeats*
+    times.
+    """
+    if len(history) < min_cycle_length * 2:
+        return LoopVerdict.OK
+
+    sigs = [tc.signature() for tc in history]
+
+    for cycle_len in range(min_cycle_length, max_cycle_length + 1):
+        needed = cycle_len * (abort_at_repeats + 1)
+        if len(sigs) < needed:
+            continue
+
+        tail = sigs[-needed:]
+        cycle = tail[:cycle_len]
+
+        matches = True
+        for i in range(0, len(tail), cycle_len):
+            block = tail[i:i + cycle_len]
+            if len(block) < cycle_len:
+                break
+            if block != cycle:
+                matches = False
+                break
+
+        if matches:
+            return LoopVerdict.ABORT
+
+    return LoopVerdict.OK
