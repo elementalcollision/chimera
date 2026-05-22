@@ -13,6 +13,7 @@ from chimera.tools.loop_guard import (
     LoopVerdict,
     ToolCall,
     detect_degenerate_loop,
+    detect_ping_pong,
     normalize_tool_input,
 )
 from chimera.tools.write_intent import (
@@ -62,6 +63,76 @@ def test_loop_threshold_validation():
         detect_degenerate_loop([ToolCall("x", {})], warn_at=1, abort_at=5)
     with pytest.raises(ValueError):
         detect_degenerate_loop([ToolCall("x", {})], warn_at=5, abort_at=3)
+
+
+# ── detect_ping_pong (v4.87 — agent-authored complement) ────
+#
+# detect_degenerate_loop catches identical-args repeats (same name +
+# same args). detect_ping_pong catches *alternating* cycles of length
+# 2–3 — patterns the identical-repeat detector cannot see.
+
+
+def test_ping_pong_empty_history_is_ok():
+    assert detect_ping_pong([]) is LoopVerdict.OK
+
+
+def test_ping_pong_short_history_is_ok():
+    # Below min_cycle_length * 2 = 4 entries — not enough to decide.
+    a = ToolCall("shell", {"argv": ["ls"]})
+    b = ToolCall("shell", {"argv": ["pwd"]})
+    assert detect_ping_pong([a, b, a]) is LoopVerdict.OK
+
+
+def test_ping_pong_two_cycle_aborts():
+    # A→B→A→B→A→B — len-2 cycle repeating 3 times (abort_at_repeats+1).
+    a = ToolCall("shell", {"argv": ["ls"]})
+    b = ToolCall("shell", {"argv": ["pwd"]})
+    history = [a, b, a, b, a, b]
+    assert detect_ping_pong(history) is LoopVerdict.ABORT
+
+
+def test_ping_pong_three_cycle_aborts():
+    # A→B→C repeating 3 times — len-3 cycle.
+    a = ToolCall("shell", {"argv": ["ls"]})
+    b = ToolCall("shell", {"argv": ["pwd"]})
+    c = ToolCall("shell", {"argv": ["date"]})
+    history = [a, b, c, a, b, c, a, b, c]
+    assert detect_ping_pong(history) is LoopVerdict.ABORT
+
+
+def test_ping_pong_also_fires_on_identical_repeats():
+    # An A→A→A→A→A→A run also matches a length-2 cycle of [A,A].
+    # detect_degenerate_loop is the primary detector for this shape;
+    # detect_ping_pong overlapping here is harmless — both call ABORT.
+    call = ToolCall("shell", {"argv": ["ls"]})
+    assert detect_ping_pong([call] * 6) is LoopVerdict.ABORT
+
+
+def test_ping_pong_does_not_fire_on_one_off_pattern():
+    # A→B→A→B then a stray C — not enough complete repeats of the cycle.
+    a = ToolCall("shell", {"argv": ["ls"]})
+    b = ToolCall("shell", {"argv": ["pwd"]})
+    c = ToolCall("shell", {"argv": ["date"]})
+    history = [a, b, a, b, c]
+    assert detect_ping_pong(history) is LoopVerdict.OK
+
+
+def test_ping_pong_only_inspects_tail():
+    # Earlier noise should not prevent abort if the tail clearly cycles.
+    noise = [ToolCall("shell", {"argv": [str(i)]}) for i in range(10)]
+    a = ToolCall("shell", {"argv": ["ls"]})
+    b = ToolCall("shell", {"argv": ["pwd"]})
+    history = noise + [a, b, a, b, a, b]
+    assert detect_ping_pong(history) is LoopVerdict.ABORT
+
+
+def test_ping_pong_custom_repeats_threshold():
+    # abort_at_repeats=3 means 4 full cycles needed.
+    a = ToolCall("shell", {"argv": ["ls"]})
+    b = ToolCall("shell", {"argv": ["pwd"]})
+    history = [a, b, a, b, a, b]  # 3 repeats — under threshold of 4
+    assert detect_ping_pong(history, abort_at_repeats=3) is LoopVerdict.OK
+    assert detect_ping_pong(history + [a, b], abort_at_repeats=3) is LoopVerdict.ABORT
 
 
 # ── normalize_tool_input ────────────────────────────────────

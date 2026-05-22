@@ -103,3 +103,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0095-synthesis-citation-grounding.md](./0095-synthesis-citation-grounding.md) | ADR 0095 — Synthesis-citation grounding check (v4.83) | Accepted (2026-05-20) |
 | [0096-scope-evasion-detection.md](./0096-scope-evasion-detection.md) | ADR 0096 — Scope-evasion detection + explicit writable-scope grant (v4.82) | Accepted (2026-05-20) |
 | [0097-post-escalation-remediation.md](./0097-post-escalation-remediation.md) | ADR 0097 — Post-escalation remediation hints + three-strikes auto-skip (v4.84) | Accepted (2026-05-20) |
+| [0098-ping-pong-loop-detection.md](./0098-ping-pong-loop-detection.md) | ADR 0098 — Ping-pong (alternating-cycle) loop detection (v4.87, agent-authored during soak v6) | Accepted (2026-05-22) |
