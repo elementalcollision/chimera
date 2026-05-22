@@ -17,19 +17,19 @@ Phase 1's verdict and fix sketch are in
   the verdict was correct and the response to a degenerate loop
   needs to be smarter — re-prompt, escalate, decompose).
 
-- [x] Write a regression test in `tests/test_loop_guard.py` (per the wiring; `test_act_loop.py` not required since the assertion is on loop_guard semantics, not act.py orchestration). (Or
-  `tests/test_act_loop.py` as appropriate) that captures the
-  reproducing case and asserts the new behaviour. The test must
-  FAIL against the unpatched code and PASS against the patched
-  code.
+- [x] Write a regression test in `tests/test_loop_guard.py`
+  that captures the reproducing case and asserts the new behaviour.
+  The test must FAIL against the unpatched code and PASS against
+  the patched code. (test_act_loop.py was an alternate option in
+  the original phase-2 INBOX but was not required; loop_guard
+  semantics is the right place for this assertion.)
 
 - [x] Commit your changes to the current branch with `[agent]`
   prefix and a one-paragraph rationale. Multiple commits are fine.
 
 - [x] Run the targeted test file: `uv run pytest
-  tests/test_loop_guard.py tests/test_act_loop.py -q` and write
-  the summary line into `mind/research/loop-abort-remediation.md`
-  under `## Test results`.
+  tests/test_loop_guard.py -q` and write the summary line into
+  `mind/research/loop-abort-remediation.md` under `## Test results`.
 
 You are on the soak branch; push is scoped-out via a per-worktree
 config override. The operator reviews the branch after the run.
