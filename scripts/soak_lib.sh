@@ -73,7 +73,13 @@ soak_phase2_deliverable_landed() {
         return 1
     fi
 
-    # 2. Cumulative diff touches only allowed files
+    # 2. Cumulative diff touches only allowed files.
+    # Convention (v19 retro action item): any path matching
+    # mind/research/*-remediation.md is auto-allowed, because the
+    # charter typically requires the agent to write a remediation
+    # summary doc and committing it is natural. Without this, the
+    # whitelist would have to enumerate the remediation path every
+    # time and forgetting it (as in v19) blocks the soft-sentinel.
     local touched
     touched="$(cd "$worktree" && git diff --name-only main..HEAD 2>/dev/null)"
     if [ -z "$touched" ]; then
@@ -81,6 +87,10 @@ soak_phase2_deliverable_landed() {
     fi
     local f
     for f in $touched; do
+        # Auto-allow remediation docs under mind/research/
+        case "$f" in
+            mind/research/*-remediation.md) continue ;;
+        esac
         local ok=0
         local allowed
         for allowed in $allowed_files; do
@@ -106,5 +116,5 @@ soak_phase2_deliverable_landed() {
 # Print the lib version. Runners log this so post-mortems can correlate
 # soak behavior with the lib revision when the lib changes shape.
 soak_lib_version() {
-    echo "soak_lib.sh v1 — soft-sentinel exit (from v17+v18 retro action item #1)"
+    echo "soak_lib.sh v2 — soft-sentinel exit + remediation.md auto-allow (v17+v18 retro #1, v19 retro polish)"
 }
