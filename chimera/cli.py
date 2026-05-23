@@ -30,6 +30,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Apply remediations for fixable findings "
              "(currently: checkpoint orphan WAL).",
     )
+    doctor_p.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of formatted text.",
+    )
     sub.add_parser(
         "fragmentation",
         help="Show the v4.5 fragmentation log (compound-task failures).",
@@ -1173,6 +1177,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"chimera doctor --fix: [{marker}] wal_checkpoint {msg}")
         results = run_checks()
         rc = 0
+        if getattr(args, "json", False):
+            import json as _json
+            payload = {
+                "command": "doctor",
+                "checks": [
+                    {"name": r.name, "status": r.status, "message": r.message}
+                    for r in results
+                ],
+            }
+            print(_json.dumps(payload, indent=2, default=str))
+            rc = 1 if any(r.status == "error" for r in results) else 0
+            return rc
         print("chimera doctor:")
         for r in results:
             marker = {"ok": "✓", "warn": "!", "error": "✗"}.get(r.status, "?")
