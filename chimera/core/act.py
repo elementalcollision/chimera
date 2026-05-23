@@ -238,6 +238,15 @@ class ActResult:
     # NameError-at-runtime regressions with confident "tests pass"
     # claims. Populated only when finish_reason == "test_claim_invalid".
     test_claim_failures: list[str] = field(default_factory=list)
+    # v4.115 (ADR 0115): commit_message_diff_drift — paths the most-recent
+    # [agent] commit message explicitly claimed to have written (e.g.
+    # ``tests/test_X.py``) that don't appear in the cumulative branch
+    # diff against the base ref. Soak v20-relaunch surfaced an agent
+    # committing chimera/core/act.py + a research doc, with a commit
+    # message body claiming the tests file was part of the work — the
+    # tests file existed on disk but was never git-add'd. Populated
+    # only when finish_reason == "commit_message_diff_drift".
+    commit_message_drift_claims: list[str] = field(default_factory=list)
     # v4.102 (ADR 0106): witness review concerns. Populated only when
     # finish_reason == "witness_rejected". Each entry is a one-sentence
     # concern naming the file and the structural / correctness defect
@@ -791,6 +800,99 @@ def _first_pytest_failure_tail(
         lines = [ln for ln in combined.splitlines() if ln.strip()]
         return "\n".join(lines[-max_lines:]) if lines else None
     return None
+
+
+# v4.115 (ADR 0115): commit-message-vs-diff drift. Soak v20-relaunch
+# surfaced an [agent] commit whose message body claimed the work
+# included a tests/test_ruff_claim_invalid.py file. The diff against
+# main carried chimera/core/act.py and a research doc, but NOT the
+# tests file — the agent wrote the file (it passed locally) but never
+# git-add'd it before committing. The structural detectors all cleared
+# because the un-staged file existed on disk; the witness panel
+# approved the diff without knowing the message lied about it.
+#
+# Path-shape extractor: looks for backtick-quoted OR bare paths under
+# the same trusted roots scope_evasion uses, plus a *.py / *.md / *.sh
+# / *.toml / *.json / *.yaml / *.yml suffix. The roots are deliberately
+# narrow — un-rooted bare strings like "the test file" or "the README"
+# would be too noisy and aren't actionable.
+_COMMIT_CLAIM_PATH_PATTERN = re.compile(
+    r"`?((?:tests|chimera|mind|docs|state|scripts)/"
+    r"[A-Za-z0-9_/.-]+\."
+    r"(?:py|md|sh|toml|json|yaml|yml|txt))`?",
+)
+
+
+def _extract_commit_path_claims(message: str) -> list[str]:
+    """Return distinct rooted paths the commit message names."""
+    seen: list[str] = []
+    for m in _COMMIT_CLAIM_PATH_PATTERN.finditer(message or ""):
+        p = m.group(1)
+        if p not in seen:
+            seen.append(p)
+    return seen
+
+
+def check_commit_message_diff_drift(
+    worktree_root: Path | str,
+    head_ref: str = "HEAD",
+    base_ref: str = "main",
+) -> list[str]:
+    """Return paths the HEAD commit message names that aren't in the diff.
+
+    v4.115 (ADR 0115). Soak v20-relaunch surfaced this: agent committed
+    ``chimera/core/act.py`` with a message claiming the work included
+    ``tests/test_ruff_claim_invalid.py``. The test file existed on disk
+    and passed locally — it was just never ``git add``-ed. All
+    structural detectors cleared (file present, parse clean, etc.) but
+    the cumulative branch diff did not include it, and the commit's
+    text-vs-reality gap is the failure mode this detector closes.
+
+    Behavior:
+      - Only fires on ``[agent]`` commits. Operator commits are
+        out-of-scope (operator messages aren't an autonomous-delivery
+        contract).
+      - Extracts rooted path claims (``tests/...``, ``chimera/...``,
+        ``mind/...``, ``docs/...``, ``state/...``, ``scripts/...``)
+        from the commit message body.
+      - Compares against ``git diff --name-only <base>..<head>``.
+      - Returns claims missing from the diff. Charter: never raise;
+        subprocess errors return ``[]``.
+    """
+    root = Path(worktree_root)
+    try:
+        subj = subprocess.run(
+            ["git", "log", "-1", "--format=%s", head_ref],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+    if subj.returncode != 0:
+        return []
+    subject = (subj.stdout or "").strip()
+    if not subject.startswith("[agent]"):
+        return []
+    try:
+        msg = subprocess.run(
+            ["git", "log", "-1", "--format=%B", head_ref],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+        touched = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_ref}..{head_ref}"],
+            cwd=str(root), capture_output=True, text=True, timeout=15,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+    if msg.returncode != 0 or touched.returncode != 0:
+        return []
+    claimed = _extract_commit_path_claims(msg.stdout or "")
+    if not claimed:
+        return []
+    diff_paths = {
+        line.strip() for line in (touched.stdout or "").splitlines()
+        if line.strip()
+    }
+    return [p for p in claimed if p not in diff_paths]
 
 
 def check_scope_evasion_strict(
@@ -1786,6 +1888,22 @@ class ActExecutor:
                     if test_claim_failures:
                         completed = False
                         finish_reason = "test_claim_invalid"
+                # v4.115 (ADR 0115): commit-message-vs-diff drift.
+                # Soak v20-relaunch shipped an [agent] commit whose
+                # message claimed the work included a tests file the
+                # agent had written but never git-add'd. Run AFTER the
+                # runtime test-claim gate and BEFORE the witness panel:
+                # commit-text drift is a fast, deterministic check that
+                # the rest of the chain can't see (everyone else looks
+                # at task_text or the diff, not the commit message).
+                commit_drift_claims: list[str] = []
+                if completed:
+                    commit_drift_claims = check_commit_message_diff_drift(
+                        Path.cwd(),
+                    )
+                    if commit_drift_claims:
+                        completed = False
+                        finish_reason = "commit_message_diff_drift"
                 # v4.102 (ADR 0106): witness review for foundational
                 # code changes. Runs after syntax_invalid (the cheap
                 # parse-time gate) and before fix_without_test. The
@@ -1925,6 +2043,13 @@ class ActExecutor:
                         "test claim invalid: pytest re-run failed for "
                         f"file(s) the task said had passed: {pretty}"
                     )
+                elif commit_drift_claims:
+                    pretty = ", ".join(f"`{p}`" for p in commit_drift_claims)
+                    failure_reason = (
+                        "commit message diff drift: the commit message "
+                        f"named path(s) {pretty} that don't appear in "
+                        f"the branch diff (un-staged or un-written)"
+                    )
                 elif witness_concerns:
                     pretty = "; ".join(witness_concerns[:3])
                     failure_reason = f"witness rejected: {pretty}"
@@ -1980,6 +2105,7 @@ class ActExecutor:
                     invalid_inbox_claims=invalid_inbox,
                     syntax_failures=syntax_failures,
                     test_claim_failures=test_claim_failures,
+                    commit_message_drift_claims=commit_drift_claims,
                     witness_concerns=witness_concerns,
                     failure_reason=failure_reason,
                 )

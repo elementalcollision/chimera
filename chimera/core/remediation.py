@@ -314,6 +314,40 @@ def _test_claim_invalid_hint(
     )
 
 
+def _commit_message_diff_drift_hint(
+    task_text: str,
+    commit_message_drift_claims: list[str] | None = None,
+) -> str:
+    """v4.115 (ADR 0115): the [agent] commit message named paths that
+    aren't in the cumulative branch diff.
+
+    Soak v20-relaunch: the agent wrote a tests file (passing locally)
+    but never ``git add``-ed it, then committed with a message body
+    claiming the tests were part of the delivery. The hint names the
+    missing paths so the model can either stage-and-amend or rewrite
+    the message — both are correct fixes; the lie-vs-reality gap is
+    what must close.
+    """
+    if not commit_message_drift_claims:
+        return (
+            "Your last commit's message named one or more paths that "
+            "aren't in the branch diff. Run `git diff --name-only "
+            "main..HEAD` to see what actually changed, then EITHER "
+            "`git add` the missing files and amend the commit, OR "
+            "rewrite the commit message so it only references files "
+            "the diff carries. Don't claim work the diff doesn't show."
+        )
+    paths = ", ".join(f"`{p}`" for p in commit_message_drift_claims[:5])
+    return (
+        f"Your last commit's message named path(s) {paths} that don't "
+        f"appear in `git diff --name-only main..HEAD`. Either "
+        f"`git add` the missing path(s) and amend the commit, OR "
+        f"rewrite the commit message so it only references files the "
+        f"diff carries. The commit-message-vs-diff gap is the failure; "
+        f"close it on whichever side is correct."
+    )
+
+
 def _witness_rejected_hint(
     task_text: str,
     witness_concerns: list[str] | None = None,
@@ -438,6 +472,7 @@ _HINT_BY_REASON = {
     "inbox_claim_invalid": _inbox_claim_invalid_hint,
     "syntax_invalid": _syntax_invalid_hint,
     "test_claim_invalid": _test_claim_invalid_hint,
+    "commit_message_diff_drift": _commit_message_diff_drift_hint,
     "witness_rejected": _witness_rejected_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,
