@@ -149,6 +149,52 @@ def checkpoint_wal(state_dir: Path) -> tuple[bool, str]:
     return True, f"checkpoint ok: {row}"
 
 
+def _check_orphan_worktrees(repo_root: Path) -> CheckResult:
+    """v4.90: detect worktree entries whose linked directory no longer exists.
+
+    Deleting a git worktree directory without running ``git worktree remove``
+    or ``git worktree prune`` leaves stale administrative files under
+    ``.git/worktrees/<id>/``. The function surfaces them so the operator can
+    clean up with ``git worktree prune``.
+    """
+    git_dir = repo_root / ".git"
+    worktrees_dir = git_dir / "worktrees"
+
+    if not worktrees_dir.is_dir():
+        return CheckResult("orphan_worktrees", "ok", "no .git/worktrees directory")
+
+    orphan_ids: list[str] = []
+    try:
+        for entry in sorted(worktrees_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            gd = entry / "gitdir"
+            if not gd.exists():
+                continue
+            raw = gd.read_text().strip()
+            if not raw:
+                continue
+            linked = Path(raw)
+            # gitdir points to the worktree's .git file; parent is the root
+            if not linked.parent.exists():
+                orphan_ids.append(entry.name)
+    except OSError as exc:
+        return CheckResult(
+            "orphan_worktrees", "ok",
+            f"cannot read {worktrees_dir}: {exc}",
+        )
+
+    if not orphan_ids:
+        return CheckResult("orphan_worktrees", "ok", "no orphan worktrees")
+
+    return CheckResult(
+        "orphan_worktrees", "warn",
+        f"orphan worktree(s): {sorted(orphan_ids)}. "
+        f"Run `git worktree prune` from {repo_root} "
+        f"or delete .git/worktrees/<id>/ manually.",
+    )
+
+
 def _check_shell_allowlist() -> CheckResult:
     """v4.80: warn when an advertised shell allow-list entry isn't on PATH.
 
@@ -355,16 +401,19 @@ def _check_concurrent_soak_runners() -> CheckResult:
     )
 
 
-def run_checks() -> list[CheckResult]:
+def run_checks(repo_root: Path | None = None) -> list[CheckResult]:
     """Run every check. Pure: writes nothing (beyond creating state/mind dirs)."""
     state_dir = Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
     mind_dir = Path(os.environ.get("CHIMERA_MIND_DIR", "mind"))
+    if repo_root is None:
+        repo_root = state_dir.resolve().parent
     results: list[CheckResult] = [
         _check_writable_dir("state_dir", state_dir),
         _check_writable_dir("mind_dir", mind_dir),
         # WAL check runs BEFORE sqlite open: opening the DB auto-rolls a
         # valid WAL forward, which would mask the orphan condition.
         _check_orphan_wal(state_dir),
+        _check_orphan_worktrees(repo_root),
         _check_sqlite(state_dir),
         _check_graph_dependency(),
         _check_shell_allowlist(),

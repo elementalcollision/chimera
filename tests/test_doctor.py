@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import stat
+import time
 
 import pytest
 
@@ -351,3 +354,184 @@ def test_concurrent_soak_runners_warn_when_multiple_alive(monkeypatch):
     r = _by_name(run_checks(), "soak_runners")
     assert r.status == "warn"
     assert "12345" in r.message and "12399" in r.message
+
+# ── v4.90+: orphan / aged worktree detection ────────────────────────
+
+
+
+def _make_worktree_metadata(worktrees_dir: Path, wt_id: str, *,
+                            branch: str = "main",
+                            linked_dir: Path | None = None,
+                            mtime_sec: float | None = None) -> Path:
+    """Create a .git/worktrees/<wt_id>/ directory with gitdir, HEAD, etc."""
+    wt = worktrees_dir / wt_id
+    wt.mkdir(parents=True, exist_ok=True)
+    linked = linked_dir or (worktrees_dir.parent.parent / f"wt-{wt_id}")
+    (wt / "gitdir").write_text(str(linked / ".git") + "\n")
+    (wt / "HEAD").write_text(f"ref: refs/heads/{branch}\n")
+    (wt / "commondir").write_text("../..\n")
+    if mtime_sec is not None:
+        os.utime(wt, (mtime_sec, mtime_sec))
+    return wt
+
+
+def test_orphan_worktrees_clean_repo_returns_ok(tmp_path, monkeypatch):
+    """Repo with no .git/worktrees/ → status="ok"."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    # No worktrees dir at all
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    from chimera.core.doctor import run_checks
+    r = _by_name(run_checks(repo_root=repo), "orphan_worktrees")
+    assert r.status == "ok"
+
+
+def test_orphan_worktrees_fresh_soak_returns_ok(tmp_path, monkeypatch):
+    """Repo with a chimera-soak/* worktree whose mtime is fresh (<24h) → ok."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git_dir = repo / ".git"
+    worktrees_dir = git_dir / "worktrees"
+    worktrees_dir.mkdir(parents=True)
+
+    linked_dir = tmp_path / "soak_wt"
+    linked_dir.mkdir(parents=True)
+    (linked_dir / ".git").mkdir()
+
+    now = time.time()
+    _make_worktree_metadata(
+        worktrees_dir, "soak1",
+        branch="chimera-soak/v6-main",
+        linked_dir=linked_dir,
+        mtime_sec=now - 3600,  # 1 hour ago — fresh
+    )
+
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    from chimera.core.doctor import run_checks
+    r = _by_name(run_checks(repo_root=repo), "orphan_worktrees")
+    assert r.status == "ok", r.message
+
+
+def test_orphan_worktrees_aged_soak_returns_warn(tmp_path, monkeypatch):
+    """Repo with a chimera-soak/* worktree mtime > threshold → warn with
+    `git worktree remove` substring."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git_dir = repo / ".git"
+    worktrees_dir = git_dir / "worktrees"
+    worktrees_dir.mkdir(parents=True)
+
+    linked_dir = tmp_path / "soak_aged"
+    linked_dir.mkdir(parents=True)
+    (linked_dir / ".git").mkdir()
+
+    now = time.time()
+    _make_worktree_metadata(
+        worktrees_dir, "soak_aged1",
+        branch="chimera-soak/v7-main",
+        linked_dir=linked_dir,
+        mtime_sec=now - (25 * 3600),  # 25 hours ago — aged past default 24h
+    )
+
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    from chimera.core.doctor import run_checks
+    r = _by_name(run_checks(repo_root=repo), "orphan_worktrees")
+    assert r.status == "warn", r.message
+    assert "git worktree remove" in r.message
+
+
+def test_orphan_worktrees_threshold_env_knob(tmp_path, monkeypatch):
+    """CHIMERA_DOCTOR_WORKTREE_AGE_HOURS=1, fixture has 2h-old worktree → warn."""
+    monkeypatch.setenv("CHIMERA_DOCTOR_WORKTREE_AGE_HOURS", "1")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git_dir = repo / ".git"
+    worktrees_dir = git_dir / "worktrees"
+    worktrees_dir.mkdir(parents=True)
+
+    linked_dir = tmp_path / "soak_2h"
+    linked_dir.mkdir(parents=True)
+    (linked_dir / ".git").mkdir()
+
+    now = time.time()
+    _make_worktree_metadata(
+        worktrees_dir, "soak_2h_id",
+        branch="chimera-soak/v8-main",
+        linked_dir=linked_dir,
+        mtime_sec=now - (2 * 3600),  # 2 hours ago — past the 1h env knob
+    )
+
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    from chimera.core.doctor import run_checks
+    r = _by_name(run_checks(repo_root=repo), "orphan_worktrees")
+    assert r.status == "warn", r.message
+
+
+def test_orphan_worktrees_non_soak_branch_ignored(tmp_path, monkeypatch):
+    """Worktree whose branch doesn't match `chimera-soak/v\\d+-` → ignored
+    regardless of age."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git_dir = repo / ".git"
+    worktrees_dir = git_dir / "worktrees"
+    worktrees_dir.mkdir(parents=True)
+
+    linked_dir = tmp_path / "non_soak"
+    linked_dir.mkdir(parents=True)
+    (linked_dir / ".git").mkdir()
+
+    now = time.time()
+    _make_worktree_metadata(
+        worktrees_dir, "not_soak",
+        branch="feature/random-branch",
+        linked_dir=linked_dir,
+        mtime_sec=now - (100 * 3600),  # 100h old — but not a soak branch
+    )
+
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    from chimera.core.doctor import run_checks
+    r = _by_name(run_checks(repo_root=repo), "orphan_worktrees")
+    assert r.status == "ok", r.message
+
+
+def test_orphan_worktrees_malformed_metadata_returns_ok(tmp_path, monkeypatch):
+    """A worktree directory missing HEAD or with garbage → "ok" with
+    diagnostic, NOT "error" (charter #6)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git_dir = repo / ".git"
+    worktrees_dir = git_dir / "worktrees"
+    worktrees_dir.mkdir(parents=True)
+
+    # Case 1: worktree dir missing HEAD entirely
+    bad1 = worktrees_dir / "no_head"
+    bad1.mkdir()
+    (bad1 / "gitdir").write_text(str(tmp_path / "nowhere" / ".git") + "\n")
+
+    # Case 2: worktree dir with garbage
+    linked2 = tmp_path / "garbage_linked"
+    linked2.mkdir(parents=True)
+    (linked2 / ".git").mkdir()
+    bad2 = worktrees_dir / "garbage"
+    bad2.mkdir()
+    (bad2 / "gitdir").write_text(str(linked2 / ".git") + "\n")
+    (bad2 / "HEAD").write_bytes(b"\x00\x01\xff\xfe" * 10)  # binary garbage
+
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    from chimera.core.doctor import run_checks
+    r = _by_name(run_checks(repo_root=repo), "orphan_worktrees")
+    assert r.status == "ok", f"expected ok, got {r.status}: {r.message}"

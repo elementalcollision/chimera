@@ -1,49 +1,84 @@
-# Inbox — Soak v3 phase 2 (remediation, engines on)
+# Inbox — Soak v16 phase 2 (remediation, engines on)
 
-Phase 1's verdict and fix sketch are in
-`mind/research/ping-pong-wiring-investigation.md` under
-`## READY-FOR-REMEDIATION`. Implement the fix.
+Phase 1's design is in
+`mind/research/orphan-worktree-check-design.md` under
+`## READY-FOR-REMEDIATION`. Implement the new doctor check.
+
+CHARTER (v4.112 charter extraction will pass this to the witness
+panel from this task text):
+
+  1. SCOPE: ONE new check function — `_check_orphan_worktrees` —
+     in `chimera/core/doctor.py`. Wire it into the existing
+     check registry (`run_checks` or equivalent). NO other doctor
+     changes.
+  2. SEMANTICS: enumerate `.git/worktrees/<name>/HEAD` files; when
+     a branch name matches `chimera-soak/v\d+-` AND the
+     worktree directory's mtime is older than the configured
+     threshold, return `warn` with a `git worktree remove …`
+     suggestion in the message.
+  3. PATTERN: follow `_check_orphan_wal` exactly. Same signature
+     shape (path arg in, `CheckResult` out). Same status vocab
+     (`ok`/`warn`/`error`). Same naming convention.
+  4. NO new CLI flags. NO refactor of the `CheckResult` dataclass.
+     NO renaming of existing check functions. NO changes to the
+     doctor handler in `chimera/cli.py`.
+  5. NO subprocess calls to the `git` binary. Read
+     `.git/worktrees/` directly. Gracefully handle a missing dir.
+  6. The check must NEVER raise. On any failure (perm denied,
+     malformed metadata, etc.) → return `ok` with a diagnostic
+     message, NOT `error`. False positives in this check are
+     far worse than false negatives.
+  7. The threshold is read from
+     `CHIMERA_DOCTOR_WORKTREE_AGE_HOURS` env var, default 24.
+     Document the env knob in the check's docstring.
 
 ## Phase 2 tasks
 
-- [x] Re-read the verdict and fix sketch. If you still endorse them,
-  proceed. If not, write a one-paragraph "revised plan" at the top
-  of `mind/research/loop-abort-remediation.md` explaining what
-  changed and why.
+- [ ] Re-read the design from phase 1. If you still endorse the
+  approach, proceed.
 
-- [x] Implement the fix per the sketch. Most likely files:
-  `chimera/tools/loop_guard.py` (if the verdict was false-positive
-  and the heuristic needs adjustment) OR `chimera/core/act.py` (if
-  the verdict was correct and the response to a degenerate loop
-  needs to be smarter — re-prompt, escalate, decompose).
+- [ ] Add `_check_orphan_worktrees(repo_root: Path) -> CheckResult`
+  to `chimera/core/doctor.py`. Place it alongside
+  `_check_orphan_wal` (the structural precedent). Wire it into
+  the `run_checks(...)` registry call list.
 
-- [x] Write a regression test in `tests/test_loop_guard.py`
-  that captures the reproducing case and asserts the new behaviour.
-  The test must FAIL against the unpatched code and PASS against
-  the patched code. (test_act_loop.py was an alternate option in
-  the original phase-2 INBOX but was not required; loop_guard
-  semantics is the right place for this assertion.)
+- [ ] Extend `tests/test_doctor.py` (do NOT create a new test
+  file — the project convention is one file per module). At
+  minimum:
+    * `test_orphan_worktrees_clean_repo_returns_ok` — repo with
+      no .git/worktrees/ → status="ok"
+    * `test_orphan_worktrees_fresh_soak_returns_ok` — repo with
+      a chimera-soak/* worktree whose mtime is fresh (<24h) →
+      status="ok"
+    * `test_orphan_worktrees_aged_soak_returns_warn` — repo with
+      a chimera-soak/* worktree mtime > threshold → status="warn"
+      with a `git worktree remove …` substring in the message
+    * `test_orphan_worktrees_threshold_env_knob` — set
+      CHIMERA_DOCTOR_WORKTREE_AGE_HOURS=1, fixture has 2h-old
+      worktree → status="warn"
+    * `test_orphan_worktrees_non_soak_branch_ignored` — worktree
+      whose branch doesn't match `chimera-soak/v\d+-` → ignored
+      regardless of age
+    * `test_orphan_worktrees_malformed_metadata_returns_ok` — a
+      worktree directory missing HEAD or with garbage → "ok" with
+      diagnostic, NOT "error" (charter #6)
 
-- [x] Commit your changes to the current branch with `[agent]`
-  prefix and a one-paragraph rationale. Multiple commits are fine.
+- [ ] Commit your changes with `[agent]` prefix and a one-paragraph
+  rationale referencing soak v6-v9's surfacing of orphan
+  worktrees (operator had to manually run `git worktree remove`
+  multiple times during the soak series).
 
-- [x] Run the targeted test file: `uv run pytest
-  tests/test_loop_guard.py -q` and write the summary line into
-  `mind/research/loop-abort-remediation.md` under `## Test results`.
+- [ ] Run the targeted test file: `uv run pytest
+  tests/test_doctor.py -q` and write the summary line into
+  `mind/research/orphan-worktree-check-remediation.md` under
+  `## Test results`.
 
 You are on the soak branch; push is scoped-out via a per-worktree
 config override. The operator reviews the branch after the run.
 
-- [x] Open a pull request for the current branch with a clear description of the loop-abort fix and the regression test  <!-- Ensures the human operator can review and integrate the fix promptly. -->  <!-- src: planner -->
-
-- [x] Audit the recent API call log for any tool call failures or timeouts and compile a remediation plan.  <!-- The high ratio of tool-use calls (17 out of 21) suggests possible retry loops or silent failures that could degrade reliability. -->  <!-- src: planner -->
-- [x] Generate a concise one-page status report covering current system state, resource usage, and any pending maintenance needs.  <!-- With no open tasks the human operator needs a clear summary to decide next objectives for Chimera. -->  <!-- src: planner -->
-- [x] Evaluate the balance of DeepSeek Flash vs Pro usage in recent cycles and recommend a cost-latency optimization strategy.  <!-- A mixed model pattern was observed; refining this can reduce expenses while maintaining response quality. -->  <!-- src: planner -->
-
-- [x] Review the agent's tool-call log from cycles 120 to 140 for any instances of failed or malformed requests  <!-- Early detection of persistent failures can prevent wasted compute and guide prompt or tool configuration fixes. -->  <!-- src: planner -->
-- [x] Validate the final answer produced by the agent in its most recent stop cycle (cycle 138) against a trusted source  <!-- Ensures the agent's conclusions are reliable before they are used for downstream decisions. -->  <!-- src: planner -->
-- [x] Assess the token consumption and estimated cost of model usage across cycles 100–140  <!-- Identifies potential cost overruns and informs whether to switch to cheaper models or add rate limits. -->  <!-- src: planner -->
-
-- [ ] Audit all tool call outcomes from cycles 100–144 to pinpoint instability patterns.  <!-- Identifying failure modes enables targeted hardening of the agent's tool-use reliability. -->  <!-- src: planner -->
-- [ ] Compile a comparative performance profile for deepseek-v4-flash vs deepseek-v4-pro over the last 30 cycles.  <!-- Data-driven model selection can reduce latency and cost without sacrificing task success rates. -->  <!-- src: planner -->
-- [ ] Draft a real-time monitoring dashboard specification for agent health and resource usage.  <!-- Giving the human operator visibility into live metrics speeds up intervention and planning. -->  <!-- src: planner -->
+If you find yourself wanting to add more doctor checks "while
+you're in there", refactor the CheckResult dataclass, add a CLI
+flag for the new check, or use `subprocess.run(['git', ...])`:
+STOP. Those are out of charter. v4.112 charter anchoring will
+extract the CHARTER section above from this very task text and
+pass it to the witness panel. Scope-creep diffs will be rejected.
