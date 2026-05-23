@@ -104,3 +104,18 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0096-scope-evasion-detection.md](./0096-scope-evasion-detection.md) | ADR 0096 — Scope-evasion detection + explicit writable-scope grant (v4.82) | Accepted (2026-05-20) |
 | [0097-post-escalation-remediation.md](./0097-post-escalation-remediation.md) | ADR 0097 — Post-escalation remediation hints + three-strikes auto-skip (v4.84) | Accepted (2026-05-20) |
 | [0098-ping-pong-loop-detection.md](./0098-ping-pong-loop-detection.md) | ADR 0098 — Ping-pong (alternating-cycle) loop detection (v4.87, agent-authored during soak v6) | Accepted (2026-05-22) |
+| [0099-fix-without-test-detection.md](./0099-fix-without-test-detection.md) | ADR 0099 — Fix-without-test detection | Accepted (2026-05-22) |
+| [0100-graduated-trust-decrements.md](./0100-graduated-trust-decrements.md) | ADR 0100 — Graduated trust decrements by escalation severity | Accepted (2026-05-22) |
+| [0101-artifact-incomplete-detection.md](./0101-artifact-incomplete-detection.md) | ADR 0101 — `artifact_incomplete`: content-marker verification on write | Accepted (2026-05-22) |
+| [0102-operator-side-submit-pr.md](./0102-operator-side-submit-pr.md) | ADR 0102 — Operator-Side `submit-pr` Verb (v4.97) | Accepted (2026-05-22) |
+| [0103-phase-scope-fix-without-test.md](./0103-phase-scope-fix-without-test.md) | ADR 0103 — Phase-scope fix-without-test detection | Accepted (2026-05-22) |
+| [0104-inbox-claim-validity.md](./0104-inbox-claim-validity.md) | ADR 0104 — INBOX checkbox claims are validated as truth statements | Accepted (2026-05-22) |
+| [0105-syntax-invalid-detection.md](./0105-syntax-invalid-detection.md) | ADR 0105 — syntax-invalid detection on agent writes | Accepted (2026-05-22) |
+| [0106-witness-code-review.md](./0106-witness-code-review.md) | ADR 0106 — Witness review for foundational code changes | Accepted (2026-05-22) |
+| [0107-cross-provider-witness-panel-for-code-review.md](./0107-cross-provider-witness-panel-for-code-review.md) | ADR 0107 — Cross-provider witness panel for ACT code review (v4.103) | Accepted (2026-05-22) |
+| [0108-commit-task-remediation.md](./0108-commit-task-remediation.md) | ADR 0108 — concrete-command remediation for commit tasks | Accepted (2026-05-22) |
+| [0109-or-disjunction-scope-evasion.md](./0109-or-disjunction-scope-evasion.md) | ADR 0109 — OR-disjunction grouping for scope-evasion checks | Accepted (2026-05-22) |
+| [0110-witness-charter-anchoring.md](./0110-witness-charter-anchoring.md) | ADR 0110 — Charter-anchored witness review (v4.110) | Accepted (2026-05-22) |
+| [0112-task-text-charter-extraction.md](./0112-task-text-charter-extraction.md) | ADR 0112 — Task-text charter extraction (v4.112) | Accepted (2026-05-22) |
+| [0113-test-claim-invalid-detection.md](./0113-test-claim-invalid-detection.md) | ADR 0113 — Test-claim invalid detection (v4.113) | Accepted (2026-05-22) |
+| [0114-autonomous-delivery-contract.md](./0114-autonomous-delivery-contract.md) | ADR 0114 — Autonomous-delivery contract | Accepted (2026-05-23) |
