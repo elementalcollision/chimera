@@ -1517,8 +1517,28 @@ def main(argv: list[str] | None = None) -> int:
             ][-max(1, int(args.history_limit)):]
 
             promoted_to: int | None = None
+            auto_promote_skipped_reason: str | None = None
             if degraded and args.auto_promote and current < baseline:
-                if tm.promote(reason=(
+                # v4.119 (ADR 0119): sticky detector-finding demotes.
+                # Only auto-promote when the most recent demote was a
+                # drift-score regression (reason starts with
+                # "drift demote_plan:"). Detector findings and operator
+                # actions are sticky until an operator promotes manually.
+                last_demote = next(
+                    (
+                        ev for ev in reversed(tm.state.history)
+                        if ev.kind in ("demote", "lockdown", "operator")
+                        and ev.to_tier < ev.from_tier
+                    ),
+                    None,
+                )
+                sticky = (
+                    last_demote is not None
+                    and not last_demote.reason.startswith("drift demote_plan:")
+                )
+                if sticky:
+                    auto_promote_skipped_reason = last_demote.reason
+                elif tm.promote(reason=(
                     f"v4.95 auto-promote-on-degrade: baseline=T{baseline} "
                     f"current=T{current} drop={drop}"
                 )):
@@ -1542,6 +1562,11 @@ def main(argv: list[str] | None = None) -> int:
                         f"    · auto-promoted to T{promoted_to} "
                         f"(--auto-promote)"
                     )
+                if auto_promote_skipped_reason is not None:
+                    lines.append(
+                        f"    · auto-promote skipped (sticky demote): "
+                        f"{auto_promote_skipped_reason}"
+                    )
                 from pathlib import Path as _Path
                 append_session_log(_Path(args.chronicle_path), "\n".join(lines))
                 chronicle_written = True
@@ -1553,6 +1578,7 @@ def main(argv: list[str] | None = None) -> int:
                 "threshold_drop": threshold,
                 "degraded": degraded,
                 "auto_promoted_to": promoted_to,
+                "auto_promote_skipped_reason": auto_promote_skipped_reason,
                 "chronicle_written": chronicle_written,
                 "recent_demotes": [
                     {
@@ -1584,6 +1610,11 @@ def main(argv: list[str] | None = None) -> int:
                         )
                 if promoted_to is not None:
                     print(f"  auto-promoted to T{promoted_to}")
+                if auto_promote_skipped_reason is not None:
+                    print(
+                        f"  auto-promote skipped (sticky demote): "
+                        f"{auto_promote_skipped_reason}"
+                    )
                 if chronicle_written:
                     print(f"  chronicle warning appended: {args.chronicle_path}")
             return 10 if degraded else 0
