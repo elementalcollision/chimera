@@ -466,3 +466,25 @@ def clear_escalations(
         return cur.rowcount or 0
     except sqlite3.OperationalError:
         return 0
+
+
+def prune_escalations(conn: sqlite3.Connection, max_age_days: int) -> int:
+    """Delete escalation rows older than ``max_age_days``.
+
+    Returns the number of rows deleted. ``max_age_days <= 0`` is a no-op
+    (returns 0). A missing ``task_escalations`` table is also a no-op
+    (returns 0 with a logged warning).
+    """
+    if max_age_days <= 0:
+        return 0
+    cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=max_age_days)
+    cutoff_iso = cutoff.isoformat(timespec="seconds")
+    try:
+        cur = conn.execute(
+            "DELETE FROM task_escalations WHERE created_at < ?",
+            (cutoff_iso,),
+        )
+        return cur.rowcount or 0
+    except sqlite3.OperationalError:
+        logger.exception("task_escalations table missing; prune_escalations is a no-op")
+        return 0
