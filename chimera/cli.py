@@ -42,15 +42,19 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="escalations_command", metavar="<esc-cmd>",
     )
     esc_list = esc_sub.add_parser("list", help="List recent escalation rows.")
-    esc_list.add_argument("--limit", type=int, default=20)
+    esc_list.add_argument("--limit", type=int, default=20, help="Max rows to show.")
     esc_list.add_argument(
         "--grep", default=None,
         help="Substring filter on the signature.",
     )
-    esc_sub.add_parser(
+    esc_list.add_argument("--json", action="store_true",
+                         help="Emit rows as a JSON list.")
+    esc_summary = esc_sub.add_parser(
         "summary",
         help="Aggregate counts per signature × tier.",
     )
+    esc_summary.add_argument("--json", action="store_true",
+                            help="Emit summary dict as JSON.")
     esc_clear = esc_sub.add_parser(
         "clear",
         help="Delete escalation rows (use with care — the agent uses these to learn).",
@@ -1065,6 +1069,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.command == "escalations":
+        import json as _json
         from .core import LoopConfig
         from .core.escalation import (
             clear_escalations,
@@ -1081,6 +1086,24 @@ def main(argv: list[str] | None = None) -> int:
             rows = list_escalations(
                 conn, limit=args.limit, signature_substring=args.grep,
             )
+            if args.json:
+                print(_json.dumps(
+                    [
+                        {
+                            "id": r.id,
+                            "signature": r.signature,
+                            "task_text": r.task_text,
+                            "tier": r.tier,
+                            "finish_reason": r.finish_reason,
+                            "rounds_used": r.rounds_used,
+                            "cycle": r.cycle,
+                            "created_at": r.created_at,
+                        }
+                        for r in rows
+                    ],
+                    indent=2, default=str,
+                ))
+                return 0
             if not rows:
                 print("chimera escalations: (none)")
                 return 0
@@ -1095,6 +1118,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if sub_cmd == "summary":
             summary = escalation_summary(conn)
+            if args.json:
+                print(_json.dumps(summary, indent=2, default=str))
+                return 0
             if not summary:
                 print("chimera escalations summary: (none)")
             else:
@@ -1131,6 +1157,9 @@ def main(argv: list[str] | None = None) -> int:
                     "(safety guard; the agent uses these rows to learn)."
                 )
             n = clear_escalations(conn, signature_substring=args.grep)
+            if args.json:
+                print(_json.dumps({"deleted_rows": n}))
+                return 0
             print(f"chimera escalations: deleted {n} row(s)")
             return 0
         parser.error(f"unknown escalations subcommand: {sub_cmd}")
