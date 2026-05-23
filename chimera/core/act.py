@@ -689,11 +689,27 @@ def check_test_claim_valid(
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             logger.warning("test_claim_invalid: pytest invocation failed for %s", rel)
             continue
-        # Exit 5 == "no tests collected": not a real failure (e.g. a
-        # placeholder file or a runner-only test module). Exit 1/2/3/4
-        # are real failures the agent's claim contradicted.
-        if result.returncode not in (0, 5):
+        # Pytest exit codes:
+        #   0 — all tests passed
+        #   1 — tests collected, some FAILED  ← only signal "the
+        #       agent's claim was a lie"
+        #   2 — interrupted / collection error (ImportError, etc.)
+        #   3 — internal pytest error
+        #   4 — usage error
+        #   5 — no tests collected
+        # Codes 2–5 are environmental ambiguities (synthetic
+        # fixtures without project context, missing deps in tmp dirs,
+        # placeholder files). Firing on them produces false positives
+        # that block legitimate work — see PR #6 review. Only true
+        # test failures (exit 1) get reported as test_claim_invalid.
+        if result.returncode == 1:
             failed.append(rel)
+        elif result.returncode not in (0, 5):
+            logger.info(
+                "test_claim_invalid: pytest exit=%s for %s — treating "
+                "as environmental, not a claim violation",
+                result.returncode, rel,
+            )
     return failed
 
 
@@ -729,7 +745,10 @@ def _first_pytest_failure_tail(
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return None
-        if result.returncode in (0, 5):
+        # Only surface tails for true test failures (exit 1). Other
+        # non-zero codes are environmental and don't carry a useful
+        # diagnostic for the model to act on.
+        if result.returncode != 1:
             continue
         combined = (result.stdout or "") + "\n" + (result.stderr or "")
         lines = [ln for ln in combined.splitlines() if ln.strip()]

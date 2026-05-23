@@ -224,9 +224,13 @@ def _validate_tests_actually_pass(
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             continue
-        # Exit 5 == "no tests collected": skip placeholder files /
-        # non-test modules. Real failures are exit 1/2/3/4.
-        if proc.returncode not in (0, 5):
+        # Only fire on pytest exit code 1 (true test failures). Codes
+        # 2 (collection/import error), 3 (internal), 4 (usage), 5
+        # (no tests collected) are environmental ambiguities — a
+        # synthetic worktree or sandbox without the project's
+        # dependencies in PYTHONPATH would otherwise false-fire this
+        # gate. See PR #6 review (Class A).
+        if proc.returncode == 1:
             failing.append(rel)
     return failing
 

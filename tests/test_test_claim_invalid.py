@@ -105,6 +105,52 @@ def test_malformed_pytest_command_returns_empty(tmp_path: Path) -> None:
     assert check_test_claim_valid(task, [], tmp_path) == []
 
 
+def test_pytest_collection_error_returns_ok(tmp_path: Path) -> None:
+    """v4.113 / PR #6 review (Class A + B): a collection error
+    (ImportError, missing module, syntax error in the test module) is
+    environmental — pytest exits with code 2, not 1. The detector must
+    NOT fire on those: synthetic-fixture worktrees and sandbox runs
+    routinely produce collection errors that have nothing to do with
+    the agent's claim being a lie.
+    """
+    tests_dir = _make_pkg(tmp_path)
+    # Test file that import-errors at collection time (module doesn't
+    # exist in the synthetic env's path). Pytest exits 2.
+    (tests_dir / "test_collection_err.py").write_text(
+        "import this_module_does_not_exist_anywhere\n"
+        "def test_x():\n    assert True\n"
+    )
+    task = "Verified `uv run pytest tests/test_collection_err.py` — green."
+    # Collection errors are NOT claim violations — return [].
+    assert check_test_claim_valid(task, [], tmp_path) == []
+
+
+def test_pytest_no_tests_collected_returns_ok(tmp_path: Path) -> None:
+    """A test file with no test_* functions (pytest exit 5) is a
+    placeholder, not a failure. Don't fire."""
+    tests_dir = _make_pkg(tmp_path)
+    (tests_dir / "test_placeholder.py").write_text(
+        "def helper(): pass\n"  # no test_* function
+    )
+    task = "Verified `uv run pytest tests/test_placeholder.py` — green."
+    assert check_test_claim_valid(task, [], tmp_path) == []
+
+
+def test_passing_tests_in_isolated_tmp_path_do_not_fire(tmp_path: Path) -> None:
+    """Lock down the isolated-tmp_path case: a self-contained passing
+    test under tmp_path/tests/ must not be misreported as a failure
+    regardless of the env pytest is configured against (PR #6 review
+    Class B).
+    """
+    tests_dir = _make_pkg(tmp_path)
+    (tests_dir / "test_isolated.py").write_text(
+        "def test_one():\n    assert 1 == 1\n"
+        "def test_two():\n    assert 'a' + 'b' == 'ab'\n"
+    )
+    task = "Ran `uv run pytest tests/test_isolated.py` — 2 passed."
+    assert check_test_claim_valid(task, [], tmp_path) == []
+
+
 # ── escalation / trust / remediation wiring ─────────────────────────
 
 
