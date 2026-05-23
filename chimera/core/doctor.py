@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,50 +151,100 @@ def checkpoint_wal(state_dir: Path) -> tuple[bool, str]:
 
 
 def _check_orphan_worktrees(repo_root: Path) -> CheckResult:
-    """v4.90: detect worktree entries whose linked directory no longer exists.
+    """v4.112: detect aged soak-branch worktrees that may be orphaned.
 
-    Deleting a git worktree directory without running ``git worktree remove``
-    or ``git worktree prune`` leaves stale administrative files under
-    ``.git/worktrees/<id>/``. The function surfaces them so the operator can
-    clean up with ``git worktree prune``.
+    Enumerates ``.git/worktrees/<name>/HEAD`` files. When a branch name
+    matches ``chimera-soak/v\\d+-`` **and** the worktree administrative
+    directory's mtime is older than the configured threshold, returns
+    ``warn`` with a ``git worktree remove …`` suggestion.
+
+    The age threshold is read from the ``CHIMERA_DOCTOR_WORKTREE_AGE_HOURS``
+    environment variable, defaulting to 24 hours. Set it to 0 to flag all
+    soak worktrees regardless of age.
+
+    Never raises: on any failure (permission denied, malformed metadata,
+    missing directories, etc.) the check returns ``ok`` with a diagnostic
+    message — false positives are far worse than false negatives (charter #6).
     """
+    import re as _re
+    import time as _time
+
     git_dir = repo_root / ".git"
     worktrees_dir = git_dir / "worktrees"
 
     if not worktrees_dir.is_dir():
         return CheckResult("orphan_worktrees", "ok", "no .git/worktrees directory")
 
-    orphan_ids: list[str] = []
+    # Parse threshold from env
+    threshold_hours_str = os.environ.get(
+        "CHIMERA_DOCTOR_WORKTREE_AGE_HOURS", "24"
+    )
+    try:
+        threshold_hours = float(threshold_hours_str)
+    except (ValueError, TypeError):
+        return CheckResult(
+            "orphan_worktrees", "ok",
+            f"CHIMERA_DOCTOR_WORKTREE_AGE_HOURS is not a valid float: "
+            f"{threshold_hours_str!r}",
+        )
+
+    threshold_sec = threshold_hours * 3600.0
+    soak_branch_re = _re.compile(r"^chimera-soak/v\d+-")
+
+    aged: list[tuple[str, str, float]] = []  # (wt_id, branch, age_hours)
+    now = _time.time()
+
     try:
         for entry in sorted(worktrees_dir.iterdir()):
             if not entry.is_dir():
                 continue
-            gd = entry / "gitdir"
-            if not gd.exists():
+            head_file = entry / "HEAD"
+            if not head_file.is_file():
                 continue
-            raw = gd.read_text().strip()
-            if not raw:
+            try:
+                head_raw = head_file.read_text().strip()
+            except Exception:
                 continue
-            linked = Path(raw)
-            # gitdir points to the worktree's .git file; parent is the root
-            if not linked.parent.exists():
-                orphan_ids.append(entry.name)
+            if not head_raw.startswith("ref: refs/heads/"):
+                continue
+            branch = head_raw[len("ref: refs/heads/"):].strip()
+            if not soak_branch_re.match(branch):
+                continue
+
+            # Use the worktree admin dir mtime as age signal
+            try:
+                mtime = entry.stat().st_mtime
+            except Exception:
+                continue
+            age_sec = now - mtime
+            if age_sec <= threshold_sec:
+                continue
+
+            age_hours = age_sec / 3600.0
+            aged.append((entry.name, branch, age_hours))
     except OSError as exc:
         return CheckResult(
             "orphan_worktrees", "ok",
             f"cannot read {worktrees_dir}: {exc}",
         )
 
-    if not orphan_ids:
-        return CheckResult("orphan_worktrees", "ok", "no orphan worktrees")
+    if not aged:
+        return CheckResult(
+            "orphan_worktrees", "ok",
+            f"no aged soak worktrees (threshold={threshold_hours}h)",
+        )
 
+    details = "; ".join(
+        f"{wt_id} ({branch}, {age_h:.1f}h)"
+        for wt_id, branch, age_h in aged
+    )
+    example = aged[0][0]
     return CheckResult(
         "orphan_worktrees", "warn",
-        f"orphan worktree(s): {sorted(orphan_ids)}. "
-        f"Run `git worktree prune` from {repo_root} "
-        f"or delete .git/worktrees/<id>/ manually.",
+        f"aged soak worktree(s) beyond {threshold_hours}h threshold: {details}. "
+        f"Remove with `git worktree remove {example}` "
+        f"(or `git worktree prune` if the linked directory is already gone).",
     )
-
 
 def _check_shell_allowlist() -> CheckResult:
     """v4.80: warn when an advertised shell allow-list entry isn't on PATH.
