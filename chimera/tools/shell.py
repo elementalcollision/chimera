@@ -16,6 +16,7 @@ within them). Anything else is rejected.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 from pathlib import Path
@@ -178,6 +179,24 @@ def _resolve_cwd(cwd_arg: str | None) -> Path:
     return candidate
 
 
+def _current_trust_tier_is_T0() -> bool:
+    """Fail-open trust-tier check for the commit gate.
+
+    Reads ``trust_state.json`` from ``$CHIMERA_STATE_DIR`` (or ``state/``)
+    and returns True only when ``current_tier == 0``. Any read / parse
+    failure returns False so a missing or malformed state file cannot
+    accidentally block boot or first-run.
+    """
+    state_dir = os.environ.get("CHIMERA_STATE_DIR")
+    base = Path(state_dir) if state_dir else Path.cwd() / "state"
+    path = base / "trust_state.json"
+    try:
+        data = json.loads(path.read_text())
+        return int(data.get("current_tier", -1)) == 0
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        return False
+
+
 def _is_relative_to(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -216,6 +235,25 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
             "(investigation-only phase). Commits during phase 1 "
             "poison the branch diff and prevent the soft-sentinel "
             "from firing in phase 2."
+        )
+
+    # v4.117 (ADR 0117): trust-state commit gate. Soak v20-3rd surfaced
+    # the platform gap: when v4.115 fires repeatedly across cycles, the
+    # demotions collapse trust to T0 but nothing prevents the *next*
+    # commit from re-tripping the same detector. Trust demotion is a
+    # punishment, not a prevention. Block git commit/push at T0 until
+    # the operator promotes the agent. Parallel layer to the engines-off
+    # gate above; both must be passed before the call reaches subprocess.
+    if (
+        program == "git"
+        and len(argv) >= 2
+        and argv[1] in ("commit", "push")
+        and _current_trust_tier_is_T0()
+    ):
+        raise PermissionError(
+            f"git {argv[1]} blocked: trust state is T0 "
+            "(cumulative detector firings have collapsed trust). "
+            "Operator must promote the agent before further commits."
         )
 
     # Resolve the program to a real path; reject if not found.
