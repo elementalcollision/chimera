@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -432,6 +433,85 @@ async def test_shell_allows_git_commit_when_engines_on(shell_env, monkeypatch):
 @pytest.mark.asyncio
 async def test_shell_allows_git_commit_when_engines_unset(shell_env, monkeypatch):
     monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    out = await shell_handler(
+        {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
+    )
+    assert "$ git commit -m foo" in out
+
+
+# ── Trust-T0 git commit/push gate (v4.117 / ADR 0117) ──────
+
+
+def _write_trust_state(state_dir: Path, tier: int) -> None:
+    (state_dir / "trust_state.json").write_text(
+        json.dumps({"current_tier": tier})
+    )
+
+
+@pytest.mark.asyncio
+async def test_shell_blocks_git_commit_at_trust_T0(shell_env, monkeypatch):
+    _, state = shell_env
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    _write_trust_state(state, 0)
+    with pytest.raises(PermissionError, match="trust state is T0"):
+        await shell_handler(
+            {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
+        )
+
+
+@pytest.mark.asyncio
+async def test_shell_blocks_git_push_at_trust_T0(shell_env, monkeypatch):
+    _, state = shell_env
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    _write_trust_state(state, 0)
+    with pytest.raises(PermissionError, match="trust state is T0"):
+        await shell_handler({"argv": ["git", "push"]}, DispatchContext())
+
+
+@pytest.mark.asyncio
+async def test_shell_allows_git_status_at_trust_T0(shell_env, monkeypatch):
+    """Only commit/push are gated by trust tier; read-only git is fine."""
+    _, state = shell_env
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    _write_trust_state(state, 0)
+    out = await shell_handler({"argv": ["git", "status"]}, DispatchContext())
+    assert "$ git status" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_allows_git_commit_above_T0(shell_env, monkeypatch):
+    """T1+ passes the trust gate; subprocess fires (and fails naturally
+    because shell_env isn't a repo)."""
+    _, state = shell_env
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    _write_trust_state(state, 1)
+    out = await shell_handler(
+        {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
+    )
+    assert "$ git commit -m foo" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_fails_open_when_trust_state_unreadable(
+    shell_env, monkeypatch
+):
+    """No trust_state.json → don't block boot / first-run."""
+    _, state = shell_env
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    assert not (state / "trust_state.json").exists()
+    out = await shell_handler(
+        {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
+    )
+    assert "$ git commit -m foo" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_fails_open_when_trust_state_malformed(
+    shell_env, monkeypatch
+):
+    _, state = shell_env
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    (state / "trust_state.json").write_text("not json {{{")
     out = await shell_handler(
         {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
     )
