@@ -71,6 +71,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--all", action="store_true",
         help="Required with no --grep — confirms a full wipe.",
     )
+    esc_prune = esc_sub.add_parser(
+        "prune",
+        help="Delete escalation rows older than --older-than-days N.",
+    )
+    esc_prune.add_argument(
+        "--older-than-days", type=int, required=True,
+        help="Delete rows whose created_at is older than N days.",
+    )
+    esc_prune.add_argument("--json", action="store_true",
+                           help='Emit {"deleted": N} as JSON.')
     proposers = sub.add_parser(
         "proposers",
         help="Score / demote / promote mutation proposers (v4.71 ADR 0090).",
@@ -1080,6 +1090,7 @@ def main(argv: list[str] | None = None) -> int:
             escalation_summary,
             hot_signatures,
             list_escalations,
+            prune_escalations,
         )
         from .memory import open_and_init
 
@@ -1165,6 +1176,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json.dumps({"deleted_rows": n}))
                 return 0
             print(f"chimera escalations: deleted {n} row(s)")
+            return 0
+        if sub_cmd == "prune":
+            n = prune_escalations(conn, args.older_than_days)
+            if args.json:
+                print(_json.dumps({"deleted": n}, indent=2, default=str))
+                return 0
+            print(f"chimera escalations: pruned {n} row(s)")
             return 0
         parser.error(f"unknown escalations subcommand: {sub_cmd}")
     if args.command == "doctor":

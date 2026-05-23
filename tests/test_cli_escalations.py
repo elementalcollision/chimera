@@ -139,3 +139,73 @@ def test_escalations_list_json_with_grep(tmp_path: Path) -> None:
     assert len(payload) == 2
     for row in payload:
         assert "agonistic" in row["task_text"]
+
+# ── prune ───────────────────────────────────────────────────
+
+def _seed_aged_escalations(db_path: Path) -> None:
+    """Seed 5 old rows (30 days ago) + 3 fresh rows (today)."""
+    import sqlite3
+    db = sqlite3.connect(str(db_path))
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS task_escalations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signature TEXT NOT NULL,
+            task_text TEXT NOT NULL,
+            tier TEXT NOT NULL,
+            finish_reason TEXT NOT NULL,
+            rounds_used INTEGER NOT NULL DEFAULT 0,
+            cycle INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    old_cutoff = "2026-04-23T00:00:00"
+    with db:
+        for i in range(5):
+            db.execute(
+                "INSERT INTO task_escalations "
+                "(signature, task_text, tier, finish_reason, rounds_used, cycle, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (f"old_sig_{i}", f"old task {i}", "haiku", "max_rounds", 5, 1, old_cutoff),
+            )
+    fresh_cutoff = "2026-05-23T00:00:00"
+    with db:
+        for i in range(3):
+            db.execute(
+                "INSERT INTO task_escalations "
+                "(signature, task_text, tier, finish_reason, rounds_used, cycle, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (f"fresh_sig_{i}", f"fresh task {i}", "sonnet", "stop", 3, 2, fresh_cutoff),
+            )
+    db.close()
+
+
+def test_prune_text_output(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    _seed_aged_escalations(state / "chimera.db")
+
+    rc, out, err = _run_escalations("prune", "--older-than-days", "7", state_dir=state)
+    assert rc == 0, f"stderr: {err}"
+    assert "pruned 5 row(s)" in out, f"stdout: {out}"
+
+
+def test_prune_json_output(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    _seed_aged_escalations(state / "chimera.db")
+
+    rc, out, err = _run_escalations("prune", "--older-than-days", "7", "--json", state_dir=state)
+    assert rc == 0, f"stderr: {err}"
+    payload = json.loads(out)
+    assert payload == {"deleted": 5}, f"Unexpected payload: {payload}"
+
+
+def test_prune_requires_older_than_days(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    _seed_aged_escalations(state / "chimera.db")
+
+    rc, out, err = _run_escalations("prune", state_dir=state)
+    assert rc != 0, f"Should fail without --older-than-days, got rc={rc}"
+    assert "older-than-days" in err.lower() or "error" in err.lower(), f"stderr: {err}"
+
