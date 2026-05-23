@@ -1,6 +1,6 @@
 # ADR index
 
-72 architecture decision records. Listed in numeric order. "Status" is the
+113 architecture decision records. Listed in numeric order. "Status" is the
 last column; "Accepted" means in force, "Deferred" means decided not to do
 this yet (with rationale), "Superseded by N" means later ADR replaces.
 
