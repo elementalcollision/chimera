@@ -181,6 +181,56 @@ def _check_fix_without_test(changed_files: list[str]) -> list[str]:
     return [] if has_tests else src
 
 
+def _validate_tests_actually_pass(
+    worktree: Path, changed_files: list[str],
+) -> list[str]:
+    """v4.113 (ADR 0113): runtime-behavior gate on tests/test_*.py files
+    that the branch modified.
+
+    Re-runs pytest from the operator side against every modified
+    ``tests/test_*.py`` file. Any non-zero exit becomes a validation
+    error so the PR is refused. Soak v16 (PR #5) shipped a branch
+    whose tests/test_doctor.py imported a module that raised
+    ``NameError`` at collection time — the per-task ACT-time
+    detector covers the in-soak signal; this branch-scope gate is
+    the defense-in-depth check at submit time.
+
+    Returns the list of failing test paths (empty when all pass or
+    no tests/test_*.py file was touched). Never raises: any
+    subprocess fault (missing pytest, timeout) returns [] so an
+    unreachable runner doesn't block a legitimate PR.
+    """
+    test_files = [
+        p for p in changed_files
+        if p.startswith("tests/")
+        and Path(p).name.startswith("test_")
+        and p.endswith(".py")
+    ]
+    if not test_files:
+        return []
+    failing: list[str] = []
+    for rel in test_files:
+        target = worktree / rel
+        if not target.exists():
+            continue
+        try:
+            proc = subprocess.run(
+                ["python3", "-m", "pytest", "-x", "--tb=short",
+                 "--no-header", "-q", rel],
+                cwd=str(worktree),
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            continue
+        # Exit 5 == "no tests collected": skip placeholder files /
+        # non-test modules. Real failures are exit 1/2/3/4.
+        if proc.returncode not in (0, 5):
+            failing.append(rel)
+    return failing
+
+
 def _worktree_branch(worktree: Path) -> str:
     proc = _run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=worktree)
     return proc.stdout.strip()
@@ -263,6 +313,17 @@ def validate(
         errors.append(
             "fix_without_test (v4.92 gate): chimera/ source touched without "
             f"tests/ counterpart: {', '.join(untested)}"
+        )
+
+    # v4.113 (ADR 0113): runtime-behavior gate. Re-run pytest against
+    # every modified tests/test_*.py file. Catches the soak v16 shape
+    # where the branch shipped a NameError-at-runtime regression that
+    # all the structural gates (parse, presence, charter) cleared.
+    failing_tests = _validate_tests_actually_pass(worktree, files)
+    if failing_tests:
+        errors.append(
+            "test_claim_invalid (v4.113 gate): modified test file(s) fail "
+            f"on operator-side re-run: {', '.join(failing_tests)}"
         )
 
     # v4.100 (ADR 0104): INBOX-honesty gate. If the branch's

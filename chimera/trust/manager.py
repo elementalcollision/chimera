@@ -70,6 +70,13 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # incomplete delivery against an implicit "code must parse"
     # contract. Recoverable with a hint; soak v10 surfaced the gap.
     "syntax_invalid": 1,
+    # v4.113 (ADR 0113): test_claim_invalid — agent claimed pytest had
+    # passed, but operator-side re-run fails. Same severity as
+    # syntax_invalid and fix_without_test (one-tier demote):
+    # incomplete delivery against an explicit "I ran the tests and
+    # they passed" contract. Recoverable from a hint that pastes the
+    # failing tail; soak v16 surfaced the gap.
+    "test_claim_invalid": 1,
     # v4.102 (ADR 0106): witness_rejected — a second model flagged
     # structural / correctness / convention concerns on a foundational
     # code change. Same bucket as ungrounded_citation (recoverable

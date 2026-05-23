@@ -130,6 +130,14 @@ ESCALATING_FINISH_REASONS = frozenset({
     # severity (one-tier demote) and same three-strikes path as
     # fix_without_test.
     "syntax_invalid",
+    # v4.113 (ADR 0113): test_claim_invalid — the task text claimed
+    # `uv run pytest tests/X.py` succeeded but an operator-side re-run
+    # exits non-zero. Soak v16 (PR #5) shipped a NameError-at-runtime
+    # regression with a confident "tests pass" claim. Recoverable
+    # with a hint that names the failing file and pastes the first
+    # failure tail; routed through the same three-strikes path as
+    # syntax_invalid and fix_without_test.
+    "test_claim_invalid",
     # v4.102 (ADR 0106): witness_rejected — a second model READ the
     # diff for a foundational code change and flagged structural,
     # correctness, or convention issues. Recoverable with a hint
