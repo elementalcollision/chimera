@@ -323,3 +323,86 @@ def test_clear_escalations_all(db):
     n = clear_escalations(db)
     assert n == 3
     assert list_escalations(db) == []
+
+# ── v5.0: prune_escalations (unbounded-table remediation) ────
+
+
+def test_prune_escalations_empty_table_returns_zero(db):
+    """Fresh db, no rows → returns 0."""
+    from chimera.core.escalation import prune_escalations
+    assert prune_escalations(db, max_age_days=30) == 0
+
+
+def test_prune_escalations_mixed_table_deletes_only_old(db):
+    """Seed 3 fresh + 2 aged rows; call with max_age_days=7; returns 2; only the 3 fresh rows remain."""
+    from chimera.core.escalation import prune_escalations
+    # 3 fresh rows — use default created_at (now)
+    for i in range(3):
+        record_failure(db, task_text=f"fresh task {i} alpha beta gamma",
+                       tier="haiku", finish_reason="max_rounds",
+                       rounds_used=5, cycle=i)
+
+    # 2 aged rows — inject past timestamps
+    db.execute(
+        "INSERT INTO task_escalations (signature, task_text, tier, finish_reason, rounds_used, cycle, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("old-sig-1", "old task 1", "haiku", "max_rounds", 5, 10, "2020-01-01T00:00:00"),
+    )
+    db.execute(
+        "INSERT INTO task_escalations (signature, task_text, tier, finish_reason, rounds_used, cycle, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("old-sig-2", "old task 2", "sonnet", "artifact_missing", 8, 11, "2020-06-15T12:00:00"),
+    )
+    db.commit()
+
+    n = prune_escalations(db, max_age_days=7)
+    assert n == 2, f"expected 2 deletions, got {n}"
+
+    remaining = db.execute("SELECT count(*) FROM task_escalations").fetchone()[0]
+    assert remaining == 3
+
+
+def test_prune_escalations_zero_or_negative_is_noop(db):
+    """max_age_days=0 and max_age_days=-1 → returns 0, no rows deleted."""
+    from chimera.core.escalation import prune_escalations
+    record_failure(db, task_text="test task alpha beta gamma",
+                   tier="haiku", finish_reason="max_rounds",
+                   rounds_used=5, cycle=1)
+
+    assert prune_escalations(db, max_age_days=0) == 0
+    rows = db.execute("SELECT count(*) FROM task_escalations").fetchone()[0]
+    assert rows == 1
+
+    assert prune_escalations(db, max_age_days=-1) == 0
+    rows = db.execute("SELECT count(*) FROM task_escalations").fetchone()[0]
+    assert rows == 1
+
+
+def test_prune_escalations_missing_table_returns_zero(db):
+    """Open a connection against a db without the task_escalations table → returns 0, does NOT raise."""
+    from chimera.core.escalation import prune_escalations
+    db.execute("DROP TABLE IF EXISTS task_escalations")
+    db.commit()
+    # Should not raise.
+    n = prune_escalations(db, max_age_days=30)
+    assert n == 0
+
+
+def test_prune_escalations_uses_parameterized_sql():
+    """Charter #8: verify the function source uses parameterized SQL, not interpolation."""
+    import inspect
+    from chimera.core.escalation import prune_escalations
+
+    src = inspect.getsource(prune_escalations)
+    # The DELETE SQL must use a ? placeholder.
+    assert "?" in src, f"prune_escalations source missing ? placeholder:\n{src}"
+    # Must NOT use f-string or .format() interpolation.
+    assert "f'" not in src, f"prune_escalations source uses f-string:\n{src}"
+    assert 'f"' not in src, f"prune_escalations source uses f-string:\n{src}"
+    assert ".format(" not in src, f"prune_escalations source uses .format():\n{src}"
+    # Must compute cutoff in Python (using datetime), not in SQL.
+    assert "timedelta" in src or "datetime" in src, \
+        f"cutoff not computed in Python:\n{src}"
+    # The SQL DELETE string must appear exactly as a parameterized statement.
+    assert "DELETE FROM task_escalations WHERE created_at < ?" in src, \
+        f"expected parameterized DELETE not found in source:\n{src}"
