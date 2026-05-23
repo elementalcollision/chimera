@@ -760,8 +760,13 @@ class GraphStore:
                     target_raw = m.group(1)
                     if target_raw.startswith(("http://", "https://")):
                         continue
-                    target = str((p.parent / target_raw).resolve().relative_to(mind_dir)) \
-                        if (p.parent / target_raw).exists() else target_raw
+                    resolved = (p.parent / target_raw).resolve()
+                    if resolved.exists() and resolved.is_relative_to(mind_dir):
+                        target = str(resolved.relative_to(mind_dir))
+                    else:
+                        # Link escapes mind_dir (e.g. ../docs/adr/...); keep raw
+                        # so the downstream doc_paths check just won't match.
+                        target = target_raw
                     if target in doc_paths and target != rel:
                         ref_rows.append({"a": rel, "b": target})
             if ref_rows:
