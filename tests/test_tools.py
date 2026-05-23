@@ -387,6 +387,57 @@ async def test_shell_timeout(shell_env):
 # ── End-to-end via dispatcher ───────────────────────────────
 
 
+# ── Engines-off git commit/push guard (soak v20) ───────────
+
+
+@pytest.mark.asyncio
+async def test_shell_blocks_git_commit_when_engines_off(shell_env, monkeypatch):
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "0")
+    with pytest.raises(PermissionError, match="CHIMERA_ENGINES_ENABLED=0"):
+        await shell_handler(
+            {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
+        )
+
+
+@pytest.mark.asyncio
+async def test_shell_blocks_git_push_when_engines_off(shell_env, monkeypatch):
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "0")
+    with pytest.raises(PermissionError, match="CHIMERA_ENGINES_ENABLED=0"):
+        await shell_handler(
+            {"argv": ["git", "push"]}, DispatchContext()
+        )
+
+
+@pytest.mark.asyncio
+async def test_shell_allows_git_status_when_engines_off(shell_env, monkeypatch):
+    """Only commit/push are blocked; read-only git subcommands pass."""
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "0")
+    # git status against an arbitrary cwd may exit non-zero (not a repo),
+    # but the call must not be rejected by the guard.
+    out = await shell_handler({"argv": ["git", "status"]}, DispatchContext())
+    assert "$ git status" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_allows_git_commit_when_engines_on(shell_env, monkeypatch):
+    """When engines are on, the guard is inactive — git commit reaches
+    subprocess (and fails naturally because shell_env isn't a repo)."""
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    out = await shell_handler(
+        {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
+    )
+    assert "$ git commit -m foo" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_allows_git_commit_when_engines_unset(shell_env, monkeypatch):
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)
+    out = await shell_handler(
+        {"argv": ["git", "commit", "-m", "foo"]}, DispatchContext()
+    )
+    assert "$ git commit -m foo" in out
+
+
 @pytest.mark.asyncio
 async def test_register_shell_tool_then_dispatch(shell_env):
     reg = ToolRegistry()

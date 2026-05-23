@@ -200,6 +200,24 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
             f"(set context.elevated=True to bypass; allow-list: {sorted(SAFE_COMMANDS)})"
         )
 
+    # Soak v20 finding: when engines are off (investigation-only phase),
+    # a phase-1 git commit poisons the branch diff and prevents the
+    # soft-sentinel exit from firing once phase 2 lands its
+    # implementation commit. Block commit/push unconditionally in that
+    # mode — the env var is the contract.
+    if (
+        program == "git"
+        and os.environ.get("CHIMERA_ENGINES_ENABLED") == "0"
+        and len(argv) >= 2
+        and argv[1] in ("commit", "push")
+    ):
+        raise PermissionError(
+            f"git {argv[1]} blocked: CHIMERA_ENGINES_ENABLED=0 "
+            "(investigation-only phase). Commits during phase 1 "
+            "poison the branch diff and prevent the soft-sentinel "
+            "from firing in phase 2."
+        )
+
     # Resolve the program to a real path; reject if not found.
     resolved = shutil.which(program)
     if resolved is None:
