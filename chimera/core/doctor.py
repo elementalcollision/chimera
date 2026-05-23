@@ -354,6 +354,102 @@ def _check_concurrent_soak_runners() -> CheckResult:
         f"Running: {[ln.split(None, 1)[0] for ln in lines]}",
     )
 
+def _check_orphan_worktrees(repo_root: Path) -> CheckResult:
+    """Check for orphaned git worktrees from killed soak runners.
+
+    Reads ``.git/worktrees/<name>/HEAD`` directly (no ``git`` subprocess).
+    A worktree is considered orphaned when:
+      * its branch matches ``^chimera-soak/v\\d+-``, AND
+      * its mtime exceeds ``CHIMERA_DOCTOR_WORKTREE_AGE_HOURS`` (default 24).
+
+    Threshold env knob:
+      ``CHIMERA_DOCTOR_WORKTREE_AGE_HOURS`` — integer hours (default 24).
+
+    Never raises. On any error (missing dir, permission denied, malformed
+    metadata) returns ``ok`` with a diagnostic message, NOT ``error``.
+    False positives are worse than false negatives in this check.
+    """
+    import re as _re
+    from datetime import datetime as _datetime, timezone as _timezone
+
+    wt_dir = repo_root / ".git" / "worktrees"
+    if not wt_dir.is_dir():
+        return CheckResult("orphan_worktrees", "ok", "no .git/worktrees/ directory")
+
+    try:
+        age_hours = int(os.environ.get("CHIMERA_DOCTOR_WORKTREE_AGE_HOURS", "24"))
+    except (ValueError, TypeError):
+        age_hours = 24
+
+    threshold_seconds = age_hours * 3600
+    now = _datetime.now(_timezone.utc).timestamp()
+
+    orphaned: list[str] = []
+
+    try:
+        entries = sorted(wt_dir.iterdir())
+    except OSError as exc:
+        return CheckResult("orphan_worktrees", "ok", f"cannot list {wt_dir}: {exc}")
+
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+
+        head_file = entry / "HEAD"
+        if not head_file.is_file():
+            continue
+
+        try:
+            raw = head_file.read_text().strip()
+        except OSError:
+            continue
+
+        # Extract branch name from "ref: refs/heads/chimera-soak/v12-..."
+        ref_prefix = "ref: refs/heads/"
+        if not raw.startswith(ref_prefix):
+            continue  # detached HEAD — not our concern
+        branch = raw[len(ref_prefix) :]
+
+        # Only flag soak-pattern branches
+        if not _re.match(r"^chimera-soak/v\d+-", branch):
+            continue
+
+        # Check age — use gitdir file mtime (most reliable timestamp)
+        gitdir_file = entry / "gitdir"
+        mtime_source = gitdir_file if gitdir_file.is_file() else entry
+        try:
+            mtime = mtime_source.stat().st_mtime
+        except OSError:
+            continue
+
+        age_seconds = now - mtime
+        if age_seconds >= threshold_seconds:
+            orphaned.append(entry.name)
+
+    if not orphaned:
+        return CheckResult(
+            "orphan_worktrees", "ok",
+            f"no orphaned soak worktrees (checked {len(entries)} total)",
+        )
+
+    # Build actionable message with `git worktree remove` suggestions
+    suggestions = []
+    for name in orphaned:
+        gitdir_file = wt_dir / name / "gitdir"
+        try:
+            worktree_path = Path(gitdir_file.read_text().strip())
+            suggestions.append(f"`git worktree remove {worktree_path}`")
+        except OSError:
+            suggestions.append(f"`git worktree remove {name}` (path unknown)")
+
+    return CheckResult(
+        "orphan_worktrees", "warn",
+        f"orphaned soak worktree(s): {', '.join(orphaned)}. "
+        f"Suggest: {'; '.join(suggestions)}",
+    )
+
+
+
 
 def run_checks() -> list[CheckResult]:
     """Run every check. Pure: writes nothing (beyond creating state/mind dirs)."""
@@ -374,6 +470,7 @@ def run_checks() -> list[CheckResult]:
         _check_cost_caps(state_dir),
         _check_trust_state(state_dir, mind_dir),
         _check_concurrent_soak_runners(),
+        _check_orphan_worktrees(Path.cwd()),
         *_check_provider_keys(),
     ]
     return results

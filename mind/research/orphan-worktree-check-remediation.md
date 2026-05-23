@@ -1,0 +1,5 @@
+## Test results
+
+```
+32 passed in 0.69s
+```

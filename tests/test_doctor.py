@@ -351,3 +351,70 @@ def test_concurrent_soak_runners_warn_when_multiple_alive(monkeypatch):
     r = _by_name(run_checks(), "soak_runners")
     assert r.status == "warn"
     assert "12345" in r.message and "12399" in r.message
+
+# ---- v4.112: orphan worktree detection ----------------------------------
+
+
+def _make_worktree(wt_dir, name, branch, mtime_age_hours):
+    import time as _time, os as _os
+    entry = wt_dir / name
+    entry.mkdir(parents=True, exist_ok=True)
+    (entry / "HEAD").write_text("ref: refs/heads/" + branch + "\n")
+    (entry / "gitdir").write_text("/tmp/worktrees/" + name + "\n")
+    old = _time.time() - (mtime_age_hours * 3600)
+    _os.utime(entry / "gitdir", (old, old))
+    _os.utime(entry, (old, old))
+    return entry
+
+
+def _orphan_check(tmp_path, monkeypatch, **env):
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path / "mind"))
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    from chimera.core.doctor import _check_orphan_worktrees
+    return _check_orphan_worktrees(tmp_path)
+
+
+def test_orphan_worktrees_clean_repo_returns_ok(tmp_path, monkeypatch):
+    r = _orphan_check(tmp_path, monkeypatch)
+    assert r.status == "ok"
+    assert "no .git/worktrees/" in r.message
+
+
+def test_orphan_worktrees_fresh_soak_returns_ok(tmp_path, monkeypatch):
+    wt_dir = tmp_path / ".git" / "worktrees"
+    _make_worktree(wt_dir, "soak-v12-fix", "chimera-soak/v12-fix-graph", 0.5)
+    r = _orphan_check(tmp_path, monkeypatch)
+    assert r.status == "ok", r.message
+
+
+def test_orphan_worktrees_aged_soak_returns_warn(tmp_path, monkeypatch):
+    wt_dir = tmp_path / ".git" / "worktrees"
+    _make_worktree(wt_dir, "soak-v9-stale", "chimera-soak/v9-bar", 48)
+    r = _orphan_check(tmp_path, monkeypatch)
+    assert r.status == "warn", r.message
+    assert "git worktree remove" in r.message
+
+
+def test_orphan_worktrees_threshold_env_knob(tmp_path, monkeypatch):
+    wt_dir = tmp_path / ".git" / "worktrees"
+    _make_worktree(wt_dir, "soak-v14-old", "chimera-soak/v14-old", 2)
+    r = _orphan_check(tmp_path, monkeypatch, CHIMERA_DOCTOR_WORKTREE_AGE_HOURS="1")
+    assert r.status == "warn", r.message
+    assert "git worktree remove" in r.message
+
+
+def test_orphan_worktrees_non_soak_branch_ignored(tmp_path, monkeypatch):
+    wt_dir = tmp_path / ".git" / "worktrees"
+    _make_worktree(wt_dir, "main-dev", "main", 200)
+    r = _orphan_check(tmp_path, monkeypatch)
+    assert r.status == "ok", r.message
+
+
+def test_orphan_worktrees_malformed_metadata_returns_ok(tmp_path, monkeypatch):
+    wt_dir = tmp_path / ".git" / "worktrees"
+    entry = wt_dir / "bogus"
+    entry.mkdir(parents=True, exist_ok=True)
+    r = _orphan_check(tmp_path, monkeypatch)
+    assert r.status == "ok", r.message
