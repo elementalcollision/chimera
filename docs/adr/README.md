@@ -120,3 +120,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0113-test-claim-invalid-detection.md](./0113-test-claim-invalid-detection.md) | ADR 0113 — Test-claim invalid detection (v4.113) | Accepted (2026-05-22) |
 | [0114-autonomous-delivery-contract.md](./0114-autonomous-delivery-contract.md) | ADR 0114 — Autonomous-delivery contract | Accepted (2026-05-23) |
 | [0115-commit-message-diff-drift-detection.md](./0115-commit-message-diff-drift-detection.md) | ADR 0115 — Commit-message-vs-diff drift detection (v4.115) | Accepted (2026-05-23) |
+| [0116-charter-file-count-enforcement.md](./0116-charter-file-count-enforcement.md) | ADR 0116 — Charter file-count enforcement (v4.116) | Accepted (2026-05-23) |

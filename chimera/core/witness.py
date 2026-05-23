@@ -368,6 +368,128 @@ def extract_task_charter(task_text: str, *, max_lines: int = 25) -> str:
     )
 
 
+# ── Charter file enumeration (v4.116, ADR 0116) ───────────
+
+
+# Rooted, backtick-quoted file path with a file extension. The
+# backtick + rooted-prefix combination is the operator convention for
+# "this is a file path, not prose", and is the only thing we can
+# extract without hand-rolling NLP. Suffix must contain a dot to
+# avoid matching directory-like backtick literals (`chimera/core/`).
+_CHARTER_FILE_PATTERN = re.compile(
+    r"`((?:chimera|tests|mind|docs|state|scripts)/[^`\s]+\.[A-Za-z0-9]+)`",
+)
+
+# Soak_lib v2 convention: a phase-N agent is free to write its own
+# remediation note under mind/research/<topic>-remediation.md even
+# when the charter enumerates a tighter file set. Matches the
+# soft-sentinel auto-allow on the shell guard side.
+_CHARTER_FILE_AUTO_ALLOW: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^mind/research/[^/]+-remediation\.md$"),
+)
+
+
+def extract_charter_file_enumeration(task_text: str) -> list[str]:
+    """Return rooted file paths the charter explicitly enumerates.
+
+    v4.116 (ADR 0116). Soak v20-relaunch's phase-2 charter said::
+
+        SCOPE: ONE new function, `check_ruff_claim_valid`, in
+        `chimera/core/act.py`. ONE new test file,
+        `tests/test_ruff_claim_invalid.py`. NO third file.
+
+    The agent committed ``chimera/core/act.py`` plus a research doc
+    and never staged the tests file. The witness panel approved the
+    diff (semantics looked plausible) because nothing on the platform
+    side compared the *count and identity* of committed files against
+    the charter's enumeration. This extracts that enumeration so a
+    structural gate can run alongside the panel's semantic gate.
+
+    Sources from ``extract_task_charter`` so the same CHARTER /
+    prohibition framing v4.112 uses applies; pulls backtick-quoted
+    rooted paths (``chimera/``, ``tests/``, ``mind/``, ``docs/``,
+    ``state/``, ``scripts/``) ending in a file extension.
+
+    Returns ``[]`` when no enumeration is detectable — callers treat
+    that as "no structural constraint, skip the check".
+    """
+    charter = extract_task_charter(task_text)
+    if not charter:
+        return []
+    seen: list[str] = []
+    for m in _CHARTER_FILE_PATTERN.finditer(charter):
+        path = m.group(1)
+        if path not in seen:
+            seen.append(path)
+    return seen
+
+
+def check_charter_file_count(
+    task_text: str,
+    worktree_root: Path | str,
+    *,
+    head_ref: str = "HEAD",
+    base_ref: str = "main",
+) -> list[str]:
+    """Return committed files outside the charter's enumerated set.
+
+    v4.116 (ADR 0116). Structural cousin of v4.115's commit-message
+    drift detector. Where v4.115 catches "commit message claims X
+    but diff doesn't carry X" (lying about what happened), this
+    catches "diff carries Y but charter forbade Y" (exceeding the
+    explicit file budget).
+
+    Mechanics:
+      1. Pull enumerated paths from ``extract_charter_file_enumeration``.
+         Empty enumeration → empty return (no constraint to enforce).
+      2. Check the head commit's message for the ``[agent]`` prefix.
+         Operator commits are out of scope for the autonomous-delivery
+         contract; same rule as v4.115.
+      3. Run ``git diff --name-only base_ref..head_ref`` and return
+         every committed path that is neither in the enumeration nor
+         covered by the ``mind/research/*-remediation.md`` auto-allow
+         (soak_lib v2 convention).
+
+    Returns ``[]`` on any subprocess failure — false-positive demotions
+    are worse than missed-positive demotions for an enforcement layer
+    that operates alongside (not in place of) the semantic panel.
+    """
+    import subprocess
+
+    enumerated = extract_charter_file_enumeration(task_text)
+    if not enumerated:
+        return []
+
+    root = Path(worktree_root)
+    try:
+        msg = subprocess.run(
+            ["git", "log", "-1", "--pretty=%B", head_ref],
+            cwd=str(root), capture_output=True, text=True, timeout=5,
+        )
+        if msg.returncode != 0 or "[agent]" not in msg.stdout:
+            return []
+        diff = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_ref}..{head_ref}"],
+            cwd=str(root), capture_output=True, text=True, timeout=5,
+        )
+        if diff.returncode != 0:
+            return []
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return []
+
+    allowed = set(enumerated)
+    violations: list[str] = []
+    for line in diff.stdout.splitlines():
+        path = line.strip()
+        if not path or path in allowed:
+            continue
+        if any(rx.match(path) for rx in _CHARTER_FILE_AUTO_ALLOW):
+            continue
+        if path not in violations:
+            violations.append(path)
+    return violations
+
+
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 
 
