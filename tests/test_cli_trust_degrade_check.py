@@ -71,10 +71,14 @@ def test_t0_always_trips_warning(tmp_path: Path) -> None:
     assert "DEGRADED" in out
 
 
-def test_auto_promote_lifts_above_t0(tmp_path: Path) -> None:
+def test_auto_promote_lifts_above_t0_on_drift_demote(tmp_path: Path) -> None:
+    """v4.119: drift-score demotes are still rescued by auto-promote."""
     state = tmp_path / "state"
     tm = _seed_at_t5(state)
-    tm.set_tier(TrustTier.T0, reason="forced", kind="operator")
+    # Walk down five tiers via drift demotes so the latest history entry
+    # has the rescuable "drift demote_plan:" prefix.
+    for _ in range(5):
+        tm.demote(reason="drift demote_plan: composite below threshold")
 
     rc, out, _ = _run(
         "degrade-check", "--baseline", "5", "--auto-promote", "--json",
@@ -84,10 +88,86 @@ def test_auto_promote_lifts_above_t0(tmp_path: Path) -> None:
     payload = json.loads(out)
     assert payload["degraded"] is True
     assert payload["auto_promoted_to"] == 1
+    assert payload["auto_promote_skipped_reason"] is None
 
     # Re-load TM to confirm persistence.
     tm2 = TrustManager(state / "trust_state.json")
     assert tm2.tier.value == 1
+
+
+def test_auto_promote_sticky_on_detector_finding(tmp_path: Path) -> None:
+    """v4.119: detector finish_reason demotes are NOT rescued."""
+    state = tmp_path / "state"
+    tm = _seed_at_t5(state)
+    # Walk to T0 via repeated detector findings.
+    for _ in range(5):
+        tm.demote(
+            reason="finish_reason=commit_message_diff_drift delta=1"
+        )
+
+    rc, out, _ = _run(
+        "degrade-check", "--baseline", "5", "--auto-promote", "--json",
+        state_dir=state,
+    )
+    assert rc == 10, out
+    payload = json.loads(out)
+    assert payload["degraded"] is True
+    assert payload["auto_promoted_to"] is None
+    assert payload["auto_promote_skipped_reason"] is not None
+    assert "commit_message_diff_drift" in payload["auto_promote_skipped_reason"]
+
+    # Re-load TM to confirm state stuck at T0.
+    tm2 = TrustManager(state / "trust_state.json")
+    assert tm2.tier.value == 0
+
+
+def test_auto_promote_sticky_on_test_claim_invalid(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    tm = _seed_at_t5(state)
+    for _ in range(5):
+        tm.demote(reason="finish_reason=test_claim_invalid delta=1")
+
+    rc, out, _ = _run(
+        "degrade-check", "--baseline", "5", "--auto-promote", "--json",
+        state_dir=state,
+    )
+    payload = json.loads(out)
+    assert payload["auto_promoted_to"] is None
+    assert "test_claim_invalid" in payload["auto_promote_skipped_reason"]
+
+
+def test_auto_promote_sticky_on_scope_evasion(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    tm = _seed_at_t5(state)
+    # scope_evasion demotes 2 tiers per firing — three to reach T0.
+    for _ in range(3):
+        tm.apply_finish_reason("scope_evasion")
+
+    rc, out, _ = _run(
+        "degrade-check", "--baseline", "5", "--auto-promote", "--json",
+        state_dir=state,
+    )
+    payload = json.loads(out)
+    assert payload["auto_promoted_to"] is None
+    assert "scope_evasion" in payload["auto_promote_skipped_reason"]
+
+
+def test_auto_promote_sticky_on_operator_demote(tmp_path: Path) -> None:
+    """v4.119: operator-driven demotes are sticky — no auto-rescue."""
+    state = tmp_path / "state"
+    tm = _seed_at_t5(state)
+    tm.set_tier(TrustTier.T0, reason="operator revoke", kind="operator")
+
+    rc, out, _ = _run(
+        "degrade-check", "--baseline", "5", "--auto-promote", "--json",
+        state_dir=state,
+    )
+    payload = json.loads(out)
+    assert payload["auto_promoted_to"] is None
+    assert payload["auto_promote_skipped_reason"] is not None
+
+    tm2 = TrustManager(state / "trust_state.json")
+    assert tm2.tier.value == 0
 
 
 def test_chronicle_warning_includes_finish_reason(tmp_path: Path) -> None:
