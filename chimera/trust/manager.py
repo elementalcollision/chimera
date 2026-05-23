@@ -87,6 +87,14 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # names the missing paths and tells the agent to either git add
     # them or rewrite the commit message.
     "commit_message_diff_drift": 1,
+    # v4.118 (ADR 0118): provenance_claim_invalid — the [agent] commit
+    # message cited a version (``vX.Y``) or ADR number that doesn't
+    # resolve against the repo. Soak v20-3rd shipped "v4.120 / ADR
+    # 0120" when neither existed. Same severity as
+    # commit_message_diff_drift (one-tier demote): recoverable from a
+    # hint that names the bad citations and tells the agent to rewrite
+    # the commit message with real numbers.
+    "provenance_claim_invalid": 1,
     # v4.102 (ADR 0106): witness_rejected — a second model flagged
     # structural / correctness / convention concerns on a foundational
     # code change. Same bucket as ungrounded_citation (recoverable

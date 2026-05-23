@@ -348,6 +348,40 @@ def _commit_message_diff_drift_hint(
     )
 
 
+def _provenance_claim_invalid_hint(
+    task_text: str,
+    provenance_claim_failures: list[str] | None = None,
+) -> str:
+    """v4.118 (ADR 0118): the [agent] commit message cited a version or
+    ADR number that doesn't resolve against the repo.
+
+    Soak v20-3rd: agent shipped commit e3af158 with message claiming
+    ``v4.120 / ADR 0120`` when the actual platform was v4.116 and ADR
+    0120 didn't exist. The hint names the bad citations so the model
+    can either drop them or replace them with real numbers — the
+    fabricated-authority gap is what must close.
+    """
+    if not provenance_claim_failures:
+        return (
+            "Your last commit's message cited a version or ADR number "
+            "that doesn't resolve against the repo. Check the existing "
+            "tags (`git tag --list`) and `docs/adr/` index, then "
+            "rewrite the commit message with citations that actually "
+            "exist — or drop the citation entirely. Don't fabricate "
+            "version or ADR numbers to make a commit look more "
+            "authoritative than it is."
+        )
+    cites = ", ".join(f"`{c}`" for c in provenance_claim_failures[:5])
+    return (
+        f"Your last commit's message cited {cites} but none of those "
+        f"resolve in this repo (no matching tag, no ADR file, no "
+        f"source mention). Either rewrite the commit message with "
+        f"real numbers from `git tag --list` and `docs/adr/`, or drop "
+        f"the citation. Fabricating version / ADR numbers to look "
+        f"authoritative is the failure mode this gate closes."
+    )
+
+
 def _witness_rejected_hint(
     task_text: str,
     witness_concerns: list[str] | None = None,
@@ -473,6 +507,7 @@ _HINT_BY_REASON = {
     "syntax_invalid": _syntax_invalid_hint,
     "test_claim_invalid": _test_claim_invalid_hint,
     "commit_message_diff_drift": _commit_message_diff_drift_hint,
+    "provenance_claim_invalid": _provenance_claim_invalid_hint,
     "witness_rejected": _witness_rejected_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,

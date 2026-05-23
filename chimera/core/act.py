@@ -247,6 +247,15 @@ class ActResult:
     # tests file existed on disk but was never git-add'd. Populated
     # only when finish_reason == "commit_message_diff_drift".
     commit_message_drift_claims: list[str] = field(default_factory=list)
+    # v4.118 (ADR 0118): provenance_claim_invalid — version strings
+    # (``vX.Y``) or ADR numbers (``ADR NNNN``) the most-recent [agent]
+    # commit message cites that don't resolve against the repo (no
+    # matching tag, no source-file mention, no ``docs/adr/NNNN-*.md``).
+    # Soak v20-3rd surfaced an agent shipping a commit message claiming
+    # "v4.120 / ADR 0120" when the actual platform was v4.116 and ADR
+    # 0120 didn't exist — fabricated authority. Populated only when
+    # finish_reason == "provenance_claim_invalid".
+    provenance_claim_failures: list[str] = field(default_factory=list)
     # v4.102 (ADR 0106): witness review concerns. Populated only when
     # finish_reason == "witness_rejected". Each entry is a one-sentence
     # concern naming the file and the structural / correctness defect
@@ -893,6 +902,129 @@ def check_commit_message_diff_drift(
         if line.strip()
     }
     return [p for p in claimed if p not in diff_paths]
+
+
+# v4.118 (ADR 0118): provenance citations in [agent] commit messages.
+# Soak v20-3rd surfaced an agent shipping commit e3af158 with message
+# "[agent] Add ruff_claim_invalid detector (v4.120 / ADR 0120)" when
+# the actual platform was v4.116 and ADR 0120 didn't exist. The
+# v4.115 path-drift detector doesn't see non-path tokens; the
+# charter-anchoring witness doesn't read the commit message body.
+# Cite-then-fabricate is its own class of lie, distinct from the
+# path/diff drift v4.115 closes.
+_PROVENANCE_VERSION_PATTERN = re.compile(r"\bv(\d+\.\d+)(?:\.\d+)?\b")
+_PROVENANCE_ADR_PATTERN = re.compile(r"\bADR[\s-]*0*(\d{1,4})\b")
+
+
+def _extract_provenance_claims(message: str) -> tuple[list[str], list[str]]:
+    """Return ``(versions, adrs)`` cited in a commit message.
+
+    Versions are normalized to ``X.Y`` (the patch component is dropped
+    for matching since ADR/source citations use the minor-level form).
+    ADR numbers are normalized to zero-padded 4-digit strings.
+    """
+    versions: list[str] = []
+    adrs: list[str] = []
+    for m in _PROVENANCE_VERSION_PATTERN.finditer(message or ""):
+        v = m.group(1)
+        if v not in versions:
+            versions.append(v)
+    for m in _PROVENANCE_ADR_PATTERN.finditer(message or ""):
+        n = m.group(1).zfill(4)
+        if n not in adrs:
+            adrs.append(n)
+    return versions, adrs
+
+
+def _version_resolves(root: Path, ver: str) -> bool:
+    """True if ``vX.Y`` is named by a git tag or any source/doc file."""
+    try:
+        tags = subprocess.run(
+            ["git", "tag", "--list", f"v{ver}", f"v{ver}.*"],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        tags = None
+    if tags is not None and tags.returncode == 0 and (tags.stdout or "").strip():
+        return True
+    # Fall back to repo content: pyproject.toml version, chimera/__init__.py,
+    # and ADR files routinely cite the minor-version form as "v4.115".
+    for relpath in ("pyproject.toml", "chimera/__init__.py"):
+        p = root / relpath
+        try:
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if f'version = "{ver}' in content or f'__version__ = "{ver}' in content:
+            return True
+    adr_dir = root / "docs" / "adr"
+    if adr_dir.is_dir():
+        token = f"v{ver}"
+        for adr in adr_dir.glob("*.md"):
+            try:
+                if token in adr.read_text(encoding="utf-8", errors="replace"):
+                    return True
+            except (OSError, UnicodeDecodeError):
+                continue
+    return False
+
+
+def _adr_resolves(root: Path, num: str) -> bool:
+    adr_dir = root / "docs" / "adr"
+    if not adr_dir.is_dir():
+        return False
+    return any(adr_dir.glob(f"{num}-*.md"))
+
+
+def check_provenance_claim_valid(
+    worktree_root: Path | str,
+    head_ref: str = "HEAD",
+) -> list[str]:
+    """Return provenance citations in the HEAD commit that don't resolve.
+
+    v4.118 (ADR 0118). Only fires on ``[agent]`` commits. Extracts
+    version tokens (``vX.Y``) and ADR numbers (``ADR NNNN``) from the
+    commit message body and validates each:
+
+    - A version resolves if a matching ``vX.Y`` / ``vX.Y.*`` tag exists,
+      or the literal ``vX.Y`` appears in ``pyproject.toml``,
+      ``chimera/__init__.py``, or any ``docs/adr/*.md``.
+    - An ADR resolves if ``docs/adr/NNNN-*.md`` exists.
+
+    Returns a list of human-readable strings like ``"v4.120"`` and
+    ``"ADR 0120"`` naming each unresolved claim. Charter: never raise;
+    subprocess / filesystem errors return ``[]``.
+    """
+    root = Path(worktree_root)
+    try:
+        subj = subprocess.run(
+            ["git", "log", "-1", "--format=%s", head_ref],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+    if subj.returncode != 0:
+        return []
+    if not (subj.stdout or "").strip().startswith("[agent]"):
+        return []
+    try:
+        msg = subprocess.run(
+            ["git", "log", "-1", "--format=%B", head_ref],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+    if msg.returncode != 0:
+        return []
+    versions, adrs = _extract_provenance_claims(msg.stdout or "")
+    failures: list[str] = []
+    for v in versions:
+        if not _version_resolves(root, v):
+            failures.append(f"v{v}")
+    for n in adrs:
+        if not _adr_resolves(root, n):
+            failures.append(f"ADR {n}")
+    return failures
 
 
 def check_scope_evasion_strict(
@@ -1904,6 +2036,22 @@ class ActExecutor:
                     if commit_drift_claims:
                         completed = False
                         finish_reason = "commit_message_diff_drift"
+                # v4.118 (ADR 0118): provenance-citation validity.
+                # Soak v20-3rd shipped commit e3af158 citing v4.120 /
+                # ADR 0120 when neither existed (platform was v4.116).
+                # Runs after the v4.115 path-drift check: same source
+                # (the commit message body) but a different token class
+                # (version + ADR cites instead of paths). Cheap enough
+                # to run on every [agent] commit; bails out fast on
+                # operator commits or empty-claim messages.
+                provenance_failures: list[str] = []
+                if completed:
+                    provenance_failures = check_provenance_claim_valid(
+                        Path.cwd(),
+                    )
+                    if provenance_failures:
+                        completed = False
+                        finish_reason = "provenance_claim_invalid"
                 # v4.102 (ADR 0106): witness review for foundational
                 # code changes. Runs after syntax_invalid (the cheap
                 # parse-time gate) and before fix_without_test. The
@@ -2106,6 +2254,7 @@ class ActExecutor:
                     syntax_failures=syntax_failures,
                     test_claim_failures=test_claim_failures,
                     commit_message_drift_claims=commit_drift_claims,
+                    provenance_claim_failures=provenance_failures,
                     witness_concerns=witness_concerns,
                     failure_reason=failure_reason,
                 )
