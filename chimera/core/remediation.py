@@ -277,6 +277,43 @@ def _syntax_invalid_hint(
     )
 
 
+def _test_claim_invalid_hint(
+    task_text: str,
+    test_claim_failures: list[tuple[str, str]] | None = None,
+) -> str:
+    """v4.113 (ADR 0113): soak v16 — agent claimed pytest had passed
+    but the run actually fails on operator-side re-run.
+
+    When the detector populated ``test_claim_failures`` (a list of
+    ``(path, failure_tail)`` pairs), the hint names the offending file
+    and includes a few lines of the actual failure so the model jumps
+    straight to fixing the implementation. Without that detail (the
+    DB-only path), the hint falls back to a generic "re-run pytest
+    and read the failures" instruction.
+    """
+    if not test_claim_failures:
+        return (
+            "Your previous attempt claimed a pytest run succeeded, but "
+            "re-running the named test file from the operator side "
+            "produced failures. Read the failing test and the "
+            "implementation it covers, identify the bug, fix the "
+            "implementation (not the test), and re-run pytest. Don't "
+            "claim success until pytest exits 0."
+        )
+    parts: list[str] = []
+    for path, tail in test_claim_failures[:3]:
+        snippet = tail.strip()
+        parts.append(f"`{path}`:\n    {snippet}" if snippet else f"`{path}`")
+    body = "\n  - ".join(parts)
+    return (
+        f"Your previous attempt claimed `pytest` succeeded, but "
+        f"re-running it produced failures:\n  - {body}\n\n"
+        f"Read the failing test and the implementation it's testing, "
+        f"identify the bug, fix the IMPLEMENTATION (not the test), "
+        f"and re-run pytest. Don't claim success until pytest exits 0."
+    )
+
+
 def _witness_rejected_hint(
     task_text: str,
     witness_concerns: list[str] | None = None,
@@ -400,6 +437,7 @@ _HINT_BY_REASON = {
     "artifact_incomplete": _artifact_incomplete_hint,
     "inbox_claim_invalid": _inbox_claim_invalid_hint,
     "syntax_invalid": _syntax_invalid_hint,
+    "test_claim_invalid": _test_claim_invalid_hint,
     "witness_rejected": _witness_rejected_hint,
     "max_rounds": _max_rounds_hint,
     "length": _length_hint,

@@ -232,6 +232,12 @@ class ActResult:
     # and the runner spun on identical SyntaxError tracebacks for 13
     # minutes before the operator killed it.
     syntax_failures: list[tuple[str, str]] = field(default_factory=list)
+    # v4.113 (ADR 0113): test_claim_invalid — pytest claims the task
+    # made (`uv run pytest tests/X.py`) that re-running from the
+    # operator side actually fails. Soak v16 surfaced agents shipping
+    # NameError-at-runtime regressions with confident "tests pass"
+    # claims. Populated only when finish_reason == "test_claim_invalid".
+    test_claim_failures: list[str] = field(default_factory=list)
     # v4.102 (ADR 0106): witness review concerns. Populated only when
     # finish_reason == "witness_rejected". Each entry is a one-sentence
     # concern naming the file and the structural / correctness defect
@@ -610,6 +616,181 @@ def check_syntax_valid(write_targets: list[str]) -> list[tuple[str, str]]:
             msg = stderr.split("\n")[-1] if stderr else "py_compile failed"
             failures.append((str(path), msg))
     return failures
+
+
+# v4.113 (ADR 0113): pytest commands the task explicitly claims to have
+# run. Matches `uv run pytest <path>` and `python -m pytest <path>`,
+# with optional backticks. The path must look like a tests/ file so we
+# don't try to run the full suite. Only the FIRST matching path per
+# command is captured; multi-target invocations get the first one (the
+# common case in soak v16 was a single-file claim).
+_PYTEST_CLAIM_PATTERN = re.compile(
+    r"`?(?:uv\s+run\s+pytest|python\s+-m\s+pytest|pytest)\s+"
+    r"(tests/[A-Za-z0-9_/.-]+\.py)`?",
+)
+
+
+def _extract_claimed_pytest_files(task_text: str) -> list[str]:
+    """Return distinct tests/ paths the task text claims pytest ran on."""
+    seen: list[str] = []
+    for m in _PYTEST_CLAIM_PATTERN.finditer(task_text or ""):
+        p = m.group(1)
+        if p not in seen:
+            seen.append(p)
+    return seen
+
+
+# v4.113 / PR #6 review-round-2: invocation must distinguish
+# "pytest ran and a test failed" (exit 1, real claim violation) from
+# "pytest module isn't available in the resolved subprocess env"
+# (also exit 1, with the stderr signature ``No module named pytest``).
+# The runner prefers ``uv run pytest`` because uv resolves the
+# project's dev-extras regardless of which python is on PATH; falls
+# back to ``sys.executable -m pytest`` when uv isn't available; and
+# returns None ("environmental, skip") when neither invocation can
+# find pytest.
+_PYTEST_MISSING_STDERR = "No module named pytest"
+
+
+def _run_pytest_file(
+    rel_path: str, cwd: Path, timeout: int = 120,
+) -> tuple[int, str] | None:
+    """Re-run a single test file from subprocess.
+
+    Returns ``(returncode, combined_output)`` for a real pytest run, or
+    ``None`` when the invocation environmentally failed (no pytest
+    available, OS errors, timeout). Callers MUST treat None as
+    "skip — don't fire."
+    """
+    import sys
+    invocations = (
+        ["uv", "run", "pytest"],
+        [sys.executable, "-m", "pytest"],
+    )
+    last_combined = ""
+    for argv_head in invocations:
+        argv = [
+            *argv_head, "-x", "--tb=short", "--no-header", "-q", rel_path,
+        ]
+        try:
+            result = subprocess.run(
+                argv, cwd=str(cwd),
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        combined = (result.stdout or "") + (result.stderr or "")
+        if _PYTEST_MISSING_STDERR in combined:
+            last_combined = combined
+            continue
+        return result.returncode, combined
+    logger.info(
+        "test_claim_invalid: no pytest available via uv run or "
+        "sys.executable -m; skipping. stderr=%s",
+        last_combined[:200],
+    )
+    return None
+
+
+def check_test_claim_valid(
+    task_text: str,
+    write_targets: list[str],  # noqa: ARG001  (reserved for future use)
+    worktree_root: Path | str,
+) -> list[str]:
+    """Return tests/ paths whose pytest run actually fails.
+
+    v4.113 (ADR 0113). Soak v16 (PR #5) surfaced this: agent claimed
+    ``uv run pytest tests/test_doctor.py`` succeeded, but the file
+    raised ``NameError: name 're' is not defined`` at runtime — a
+    missing import the agent didn't catch and that py_compile cannot
+    catch. The existing structural-correctness detectors (parse,
+    presence, paths, charter) all passed.
+
+    Behavior:
+      - Extract ``uv run pytest <tests/...>`` / ``python -m pytest <tests/...>``
+        claims from ``task_text``.
+      - For each claim, if the file exists under ``worktree_root``,
+        re-run pytest from operator-side subprocess (NOT the agent's
+        shell tool — we need ground truth).
+      - Return the list of test files whose pytest exits non-zero.
+      - Nonexistent files are skipped silently (artifact_missing
+        covers that case).
+      - Malformed/absent pytest claims → return [] (don't fire on
+        unrelated tasks).
+      - Subprocess errors (timeout, OSError, missing pytest binary)
+        → return [] with a logged warning. Charter: never raise.
+    """
+    claimed = _extract_claimed_pytest_files(task_text)
+    if not claimed:
+        return []
+    root = Path(worktree_root)
+    failed: list[str] = []
+    for rel in claimed:
+        target = root / rel
+        if not target.exists():
+            continue
+        run = _run_pytest_file(rel, root)
+        if run is None:
+            # Environmental skip — no pytest available in any invocation
+            # env. Don't fire; this is exactly the false-positive shape
+            # PR #6 review-round-2 surfaced.
+            continue
+        returncode, _ = run
+        # Pytest exit codes:
+        #   0 — all tests passed
+        #   1 — tests collected, some FAILED  ← only signal "the
+        #       agent's claim was a lie"
+        #   2 — interrupted / collection error (ImportError, etc.)
+        #   3 — internal pytest error
+        #   4 — usage error
+        #   5 — no tests collected
+        # Codes 2–5 are environmental ambiguities (synthetic fixtures
+        # without project context, missing deps, placeholder files).
+        # Only exit 1 gets reported as test_claim_invalid.
+        if returncode == 1:
+            failed.append(rel)
+        elif returncode not in (0, 5):
+            logger.info(
+                "test_claim_invalid: pytest exit=%s for %s — treating "
+                "as environmental, not a claim violation",
+                returncode, rel,
+            )
+    return failed
+
+
+def _first_pytest_failure_tail(
+    task_text: str,
+    worktree_root: Path | str,
+    *,
+    max_lines: int = 8,
+) -> str | None:
+    """Best-effort re-run capture of the first failure tail for hints.
+
+    Returns the last ``max_lines`` lines of pytest stderr+stdout for
+    the first failing claimed file, or None when nothing fails or the
+    subprocess can't run. Used by the remediation hint builder so the
+    model sees the actual error rather than a generic prompt.
+    """
+    claimed = _extract_claimed_pytest_files(task_text)
+    if not claimed:
+        return None
+    root = Path(worktree_root)
+    for rel in claimed:
+        target = root / rel
+        if not target.exists():
+            continue
+        run = _run_pytest_file(rel, root)
+        if run is None:
+            return None
+        returncode, combined = run
+        # Only surface tails for true test failures (exit 1). Other
+        # non-zero codes are environmental and don't carry a useful
+        # diagnostic.
+        if returncode != 1:
+            continue
+        lines = [ln for ln in combined.splitlines() if ln.strip()]
+        return "\n".join(lines[-max_lines:]) if lines else None
+    return None
 
 
 def check_scope_evasion_strict(
@@ -1588,6 +1769,23 @@ class ActExecutor:
                     if syntax_failures:
                         completed = False
                         finish_reason = "syntax_invalid"
+                # v4.113 (ADR 0113): runtime test-claim validity. Soak
+                # v16 shipped a NameError-at-runtime regression with
+                # the agent claiming pytest had passed — py_compile
+                # caught nothing because the import was missing, not
+                # malformed. Runs AFTER syntax_invalid (the cheap
+                # parse-time gate) and BEFORE witness_rejected (the
+                # expensive semantic gate). Operator-side subprocess
+                # re-run is the ground-truth check — the agent's own
+                # shell-tool exit code can be (and was) misreported.
+                test_claim_failures: list[str] = []
+                if completed:
+                    test_claim_failures = check_test_claim_valid(
+                        task_text, write_targets, Path.cwd(),
+                    )
+                    if test_claim_failures:
+                        completed = False
+                        finish_reason = "test_claim_invalid"
                 # v4.102 (ADR 0106): witness review for foundational
                 # code changes. Runs after syntax_invalid (the cheap
                 # parse-time gate) and before fix_without_test. The
@@ -1721,6 +1919,12 @@ class ActExecutor:
                         "syntax invalid: agent wrote unparseable Python: "
                         f"{pretty}"
                     )
+                elif test_claim_failures:
+                    pretty = ", ".join(f"`{p}`" for p in test_claim_failures)
+                    failure_reason = (
+                        "test claim invalid: pytest re-run failed for "
+                        f"file(s) the task said had passed: {pretty}"
+                    )
                 elif witness_concerns:
                     pretty = "; ".join(witness_concerns[:3])
                     failure_reason = f"witness rejected: {pretty}"
@@ -1775,6 +1979,7 @@ class ActExecutor:
                     incomplete_artifacts=incomplete,
                     invalid_inbox_claims=invalid_inbox,
                     syntax_failures=syntax_failures,
+                    test_claim_failures=test_claim_failures,
                     witness_concerns=witness_concerns,
                     failure_reason=failure_reason,
                 )
