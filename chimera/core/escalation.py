@@ -138,6 +138,13 @@ ESCALATING_FINISH_REASONS = frozenset({
     # failure tail; routed through the same three-strikes path as
     # syntax_invalid and fix_without_test.
     "test_claim_invalid",
+    # v4.115 (ADR 0115): commit_message_diff_drift — the agent's
+    # [agent] commit message named files that don't appear in the
+    # cumulative diff. Soak v20-relaunch surfaced an un-git-add'd
+    # tests file claimed in the message body. Recoverable with a
+    # hint that names the missing paths; routed through the same
+    # three-strikes auto-skip as test_claim_invalid / syntax_invalid.
+    "commit_message_diff_drift",
     # v4.102 (ADR 0106): witness_rejected — a second model READ the
     # diff for a foundational code change and flagged structural,
     # correctness, or convention issues. Recoverable with a hint

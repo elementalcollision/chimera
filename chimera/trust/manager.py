@@ -77,6 +77,16 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # they passed" contract. Recoverable from a hint that pastes the
     # failing tail; soak v16 surfaced the gap.
     "test_claim_invalid": 1,
+    # v4.115 (ADR 0115): commit_message_diff_drift — the agent's
+    # [agent] commit message named files/paths that don't appear in
+    # the cumulative branch diff. Soak v20-relaunch surfaced this:
+    # agent wrote a tests file (passing locally) but never git-add'd
+    # it, then committed with a message body implying the tests were
+    # part of the work. Same severity as test_claim_invalid /
+    # syntax_invalid (one-tier demote): recoverable from a hint that
+    # names the missing paths and tells the agent to either git add
+    # them or rewrite the commit message.
+    "commit_message_diff_drift": 1,
     # v4.102 (ADR 0106): witness_rejected — a second model flagged
     # structural / correctness / convention concerns on a foundational
     # code change. Same bucket as ungrounded_citation (recoverable
