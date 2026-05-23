@@ -1,8 +1,8 @@
 ---
-cycle: 129
-session_started_at: '2026-05-20T19:33:22+00:00'
+cycle: 130
+session_started_at: null
 trust_tier: T5
-status: running
+status: rotated
 model_usage:
   anthropic_calls: 0
   openrouter_calls: 0

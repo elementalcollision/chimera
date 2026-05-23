@@ -134,3 +134,5 @@ Append-only, cycle-by-cycle event log. Populated by the WRITE phase.
 - cycle 127 @ 2026-05-20T22:01:32+00:00 — tasks_seen=0 flipped=0
 - cycle 128 @ 2026-05-20T22:01:48+00:00 — tasks_seen=0 flipped=0
 - cycle 129 @ 2026-05-20T22:02:20+00:00 — tasks_seen=2 flipped=1
+- cycle 130 @ 2026-05-23T02:41:39+00:00 — tasks_seen=5 flipped=3
+- ROTATE @ 2026-05-23T02:44:35+00:00 — age_hours=55.19
