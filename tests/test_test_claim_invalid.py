@@ -18,7 +18,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from chimera.core.act import check_test_claim_valid
+from chimera.core.act import _run_pytest_file, check_test_claim_valid
 from chimera.core.escalation import ESCALATING_FINISH_REASONS
 from chimera.core.remediation import (
     _test_claim_invalid_hint,
@@ -134,6 +134,69 @@ def test_pytest_no_tests_collected_returns_ok(tmp_path: Path) -> None:
     )
     task = "Verified `uv run pytest tests/test_placeholder.py` — green."
     assert check_test_claim_valid(task, [], tmp_path) == []
+
+
+def test_pytest_module_missing_returns_skip(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """v4.113 / PR #6 review-round-2: when neither ``uv run pytest``
+    nor ``sys.executable -m pytest`` resolves to an env that has
+    pytest installed, the subprocess exits 1 with the stderr
+    signature ``No module named pytest``. That shape is
+    indistinguishable from a real exit-1 test failure by exit code
+    alone, so the runner helper MUST detect it via stderr and return
+    None (skip). The detector then returns [], not a false positive.
+    """
+    import subprocess as _subprocess
+    from chimera.core import act as act_mod
+
+    class _MissingResult:
+        def __init__(self) -> None:
+            self.stdout = ""
+            self.stderr = (
+                "/usr/bin/python3: No module named pytest\n"
+            )
+            self.returncode = 1
+
+    def _fake_run(*_args, **_kwargs):
+        return _MissingResult()
+
+    monkeypatch.setattr(_subprocess, "run", _fake_run)
+    # Also re-export the patched subprocess on the act module to
+    # cover modules that imported `subprocess` at module scope.
+    monkeypatch.setattr(act_mod.subprocess, "run", _fake_run)
+
+    tests_dir = _make_pkg(tmp_path)
+    (tests_dir / "test_x.py").write_text(
+        "def test_one():\n    assert 1 == 1\n"
+    )
+    task = "Verified `uv run pytest tests/test_x.py` — green."
+    # The runner helper sees "No module named pytest" in stderr,
+    # treats both invocations as environmental, and returns None →
+    # detector returns [] (no false positive).
+    assert check_test_claim_valid(task, [], tmp_path) == []
+
+
+def test_run_pytest_file_helper_returns_none_when_pytest_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Unit test on the runner helper: when every invocation's stderr
+    has ``No module named pytest``, returns None.
+    """
+    import subprocess as _subprocess
+    from chimera.core import act as act_mod
+
+    class _MissingResult:
+        stdout = ""
+        stderr = "No module named pytest\n"
+        returncode = 1
+
+    monkeypatch.setattr(act_mod.subprocess, "run", lambda *a, **k: _MissingResult())
+    monkeypatch.setattr(_subprocess, "run", lambda *a, **k: _MissingResult())
+
+    tests_dir = _make_pkg(tmp_path)
+    (tests_dir / "test_x.py").write_text("def test_one(): assert True\n")
+    assert _run_pytest_file("tests/test_x.py", tmp_path) is None
 
 
 def test_passing_tests_in_isolated_tmp_path_do_not_fire(tmp_path: Path) -> None:

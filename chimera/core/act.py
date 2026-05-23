@@ -640,6 +640,58 @@ def _extract_claimed_pytest_files(task_text: str) -> list[str]:
     return seen
 
 
+# v4.113 / PR #6 review-round-2: invocation must distinguish
+# "pytest ran and a test failed" (exit 1, real claim violation) from
+# "pytest module isn't available in the resolved subprocess env"
+# (also exit 1, with the stderr signature ``No module named pytest``).
+# The runner prefers ``uv run pytest`` because uv resolves the
+# project's dev-extras regardless of which python is on PATH; falls
+# back to ``sys.executable -m pytest`` when uv isn't available; and
+# returns None ("environmental, skip") when neither invocation can
+# find pytest.
+_PYTEST_MISSING_STDERR = "No module named pytest"
+
+
+def _run_pytest_file(
+    rel_path: str, cwd: Path, timeout: int = 120,
+) -> tuple[int, str] | None:
+    """Re-run a single test file from subprocess.
+
+    Returns ``(returncode, combined_output)`` for a real pytest run, or
+    ``None`` when the invocation environmentally failed (no pytest
+    available, OS errors, timeout). Callers MUST treat None as
+    "skip — don't fire."
+    """
+    import sys
+    invocations = (
+        ["uv", "run", "pytest"],
+        [sys.executable, "-m", "pytest"],
+    )
+    last_combined = ""
+    for argv_head in invocations:
+        argv = [
+            *argv_head, "-x", "--tb=short", "--no-header", "-q", rel_path,
+        ]
+        try:
+            result = subprocess.run(
+                argv, cwd=str(cwd),
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        combined = (result.stdout or "") + (result.stderr or "")
+        if _PYTEST_MISSING_STDERR in combined:
+            last_combined = combined
+            continue
+        return result.returncode, combined
+    logger.info(
+        "test_claim_invalid: no pytest available via uv run or "
+        "sys.executable -m; skipping. stderr=%s",
+        last_combined[:200],
+    )
+    return None
+
+
 def check_test_claim_valid(
     task_text: str,
     write_targets: list[str],  # noqa: ARG001  (reserved for future use)
@@ -677,18 +729,13 @@ def check_test_claim_valid(
         target = root / rel
         if not target.exists():
             continue
-        try:
-            result = subprocess.run(
-                ["python3", "-m", "pytest", "-x", "--tb=short",
-                 "--no-header", "-q", rel],
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            logger.warning("test_claim_invalid: pytest invocation failed for %s", rel)
+        run = _run_pytest_file(rel, root)
+        if run is None:
+            # Environmental skip — no pytest available in any invocation
+            # env. Don't fire; this is exactly the false-positive shape
+            # PR #6 review-round-2 surfaced.
             continue
+        returncode, _ = run
         # Pytest exit codes:
         #   0 — all tests passed
         #   1 — tests collected, some FAILED  ← only signal "the
@@ -697,18 +744,16 @@ def check_test_claim_valid(
         #   3 — internal pytest error
         #   4 — usage error
         #   5 — no tests collected
-        # Codes 2–5 are environmental ambiguities (synthetic
-        # fixtures without project context, missing deps in tmp dirs,
-        # placeholder files). Firing on them produces false positives
-        # that block legitimate work — see PR #6 review. Only true
-        # test failures (exit 1) get reported as test_claim_invalid.
-        if result.returncode == 1:
+        # Codes 2–5 are environmental ambiguities (synthetic fixtures
+        # without project context, missing deps, placeholder files).
+        # Only exit 1 gets reported as test_claim_invalid.
+        if returncode == 1:
             failed.append(rel)
-        elif result.returncode not in (0, 5):
+        elif returncode not in (0, 5):
             logger.info(
                 "test_claim_invalid: pytest exit=%s for %s — treating "
                 "as environmental, not a claim violation",
-                result.returncode, rel,
+                returncode, rel,
             )
     return failed
 
@@ -734,23 +779,15 @@ def _first_pytest_failure_tail(
         target = root / rel
         if not target.exists():
             continue
-        try:
-            result = subprocess.run(
-                ["python3", "-m", "pytest", "-x", "--tb=short",
-                 "--no-header", "-q", rel],
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        run = _run_pytest_file(rel, root)
+        if run is None:
             return None
+        returncode, combined = run
         # Only surface tails for true test failures (exit 1). Other
         # non-zero codes are environmental and don't carry a useful
-        # diagnostic for the model to act on.
-        if result.returncode != 1:
+        # diagnostic.
+        if returncode != 1:
             continue
-        combined = (result.stdout or "") + "\n" + (result.stderr or "")
         lines = [ln for ln in combined.splitlines() if ln.strip()]
         return "\n".join(lines[-max_lines:]) if lines else None
     return None

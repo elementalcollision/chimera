@@ -208,29 +208,23 @@ def _validate_tests_actually_pass(
     ]
     if not test_files:
         return []
+    # v4.113 / PR #6 review-round-2: delegate to the shared runner
+    # helper so this gate inherits the uv→sys.executable fallback and
+    # the "No module named pytest" environmental-skip detection.
+    from .act import _run_pytest_file
     failing: list[str] = []
     for rel in test_files:
         target = worktree / rel
         if not target.exists():
             continue
-        try:
-            proc = subprocess.run(
-                ["python3", "-m", "pytest", "-x", "--tb=short",
-                 "--no-header", "-q", rel],
-                cwd=str(worktree),
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            continue
+        run = _run_pytest_file(rel, worktree, timeout=180)
+        if run is None:
+            continue  # environmental — no pytest available
+        returncode, _ = run
         # Only fire on pytest exit code 1 (true test failures). Codes
         # 2 (collection/import error), 3 (internal), 4 (usage), 5
-        # (no tests collected) are environmental ambiguities — a
-        # synthetic worktree or sandbox without the project's
-        # dependencies in PYTHONPATH would otherwise false-fire this
-        # gate. See PR #6 review (Class A).
-        if proc.returncode == 1:
+        # (no tests collected) are environmental ambiguities.
+        if returncode == 1:
             failing.append(rel)
     return failing
 
