@@ -30,6 +30,7 @@ from chimera.core.witness import (
     WitnessVerdict,
     _build_user_prompt,
     extract_charter_excerpts,
+    extract_task_charter,
 )
 from chimera.core.witness_panel import (
     PanelMember,
@@ -345,6 +346,155 @@ def test_rm_only_diff_rejected_by_at_least_one_member() -> None:
     ))
     assert any(not v.approved for _, v in labelled)
     assert panel_decision(v for _, v in labelled) is False
+
+
+# ── v4.112 (ADR 0112): task-text charter extraction ───────────
+
+
+V14_INBOX = """\
+Phase 2: implement escalations --json export per ADR 0036.
+
+CHARTER for phase 2 (the witness panel will be testing against
+these explicitly):
+  1. SCOPE: only `--json` on `list` and `summary`. NOT on `clear`.
+  2. The `clear` subcommand MUST NOT grow a --json flag — it is
+     a state-mutating verb and JSON output makes no sense.
+  3. Follow ADR 0036; default human output unchanged.
+  4. Tests required: at minimum, one positive (list --json) and
+     one negative (clear --json is not a valid argparse option).
+
+Tasks:
+  - Add --json to escalations list
+  - Add --json to escalations summary
+  - Confirm clear remains text-only
+"""
+
+
+CLI_PATH = "chimera/cli.py"
+
+
+def test_extract_task_charter_picks_up_charter_block() -> None:
+    """The v14 phase-2 INBOX has a literal 'CHARTER' marker block."""
+    out = extract_task_charter(V14_INBOX)
+    assert "CHARTER" in out
+    assert "NOT on `clear`" in out
+    assert "task charter (from INBOX)" in out
+
+
+def test_extract_task_charter_picks_up_prohibition_lines() -> None:
+    """A MUST NOT / do NOT line should surface even outside a CHARTER
+    block — soak runners often use that phrasing in remediation hints."""
+    text = (
+        "Implement the feature.\n"
+        "You MUST NOT touch the database migration scripts.\n"
+        "Tests required.\n"
+    )
+    out = extract_task_charter(text)
+    assert "MUST NOT" in out
+
+
+def test_extract_task_charter_returns_empty_for_innocuous_task() -> None:
+    """No charter language → no charter block (no false positives)."""
+    text = "Refactor the date formatter to use the new helper.\n"
+    assert extract_task_charter(text) == ""
+
+
+def test_extract_task_charter_empty_input() -> None:
+    assert extract_task_charter("") == ""
+    assert extract_task_charter("   \n\n   ") == ""
+
+
+def _v14_violation_diff() -> str:
+    """Reconstructed shape: --json added to all three subcommands."""
+    return (
+        f"=== {CLI_PATH} ===\n"
+        f"--- HEAD:{CLI_PATH}\n+++ working:{CLI_PATH}\n"
+        "+ esc_list.add_argument('--json', action='store_true')\n"
+        "+ esc_summary.add_argument('--json', action='store_true')\n"
+        "+ esc_clear.add_argument('--json', action='store_true')\n"
+    )
+
+
+def _v14_safe_diff() -> str:
+    """Operator-trimmed PR #3 shape: --json on list/summary ONLY."""
+    return (
+        f"=== {CLI_PATH} ===\n"
+        f"--- HEAD:{CLI_PATH}\n+++ working:{CLI_PATH}\n"
+        "+ esc_list.add_argument('--json', action='store_true')\n"
+        "+ esc_summary.add_argument('--json', action='store_true')\n"
+    )
+
+
+def test_v14_clear_json_violation_rejected_with_task_charter() -> None:
+    """v14 calibration fixture: agent adds --json to clear despite
+    the CHARTER block saying 'NOT on clear'. With v4.112 task-charter
+    extraction surfacing that block under the dedicated header, at
+    least one panel member must reject.
+
+    Pre-v4.112 the charter was buried inside ``task_text`` and the
+    panel approved. This test pins the fix.
+    """
+    stub = _CharterAwareStub(
+        reject_substrings=("esc_clear.add_argument('--json'",),
+        require_charter=True,
+    )
+    panel, providers = _three_panel(stub)
+    task_charter = extract_task_charter(V14_INBOX)
+    assert task_charter, "task_charter must be non-empty for this fixture"
+    labelled = _run(review_with_panel(
+        V14_INBOX,
+        _v14_violation_diff(),
+        [CLI_PATH],
+        panel, providers.get,
+        charter_excerpts=task_charter,
+    ))
+    assert len(labelled) == 3
+    assert any(not v.approved for _, v in labelled), (
+        "v14 fixture must produce at least one rejection when task "
+        "charter is surfaced under the Charter excerpts header"
+    )
+    assert panel_decision(v for _, v in labelled) is False
+
+
+def test_v14_safe_shape_unanimously_approves() -> None:
+    """The operator-trimmed PR #3 shape (list+summary only) must NOT
+    trigger — otherwise the v4.112 anchoring is overfit and would
+    block legitimate in-scope work."""
+    stub = _CharterAwareStub(
+        reject_substrings=("esc_clear.add_argument('--json'",),
+        require_charter=True,
+    )
+    panel, providers = _three_panel(stub)
+    task_charter = extract_task_charter(V14_INBOX)
+    labelled = _run(review_with_panel(
+        V14_INBOX,
+        _v14_safe_diff(),
+        [CLI_PATH],
+        panel, providers.get,
+        charter_excerpts=task_charter,
+    ))
+    assert all(v.approved for _, v in labelled)
+
+
+def test_without_task_charter_v14_violation_slips_through() -> None:
+    """Sanity / regression-pin: without v4.112's task-charter extraction
+    the violation diff is approved. This documents that the v14
+    rejection is *caused by* the new extraction step, not by the diff
+    content alone, and would regress if the extraction is removed.
+    """
+    stub = _CharterAwareStub(
+        reject_substrings=("esc_clear.add_argument('--json'",),
+        require_charter=True,
+    )
+    panel, providers = _three_panel(stub)
+    labelled = _run(review_with_panel(
+        V14_INBOX,
+        _v14_violation_diff(),
+        [CLI_PATH],
+        panel, providers.get,
+        # charter_excerpts deliberately omitted — pre-v4.112 behavior
+    ))
+    assert all(v.approved for _, v in labelled)
 
 
 def test_without_charter_the_same_diff_is_not_rejected_on_charter_grounds() -> None:

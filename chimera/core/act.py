@@ -35,6 +35,7 @@ from ..prompts import build_system_prompt
 from .witness import (
     capture_diff_for_witness,
     extract_charter_excerpts,
+extract_task_charter,
     should_witness,
     witness_enabled,
 )
@@ -1629,8 +1630,22 @@ class ActExecutor:
                                 # v13 read-only-ish RAW_ALLOWLIST
                                 # expansion) get flagged regardless of
                                 # code-level quality.
-                                charter = extract_charter_excerpts(
+                                # v4.112 (ADR 0112): also lift CHARTER
+                                # blocks out of the INBOX task text.
+                                # v14 surfaced that the operator-issued
+                                # charter ("NOT on clear") lived in
+                                # task_text, not in the file's HEAD
+                                # docstring, so the v4.110 source alone
+                                # left the panel un-anchored.
+                                file_charter = extract_charter_excerpts(
                                     witness_paths,
+                                )
+                                task_charter = extract_task_charter(
+                                    task_text,
+                                )
+                                charter = "\n\n".join(
+                                    c for c in (task_charter, file_charter)
+                                    if c
                                 )
                                 labelled = await review_with_panel(
                                     task_text, diff, witness_paths,

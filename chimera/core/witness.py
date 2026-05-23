@@ -289,6 +289,85 @@ def extract_charter_excerpts(
     return "".join(chunks)
 
 
+# ── Task-text charter extraction (v4.112, ADR 0112) ───────
+
+
+_CHARTER_MARKER = re.compile(r"\bCHARTER\b")
+_PROHIBITION = re.compile(
+    r"\b(?:MUST NOT|do NOT|shall not|NOT on|out of scope|"
+    r"do not|are not allowed|forbidden)\b",
+)
+
+
+def extract_task_charter(task_text: str, *, max_lines: int = 25) -> str:
+    """Pull explicit charter blocks out of the INBOX task text.
+
+    Soak v14 (PR #3) surfaced the gap that v4.110 closed only half-way:
+    ``extract_charter_excerpts`` sources from each modified ``.py``
+    file's HEAD docstring. That covers v13's RAW_ALLOWLIST shape
+    (constraint baked into the file itself). It does NOT cover v14's
+    shape, where the operator's INBOX block was the load-bearing
+    constraint::
+
+        CHARTER for phase 2 ...
+          1. SCOPE: only --json on list/summary. NOT on clear.
+          ...
+
+    The agent shipped --json on all three subcommands, contradicting
+    its own test. The witness panel approved because, while the
+    charter language was technically inside ``task_text``, it was
+    buried in a six-task assignment and never surfaced under the
+    dedicated ``## Charter excerpts`` header.
+
+    This lifts:
+      * any line containing the literal word ``CHARTER`` plus the
+        following ``max_lines`` lines (the typical block shape);
+      * any line containing an explicit prohibition phrase
+        (``MUST NOT``, ``do NOT``, ``NOT on``, ``out of scope``,
+        ``shall not``) plus ±1 line of context, when not already
+        covered by a CHARTER block.
+
+    Returns "" when nothing matches — the absent charter block in
+    the prompt is then simply absent, same as v4.110.
+    """
+    if not task_text or not task_text.strip():
+        return ""
+    lines = task_text.splitlines()
+    used: set[int] = set()
+    blocks: list[str] = []
+
+    for i, ln in enumerate(lines):
+        if i in used or not _CHARTER_MARKER.search(ln):
+            continue
+        end = min(len(lines), i + max_lines)
+        block = lines[i:end]
+        while block and not block[-1].strip():
+            block.pop()
+        if not block:
+            continue
+        blocks.append("\n".join(block))
+        used.update(range(i, i + len(block)))
+
+    for i, ln in enumerate(lines):
+        if i in used or not ln.strip() or not _PROHIBITION.search(ln):
+            continue
+        ctx_start = max(0, i - 1)
+        ctx_end = min(len(lines), i + 2)
+        ctx = lines[ctx_start:ctx_end]
+        while ctx and not ctx[-1].strip():
+            ctx.pop()
+        if not ctx:
+            continue
+        blocks.append("\n".join(ctx))
+        used.update(range(ctx_start, ctx_start + len(ctx)))
+
+    if not blocks:
+        return ""
+    return "\n\n".join(
+        f"=== task charter (from INBOX) ===\n{b}" for b in blocks
+    )
+
+
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 
 
