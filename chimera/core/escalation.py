@@ -145,6 +145,14 @@ ESCALATING_FINISH_REASONS = frozenset({
     # hint that names the missing paths; routed through the same
     # three-strikes auto-skip as test_claim_invalid / syntax_invalid.
     "commit_message_diff_drift",
+    # v4.118 (ADR 0118): provenance_claim_invalid — the [agent] commit
+    # message cited a version (``vX.Y``) or ADR number that doesn't
+    # resolve against the repo (no tag, no source mention, no ADR
+    # file). Soak v20-3rd shipped "v4.120 / ADR 0120" when the
+    # platform was v4.116 and ADR 0120 didn't exist — fabricated
+    # authority. Recoverable from a hint that names the bad citations;
+    # same three-strikes auto-skip path as commit_message_diff_drift.
+    "provenance_claim_invalid",
     # v4.102 (ADR 0106): witness_rejected — a second model READ the
     # diff for a foundational code change and flagged structural,
     # correctness, or convention issues. Recoverable with a hint
