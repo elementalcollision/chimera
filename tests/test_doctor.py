@@ -418,3 +418,44 @@ def test_orphan_worktrees_malformed_metadata_returns_ok(tmp_path, monkeypatch):
     entry.mkdir(parents=True, exist_ok=True)
     r = _orphan_check(tmp_path, monkeypatch)
     assert r.status == "ok", r.message
+
+
+# ── v4.??: uv_installed check ──────────────────────────────────────
+
+
+def test_check_uv_installed_returns_ok_when_present(monkeypatch):
+    """Monkeypatch shutil.which('uv') to return a path; check is ok."""
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/local/bin/uv" if cmd == "uv" else None)
+    r = _by_name(run_checks(), "uv_installed")
+    assert r.status == "ok"
+    assert "/usr/local/bin/uv" in r.message
+
+
+def test_check_uv_installed_returns_error_when_missing(monkeypatch):
+    """Monkeypatch shutil.which('uv') to return None; check is error."""
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+    r = _by_name(run_checks(), "uv_installed")
+    assert r.status == "error"
+    assert "install" in r.message.lower()
+
+
+def test_check_uv_installed_never_raises_on_exception(monkeypatch):
+    """Monkeypatch shutil.which to raise OSError; function catches it."""
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda cmd: (_ for _ in ()).throw(OSError("mock error")))
+    from chimera.core.doctor import _check_uv_installed
+    r = _check_uv_installed()
+    assert r.status == "error"
+    # OSError swallowed — no exception propagated
+
+
+def test_check_uv_installed_in_registry(monkeypatch):
+    """Verify _check_uv_installed is invoked by run_checks."""
+    from chimera.core.doctor import CheckResult as _CR
+    import chimera.core.doctor as _doctor
+    sentinel = _CR("uv_installed", "ok", "sentinel")
+    monkeypatch.setattr(_doctor, "_check_uv_installed", lambda: sentinel)
+    results = run_checks()
+    assert sentinel in results
