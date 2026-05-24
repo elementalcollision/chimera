@@ -247,6 +247,8 @@ class ActResult:
     # tests file existed on disk but was never git-add'd. Populated
     # only when finish_reason == "commit_message_diff_drift".
     commit_message_drift_claims: list[str] = field(default_factory=list)
+    # v4.116 (ADR 0116): charter_file_count_violations — files exceeding charter file-count budget. Populated only when finish_reason == "charter_file_count_exceeded".
+    charter_file_count_violations: list[str] = field(default_factory=list)
     # v4.118 (ADR 0118): provenance_claim_invalid — version strings
     # (``vX.Y``) or ADR numbers (``ADR NNNN``) the most-recent [agent]
     # commit message cites that don't resolve against the repo (no
