@@ -2275,6 +2275,7 @@ class ActExecutor:
                     syntax_failures=syntax_failures,
                     test_claim_failures=test_claim_failures,
                     commit_message_drift_claims=commit_drift_claims,
+                    charter_file_count_violations=charter_violations,
                     provenance_claim_failures=provenance_failures,
                     witness_concerns=witness_concerns,
                     failure_reason=failure_reason,
