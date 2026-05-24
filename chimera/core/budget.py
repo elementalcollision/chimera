@@ -442,16 +442,44 @@ class ReasoningTier(Enum):
     """Cost/quality knob for LLM-routed calls (dialectic/witness/reflection).
 
     The tier is plumbed *through* existing budget and model-selection
-    logic without changing behavior — call sites that don't pass a
-    tier get :attr:`NORMAL`, which is a no-op. Future PRs will map
-    tiers to concrete model choices (e.g. MINIMAL → deepseek-flash,
-    MAX → cross-provider witness panel).
+    logic. Call sites that don't pass a tier get :attr:`NORMAL`, which
+    keeps the legacy tier string the call site already uses.
     """
 
     MINIMAL = "minimal"   # cheap, fast, structured-output only
     NORMAL = "normal"     # current default behavior
     DEEP = "deep"         # opus-class, agentic, multi-round
     MAX = "max"           # cross-provider witness panel (existing v4.110+)
+
+
+# ADR 0127: mapping from the high-level ReasoningTier cost/quality
+# knob to the existing tier-string ladder consumed by
+# :func:`chimera.providers.tiers.select_rung`. Kept narrow on purpose
+# — MAX intentionally falls back to ``opus`` because the witness-panel
+# behavior (ADR 0107) is selected at a different layer (panel
+# assembly), not at single-call routing.
+_REASONING_TIER_TO_LADDER: dict[ReasoningTier, str] = {
+    ReasoningTier.MINIMAL: "haiku",
+    ReasoningTier.NORMAL:  "sonnet",
+    ReasoningTier.DEEP:    "opus",
+    ReasoningTier.MAX:     "opus",
+}
+
+
+def tier_for_reasoning(
+    reasoning_tier: ReasoningTier | None,
+    *,
+    default: str = "sonnet",
+) -> str:
+    """Resolve a :class:`ReasoningTier` to the legacy tier string.
+
+    Returns ``default`` when ``reasoning_tier`` is ``None`` so existing
+    call sites that haven't opted into the enum keep their literal
+    tier string. Pass a real :class:`ReasoningTier` to override.
+    """
+    if reasoning_tier is None:
+        return default
+    return _REASONING_TIER_TO_LADDER.get(reasoning_tier, default)
 
 
 def _estimate_tokens(text: str) -> int:
