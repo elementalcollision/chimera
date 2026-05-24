@@ -5,11 +5,11 @@ _Daily synthesis from the engines. Newest day first._
 
 ### Morning Discovery
 
-- Heavy reliance on tool_use calls (26 of 29) across all cycles, suggesting a pattern of iterative tool invocation rather than direct generation.
-- Deepseek/deepseek-v4-flash model used exclusively; no model diversity or switch attempts despite multiple retries.
-- Repetitive cycle 137 tool calls with increasing token counts (91 → 1557) hint at expanding context or stuck behavior before completion.
-- Current task is hyper-specific (single dict entry + test), but the charter imposes rigid constraints to prevent overshoot—failure mode if engine drifts.
-- No evidence of successful test passes or commits yet; history shows only tool calls, not terminal stops that deliver results.
+- New theme: e2e test coverage hardening for v4.116 – a single test file with strict charter constraints (no source mods, no new deps).
+- Pattern of heavy tool_use (17/20 calls) suggests sustained multi-step reasoning or tool chaining, possibly stuck in re-reading or checking.
+- No observed failures in recent cycles; three stop finishes indicate successful completions, though the majority are tool calls.
+- Repetitive cycle 138 shows deepseek-v4-flash used repeatedly for tool_use, hinting at a loop or extended analysis before final stop.
+- Notable success: the task explicitly avoids common overshoot traps (modifying source layers, splitting tests, lying-by-honesty), signaling disciplined charter adherence.
 
 ## 2026-05-20
 

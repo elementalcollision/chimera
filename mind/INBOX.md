@@ -1,53 +1,53 @@
-# Inbox — Soak v28 phase 2 (remediation, engines on)
+# Inbox — Soak v30 phase 2 (remediation, engines on)
 
 Phase 1's design is in
-`mind/research/v28-trust-delta-design.md` under
+`mind/research/v30-coverage-design.md` under
 `## READY-FOR-REMEDIATION`. Implement the atomic step.
 
 CHARTER (v4.112 charter extraction will pass this to the witness
 panel from this task text):
 
-  1. SCOPE: ONE new dict entry: `"charter_file_count": -1` in FINISH_REASON_TRUST_DELTAS. Place alongside the existing v4.115 entry.
-  2. SEMANTICS: per the template's behavior; preserve all
-     defaults / exit-code semantics / never-raise guarantees.
-  3. PATTERN: mirror the template exactly. Name swap only.
-  4. NO modification of the template itself or other existing
-     wiring (charter #4).
-  5. NO new helper functions beyond what the atomic op requires.
-  6. NO new CLI flags, env knobs, or behavior changes elsewhere.
-  7. The new code must NEVER raise on benign inputs.
-  8. NO new dependencies. Stdlib only.
+  1. SCOPE: ONE new test file at
+     `tests/test_v4116_charter_file_count_e2e.py`. NO source
+     modifications. NO other test file modifications.
+  2. SEMANTICS: the test must FAIL if any of the 5 v4.116 layers
+     regresses (especially layer 5, where PR #39's bug lived).
+  3. PATTERN: mirror existing tests/test_charter_file_count.py
+     monkeypatch isolation (ADR 0122).
+  4. NO modification of the 5 wired source layers.
+  5. NO new helper modules; inline any helpers in the test file.
+  6. NO new CLI flags, env knobs, or fixtures in conftest.py.
+  7. Tmp filesystem only (pytest tmp_path); no real git index.
+  8. NO new dependencies. Stdlib + pytest only.
 
 ## Phase 2 tasks
 
 - [ ] Re-read the design from phase 1.
-- [ ] ONE new dict entry: `"charter_file_count": -1` in FINISH_REASON_TRUST_DELTAS. Place alongside the existing v4.115 entry.
-- [ ] Add ONE test in `tests/test_charter_file_count.py` asserting the change.
-- [ ] BEFORE committing, run `uv run pytest tests/test_charter_file_count.py -q` and
-  confirm ALL tests pass.
+- [ ] Create `tests/test_v4116_charter_file_count_e2e.py` with ONE
+  test function exercising all 5 layers in sequence.
+- [ ] Run `uv run pytest tests/test_v4116_charter_file_count_e2e.py -q`
+  and confirm pass BEFORE committing.
 - [ ] Commit with `[agent]` prefix + one-paragraph rationale.
-  **Do NOT cite rooted paths in the commit message** that aren't
-  in the diff (v4.115 will fire; ADR 0122 isolates but charter
-  still requires the discipline).
+  **Do NOT cite rooted paths in the commit message** absent from
+  the diff (v4.115 / ADR 0122).
 - [ ] Re-run tests post-commit, write the result line to
-  `mind/research/v28-trust-delta-remediation.md` under `## Test results`.
+  `mind/research/v30-coverage-remediation.md` under `## Test results`.
 
-You are on the soak branch; push is scoped-out via a per-worktree
-config override. The wiring_coordinator handles push + PR + merge
-on a successful soft-sentinel exit.
+You are on the soak branch; push is scoped-out via per-worktree
+config. The wiring_coordinator handles push + PR + merge on a
+successful soft-sentinel exit.
 
 OVERSHOOT TRAPS the panel should reject:
 
-  - **Commit message rooted-path discipline**: keep messages
-    tight to paths actually in the diff.
+  - **Modifying any of the 5 wired source layers** (charter #1).
+    They are CORRECT post-PR #39; the test asserts on their
+    behavior, it does not change them.
+  - **Splitting into per-layer tests** — per-layer coverage
+    already exists; this charter is for the assertion ARC.
+  - **Commit message rooted-path discipline** (v4.115).
   - **Committing with red tests** (v23 failure mode).
   - **Lying-by-honesty**: shipping with failure counts.
-  - Changing delta to a value other than -1 (charter #3 — match v4.115)
-  - Adding a NEW dict for charter-related deltas (charter #4)
-  - Modifying the existing v4.115 delta (charter #4)
-  - Touching escalation.py (v27's job)
-  - Touching remediation.py (v29's job)
 
-This is sub-soak v28 (sub-soak D) of the v4.116 wiring
-decomposition. The contract bar is strict.
+This is soak v30: coverage hardening for v4.116. NOT detector
+wiring. Single test file; nothing more.
 
