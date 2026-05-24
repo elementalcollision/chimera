@@ -170,11 +170,18 @@ for runner in "${RUNNERS[@]}"; do
 
     # Auto-merge.
     log "  squash-merging PR #$pr_num ..."
-    if ! gh pr merge "$pr_num" --squash --delete-branch 2>&1 | tee -a "$LOG"; then
+    # NOTE: do NOT pass --delete-branch; v25 surfaced that gh tries to
+    # delete the LOCAL branch as part of the flag, and that fails when
+    # the soak worktree still has the branch checked out — even though
+    # the remote-side merge succeeded. Coordinator's own cleanup below
+    # removes both the worktree and the local branch after we sync main.
+    if ! gh pr merge "$pr_num" --squash 2>&1 | tee -a "$LOG"; then
         log "  FAIL: gh pr merge failed for #$pr_num"
         failed_runner="$runner"
         break
     fi
+    # Delete the remote branch explicitly (since we dropped --delete-branch).
+    git -C "$REPO_ROOT" push origin --delete "$soak_branch" 2>&1 | tee -a "$LOG" || true
 
     # Sync local main.
     git -C "$REPO_ROOT" checkout main --quiet 2>&1 | tee -a "$LOG" || true
