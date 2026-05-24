@@ -22,11 +22,19 @@ soak_refuse_concurrent() {
     local script_name="$1"
     local self_pid=$$
     # pgrep -f matches against the full command line. -l prints "<pid> <cmd>".
-    # We drop our own PID and anything whose pid matches a known parent
-    # (the shell that sourced this file).
+    # We drop:
+    #   - our own PID (the running soak shell)
+    #   - any pgrep / awk in this very pipeline whose argv happens to contain
+    #     the search pattern (race: pgrep's own command line includes the
+    #     script_name argument, so pgrep matches itself).
+    # Diagnosed during v31 R1 daemonized launch (see
+    # mind/research/v31-silent-death-postmortem-2026-05-24.md): under a fresh
+    # setsid session this self-match consistently false-FATALs. The Claude
+    # Code Bash tool's wrapping process tree had previously masked the race
+    # for v17-v30; a clean session exposed it.
     local others
     others=$(pgrep -fl "$script_name" 2>/dev/null \
-        | awk -v me="$self_pid" '$1 != me { print $1 }')
+        | awk -v me="$self_pid" '$1 != me && $2 != "pgrep" && $2 != "awk" { print $1 }')
     if [ -n "$others" ]; then
         echo "FATAL: another $script_name instance is already running:" >&2
         echo "$others" | while read -r pid; do
