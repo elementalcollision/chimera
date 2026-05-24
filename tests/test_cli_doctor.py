@@ -13,8 +13,16 @@ from pathlib import Path
 
 
 def _run_doctor(*args: str, state_dir: Path, mind_dir: Path | None = None) -> tuple[int, str, str]:
+    # PATH must include the directory containing `uv` so the v4.119
+    # `_check_uv_installed` doctor check (PR #17) does not return "error"
+    # and force a non-zero CLI exit. Without this, rc==0 assertions below
+    # fail on environments where uv is not in /usr/bin or /bin.
+    import shutil as _shutil
+    uv_path = _shutil.which("uv")
+    extra_dirs = [str(Path(uv_path).parent)] if uv_path else []
+    path_parts = ["/usr/bin", "/bin", *extra_dirs]
     env = {
-        "PATH": "/usr/bin:/bin",
+        "PATH": ":".join(path_parts),
         "CHIMERA_STATE_DIR": str(state_dir),
         "CHIMERA_MIND_DIR": str(mind_dir or state_dir / "mind"),
     }
