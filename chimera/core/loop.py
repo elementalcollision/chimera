@@ -930,6 +930,10 @@ class ChimeraLoop:
                 self._session_log_path,
                 f"- ROTATE @ {mind.utc_now_iso()} — {reason}",
             )
+            # ADR 0129: consolidate peer cards on rotation. Wrapped so a
+            # peer-cards failure cannot prevent the rotation from
+            # completing — rotation is the load-bearing operation.
+            self._consolidate_peer_cards_safe()
             self._log_phase(f"ROTATE: rotated ({reason})")
             self._force_rotation_reason = None
             return True
@@ -940,6 +944,40 @@ class ChimeraLoop:
         else:
             self._log_phase(f"ROTATE: session age {age_hours:.2f}h; continue")
         return False
+
+    def _consolidate_peer_cards_safe(self) -> None:
+        """Refresh ``mind/peers/`` on rotation (ADR 0128 / ADR 0129).
+
+        Default-on; opt out with ``CHIMERA_PEER_CARDS_ON_ROTATE=0``.
+        Failures are logged and swallowed so they cannot break the
+        rotation path. KFM fetch is intentionally skipped here (sync
+        only); a follow-up chip adds the async fetch.
+        """
+        if os.environ.get("CHIMERA_PEER_CARDS_ON_ROTATE", "1").strip().lower() in (
+            "0", "false", "no", "off",
+        ):
+            return
+        try:
+            from ..a2a.peer_trust_journal import list_decisions
+            from ..a2a.peers import list_peer_chimeras
+            from ..engines.peer_cards import consolidate_peer_cards
+
+            current_cycle = self._state.cycle if self._state is not None else 0
+            peer_names = list_peer_chimeras(self._registry)
+            decisions_by_peer = {
+                name: list_decisions(name) for name in peer_names
+            }
+            paths = consolidate_peer_cards(
+                mind_dir=self.config.mind_dir,
+                trust_state=self._trust.state,
+                peer_names=peer_names,
+                decisions_by_peer=decisions_by_peer,
+                current_cycle=current_cycle,
+            )
+            self._log_phase(f"ROTATE: peer cards refreshed ({len(paths)} files)")
+        except Exception as exc:  # noqa: BLE001 — never fail rotation
+            logger.warning("peer cards consolidation failed: %s", exc)
+            self._log_phase(f"ROTATE: peer cards failed ({exc})")
 
     # ── helpers ────────────────────────────────────────────
 

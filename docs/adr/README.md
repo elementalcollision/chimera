@@ -130,3 +130,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0126-v4115-commit-only-diff.md](./0126-v4115-commit-only-diff.md) | ADR 0126 — v4.115 inspects HEAD's own commit diff, not cumulative `base..HEAD` | Accepted (2026-05-24) |
 | [0127-reasoning-tier-wiring.md](./0127-reasoning-tier-wiring.md) | ADR 0127 — Wire `ReasoningTier` to `ReflectionEngine` (Phase 2 completion) | Accepted (2026-05-24) |
 | [0128-peer-cards.md](./0128-peer-cards.md) | ADR 0128 — Peer Cards (Phase 3 / item #4): per-peer markdown snapshots refreshed at ROTATE | Accepted (2026-05-24) |
+| [0129-peer-cards-rotate-wiring.md](./0129-peer-cards-rotate-wiring.md) | ADR 0129 — Wire Peer Cards into `_phase_rotate` (default-on; `CHIMERA_PEER_CARDS_ON_ROTATE=0` opts out) | Accepted (2026-05-24) |
