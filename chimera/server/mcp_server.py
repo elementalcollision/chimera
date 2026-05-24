@@ -40,6 +40,7 @@ from ..tools import (
     default_registry,
     register_core_tools,
 )
+from .dialectic_tool import ASK_TOOL_NAME, register_ask_tool
 from .identity_tool import IDENTITY_TOOL_NAME, register_identity_tool
 from .kfm_tool import KFM_STATE_TOOL_NAME, register_kfm_state_tool
 
@@ -78,11 +79,13 @@ class ChimeraMCPServer:
         register_core_tools(reg)
         register_identity_tool(reg)
         register_kfm_state_tool(reg)
+        register_ask_tool(reg)
         dispatcher = Dispatcher(reg)
         operator_allow = set(exposed if exposed is not None else exposed_tool_names())
         # Always advertised — peers depend on these for handshake + swarm view.
         operator_allow.add(IDENTITY_TOOL_NAME)
         operator_allow.add(KFM_STATE_TOOL_NAME)
+        operator_allow.add(ASK_TOOL_NAME)
         allowed = frozenset(operator_allow)
         srv = build_server(name=name, registry=reg, dispatcher=dispatcher, exposed=allowed)
         return cls(
