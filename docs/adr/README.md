@@ -138,4 +138,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0131-peers-cli-verb.md](./0131-peers-cli-verb.md) | ADR 0131 — `chimera peers cards` CLI verb (final Phase 3 #4 follow-up) | Accepted (2026-05-24) |
 | [0132-observer-observed-beliefs.md](./0132-observer-observed-beliefs.md) | ADR 0132 — Observer/observed belief pairs (Phase 3 / item #1): `BELIEVES_ABOUT` edge + `mind/peer_beliefs.jsonl` | Accepted (2026-05-24) |
 | [0133-dialectic-api.md](./0133-dialectic-api.md) | ADR 0133 — Dialectic API (Phase 3 / item #2): `chimera peers ask` CLI + `chimera-ask` MCP tool | Accepted (2026-05-24) |
-| [0134-hybrid-search-eval.md](./0134-hybrid-search-eval.md) | ADR 0134 — Hybrid BM25 + vector search (Phase 4 / item #6): sqlite-vec over LanceDB; prototype behind `CHIMERA_HYBRID_SEARCH=1` | Accepted (2026-05-24) |
+| [0134-hybrid-search-eval.md](./0134-hybrid-search-eval.md) | ADR 0134 — Hybrid BM25 + vector search vendor decision (Phase 4 / item #6): `HybridSearcher` scaffold + FTS5 path; vector path deferred to #6.b | Proposed (2026-05-24) |
