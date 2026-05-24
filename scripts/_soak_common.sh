@@ -19,32 +19,62 @@
 # Darwin and Linux.
 
 soak_refuse_concurrent() {
+    # Pidfile-based concurrent-instance check.
+    #
+    # Background: the original implementation used `pgrep -fl "$script_name"`
+    # to find other running instances. This was unreliable because bash's
+    # `$()` command substitution forks a SUBSHELL with the SAME argv as the
+    # parent script (e.g. `bash long_cycle_soak_v31.sh`), so pgrep finds
+    # itself, awk, AND the subshell — all matching the pattern. The awk
+    # filter dropped self but couldn't distinguish parent-script subshells
+    # from genuine concurrent instances. Diagnosed during v31 R1 daemonized
+    # launch (see mind/research/v31-silent-death-postmortem-2026-05-24.md).
+    #
+    # Replacement: write our PID to a stable pidfile keyed on the script
+    # name. On a future invocation, read the pidfile and `kill -0` the PID;
+    # if alive, refuse. If dead (stale pidfile) or no pidfile, overwrite
+    # and continue. The pidfile is self-healing: no explicit cleanup needed
+    # on exit, because the next invocation overwrites stale entries.
+    #
+    # Fail-safe escape hatch: SOAK_SKIP_CONCURRENT_CHECK=1 bypasses both
+    # the pidfile read and write. Useful when operator knows no other
+    # instance is running (e.g. fresh reboot) or for daemonized launches
+    # under non-standard process trees where the operator has already
+    # verified isolation.
+
     local script_name="$1"
-    local self_pid=$$
-    # pgrep -f matches against the full command line. -l prints "<pid> <cmd>".
-    # We drop:
-    #   - our own PID (the running soak shell)
-    #   - any pgrep / awk in this very pipeline whose argv happens to contain
-    #     the search pattern (race: pgrep's own command line includes the
-    #     script_name argument, so pgrep matches itself).
-    # Diagnosed during v31 R1 daemonized launch (see
-    # mind/research/v31-silent-death-postmortem-2026-05-24.md): under a fresh
-    # setsid session this self-match consistently false-FATALs. The Claude
-    # Code Bash tool's wrapping process tree had previously masked the race
-    # for v17-v30; a clean session exposed it.
-    local others
-    others=$(pgrep -fl "$script_name" 2>/dev/null \
-        | awk -v me="$self_pid" '$1 != me && $2 != "pgrep" && $2 != "awk" { print $1 }')
-    if [ -n "$others" ]; then
-        echo "FATAL: another $script_name instance is already running:" >&2
-        echo "$others" | while read -r pid; do
-            ps -o pid=,etime=,command= -p "$pid" 2>/dev/null >&2 || true
-        done
-        echo "" >&2
-        echo "Stop it first: pkill -f $script_name" >&2
-        echo "Then retry this launch." >&2
-        return 2
+
+    # Escape hatch — operator can bypass entirely.
+    if [ "${SOAK_SKIP_CONCURRENT_CHECK:-0}" = "1" ]; then
+        return 0
     fi
+
+    local self_pid=$$
+    # $0 is the soak runner that sourced this file; it lives in scripts/.
+    # The repo's state/ is a sibling.
+    local repo_root
+    repo_root="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" || repo_root="$PWD"
+    local pidfile="${repo_root}/state/soak-${script_name%.sh}.pid"
+    mkdir -p "$(dirname "$pidfile")" 2>/dev/null || true
+
+    if [ -f "$pidfile" ]; then
+        local existing_pid
+        existing_pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]')
+        if [ -n "$existing_pid" ] && [ "$existing_pid" != "$self_pid" ] \
+           && kill -0 "$existing_pid" 2>/dev/null; then
+            echo "FATAL: another $script_name instance is already running (PID $existing_pid):" >&2
+            ps -o pid=,etime=,command= -p "$existing_pid" 2>/dev/null >&2 || true
+            echo "" >&2
+            echo "If you're sure no other instance is running, the pidfile is stale:" >&2
+            echo "  rm $pidfile" >&2
+            echo "Or to bypass this check for a single launch:" >&2
+            echo "  SOAK_SKIP_CONCURRENT_CHECK=1 $0" >&2
+            return 2
+        fi
+        # PID dead or matches self → fall through to overwrite.
+    fi
+
+    echo "$self_pid" > "$pidfile"
     return 0
 }
 
