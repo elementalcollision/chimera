@@ -112,7 +112,109 @@ def test_watchdog_nonzero_exit_returns_zero(tmp_path: Path) -> None:
     assert "non-zero exit (7)" in log_file.read_text()
 
 
-def test_soak_lib_version_is_v3() -> None:
+def test_soak_lib_version_is_v4() -> None:
     result = _run(f"source {SOAK_LIB}; soak_lib_version")
-    assert "v3" in result.stdout, result.stdout
-    assert "watchdog" in result.stdout.lower()
+    assert "v4" in result.stdout, result.stdout
+    assert "mind/*" in result.stdout
+
+
+# ─────────────────────────────────────────────────────────────────────
+# soak_phase2_deliverable_landed — mind/* auto-allow (ADR 0121, v4)
+# ─────────────────────────────────────────────────────────────────────
+#
+# Across soaks v19–v25 the agent reliably co-staged journal updates
+# (CHRONICLE, HEARTBEAT, INBOX, SESSION_LOG, research design docs)
+# alongside the deliverable, even when the charter said "TWO files
+# only". v4 of soak_lib treats every mind/* path as operational
+# artifact and admits them into a charter-clean diff. The whitelist
+# remains strict for everything else.
+
+
+def _make_worktree_with_diff(
+    tmp_path: Path, touched: list[str], commit_msg: str = "[agent] deliverable"
+) -> Path:
+    """Build a tiny git repo with `main` and a feature branch that
+    touches `touched` files and lands one [agent]-prefixed commit.
+    Returns the worktree path."""
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    sh = (
+        f'cd "{wt}" && '
+        'git init -q -b main && '
+        'git config user.email a@b && git config user.name a && '
+        'echo seed > seed.txt && git add seed.txt && '
+        'git commit -q -m seed && '
+        'git checkout -q -b feature'
+    )
+    subprocess.run(["bash", "-c", sh], check=True, capture_output=True)
+    for rel in touched:
+        target = wt / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("payload\n")
+    files = " ".join(f'"{f}"' for f in touched)
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'cd "{wt}" && git add {files} && git commit -q -m "{commit_msg}"',
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return wt
+
+
+def _landed(wt: Path, whitelist: str, test_cmd: str = "true") -> int:
+    script = textwrap.dedent(f"""
+        source {SOAK_LIB}
+        soak_phase2_deliverable_landed "{wt}" "{whitelist}" "{test_cmd}"
+        echo "RC=$?"
+    """)
+    result = _run(script)
+    for line in result.stdout.splitlines():
+        if line.startswith("RC="):
+            return int(line.split("=", 1)[1])
+    raise AssertionError(f"no RC line in output: {result.stdout!r} / {result.stderr!r}")
+
+
+@pytest.mark.parametrize(
+    "journal_path",
+    [
+        "mind/CHRONICLE.md",
+        "mind/HEARTBEAT.md",
+        "mind/INBOX.md",
+        "mind/SESSION_LOG.md",
+        "mind/research/foo-design.md",
+        "mind/research/foo-remediation.md",
+    ],
+)
+def test_mind_paths_are_auto_allowed(tmp_path: Path, journal_path: str) -> None:
+    """v4: every mind/* path is admitted into a charter-clean diff."""
+    wt = _make_worktree_with_diff(tmp_path, ["chimera/core/act.py", journal_path])
+    rc = _landed(wt, "chimera/core/act.py")
+    assert rc == 0, f"{journal_path} should be auto-allowed under v4"
+
+
+def test_non_whitelisted_source_still_blocks(tmp_path: Path) -> None:
+    """The v4 expansion does NOT loosen enforcement outside mind/."""
+    wt = _make_worktree_with_diff(
+        tmp_path, ["chimera/core/act.py", "chimera/core/escalation.py"]
+    )
+    rc = _landed(wt, "chimera/core/act.py")
+    assert rc == 1, "extra source file outside whitelist must still block"
+
+
+def test_docs_outside_mind_still_blocks(tmp_path: Path) -> None:
+    """docs/ is NOT in the mind/ tree; must still be enforced."""
+    wt = _make_worktree_with_diff(
+        tmp_path, ["chimera/core/act.py", "docs/adr/0117-foo.md"]
+    )
+    rc = _landed(wt, "chimera/core/act.py")
+    assert rc == 1, "docs/* must not be auto-allowed"
+
+
+def test_whitelisted_files_only_still_landed(tmp_path: Path) -> None:
+    """Pure whitelist match (no mind/* path) still returns 0 — v3 behavior preserved."""
+    wt = _make_worktree_with_diff(tmp_path, ["chimera/core/act.py"])
+    rc = _landed(wt, "chimera/core/act.py")
+    assert rc == 0

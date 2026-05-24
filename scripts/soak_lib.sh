@@ -74,12 +74,16 @@ soak_phase2_deliverable_landed() {
     fi
 
     # 2. Cumulative diff touches only allowed files.
-    # Convention (v19 retro action item): any path matching
-    # mind/research/*-remediation.md is auto-allowed, because the
-    # charter typically requires the agent to write a remediation
-    # summary doc and committing it is natural. Without this, the
-    # whitelist would have to enumerate the remediation path every
-    # time and forgetting it (as in v19) blocks the soft-sentinel.
+    # Convention (v19 retro → v25 expansion): any path under mind/
+    # is auto-allowed. The mind/ tree is operational state the
+    # chimera-run loop writes between cycles (CHRONICLE, HEARTBEAT,
+    # INBOX, SESSION_LOG, research design + remediation docs, wiki) —
+    # none of it is source code under test. Across soaks v19–v25 the
+    # agent reliably co-stages journal updates with the deliverable;
+    # charter strengthening did not overcome the behavior. Allowing
+    # mind/* in the soft-sentinel diff is faithful to the contract's
+    # intent (the deliverable shipped cleanly under the charter's
+    # source-file scope). See ADR 0121.
     local touched
     touched="$(cd "$worktree" && git diff --name-only main..HEAD 2>/dev/null)"
     if [ -z "$touched" ]; then
@@ -87,9 +91,9 @@ soak_phase2_deliverable_landed() {
     fi
     local f
     for f in $touched; do
-        # Auto-allow remediation docs under mind/research/
+        # Auto-allow operational journal artifacts under mind/
         case "$f" in
-            mind/research/*-remediation.md) continue ;;
+            mind/*) continue ;;
         esac
         local ok=0
         local allowed
@@ -182,5 +186,5 @@ soak_run_chimera_with_watchdog() {
 # Print the lib version. Runners log this so post-mortems can correlate
 # soak behavior with the lib revision when the lib changes shape.
 soak_lib_version() {
-    echo "soak_lib.sh v3 — watchdog + soft-sentinel + remediation.md auto-allow (ADR 0120 soak-runner watchdog)"
+    echo "soak_lib.sh v4 — mind/* journal auto-allow (structural fix for journal-pollution blocker, observed v19-v25)"
 }
