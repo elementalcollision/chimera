@@ -151,8 +151,14 @@ for runner in "${RUNNERS[@]}"; do
         git -C "$REPO_ROOT" checkout "$soak_branch" --quiet 2>&1 | tee -a "$LOG" || true
     fi
 
-    if ! ( cd "$suite_dir" && uv run pytest -q 2>&1 | tee -a "$LOG" | tail -1 \
-             | grep -qE '^[0-9]+ passed.*in [0-9.]+s$' ); then
+    # v30 root-cause: a Py3.10 selectors atexit hook can print after pytest's
+    # summary (e.g. "ValueError: Invalid file descriptor: -1"), so tail -1
+    # misses the verdict. Scan a small trailing window instead; require a
+    # "<n> passed" line and the absence of "failed" (mirrors soft-sentinel
+    # test_cmd in scripts/long_cycle_soak_v30.sh).
+    if ! ( cd "$suite_dir" && out="$(uv run pytest -q 2>&1 | tee -a "$LOG" | tail -20)" \
+             && echo "$out" | grep -qE '\b[0-9]+ passed' \
+             && ! echo "$out" | grep -q 'failed' ); then
         log "  FAIL: full suite on $soak_branch had failures"
         failed_runner="$runner"
         if [ "$suite_dir" = "$REPO_ROOT" ]; then
