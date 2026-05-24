@@ -73,6 +73,14 @@ _REL_TABLES = [
     "CREATE REL TABLE IF NOT EXISTS DEPENDS_ON(FROM Skill TO Skill)",
     "CREATE REL TABLE IF NOT EXISTS USES_TOOL(FROM Skill TO Entity)",
     "CREATE REL TABLE IF NOT EXISTS REFERENCES(FROM WikiDoc TO WikiDoc)",
+    # ADR 0132 — observer/observed belief edges. Distinct from TRUSTED
+    # (which records Chimera's *trust decision* about a peer). A
+    # BELIEVES_ABOUT row records one peer's belief about another at a
+    # point in time, including self-beliefs (observer == observed,
+    # derived from KFM snapshots).
+    "CREATE REL TABLE IF NOT EXISTS BELIEVES_ABOUT("
+    " FROM Peer TO Peer, label STRING, drift_score DOUBLE,"
+    " source STRING, recorded_at STRING)",
 ]
 
 
@@ -120,7 +128,7 @@ class GraphStore:
         # Kuzu doesn't have TRUNCATE; we DELETE in dependency order.
         for rel in [
             "TRANSITIONED_TO", "PROPOSED", "ACTIVATED",
-            "TRUSTED", "DEPENDS_ON", "USES_TOOL", "REFERENCES",
+            "TRUSTED", "DEPENDS_ON", "USES_TOOL", "REFERENCES", "BELIEVES_ABOUT",
         ]:
             try:
                 self._conn.execute(f"MATCH ()-[r:{rel}]->() DELETE r")
@@ -649,6 +657,79 @@ class GraphStore:
                 parameters={"rows": trust_rows},
             )
             counts["TRUSTED"] = len(trust_rows)
+        return counts
+
+    def project_beliefs_from_jsonl(
+        self, *, mind_dir: Path | None = None,
+    ) -> dict[str, int]:
+        """Project ``mind/peer_beliefs.jsonl`` into BELIEVES_ABOUT edges (ADR 0132).
+
+        Reads the latest belief per ``(observer, observed)`` pair via
+        :func:`chimera.a2a.peer_beliefs.latest_per_pair` and upserts
+        one edge per pair. Peer nodes are created on-the-fly for any
+        observer/observed names not yet in the Peer table so this
+        projection is self-contained — callers don't have to seed Peer
+        rows first.
+
+        Returns ``{"BELIEVES_ABOUT": <edge count>}``.
+        """
+        counts = {"BELIEVES_ABOUT": 0}
+        try:
+            from ..a2a.peer_beliefs import latest_per_pair
+        except Exception:
+            return counts
+
+        target_dir = Path(mind_dir) if mind_dir is not None else Path("mind")
+        latest = latest_per_pair(mind_dir=target_dir)
+        if not latest:
+            return counts
+
+        # Seed Peer nodes for every name we're about to reference.
+        names: set[str] = set()
+        for (observer, observed) in latest.keys():
+            names.add(observer)
+            names.add(observed)
+        for name in names:
+            try:
+                self._conn.execute(
+                    "MERGE (p:Peer {agent_id: $id}) "
+                    "ON CREATE SET p.version = 'belief', "
+                    "p.host = 'belief', p.registered_at = ''",
+                    parameters={"id": name},
+                )
+            except Exception:
+                # Older Kuzu builds may not support MERGE; fall back to
+                # a guarded CREATE.
+                try:
+                    self._conn.execute(
+                        "CREATE (p:Peer {agent_id: $id, version: 'belief', "
+                        "host: 'belief', registered_at: ''})",
+                        parameters={"id": name},
+                    )
+                except Exception:
+                    pass
+
+        rows = [
+            {
+                "a": belief.observer,
+                "b": belief.observed,
+                "label": belief.label,
+                "d": float(belief.drift_score) if belief.drift_score is not None else 0.0,
+                "src": belief.source,
+                "t": belief.recorded_at,
+            }
+            for belief in latest.values()
+        ]
+        if rows:
+            self._conn.execute(
+                "UNWIND $rows AS row "
+                "MATCH (a:Peer {agent_id: row.a}), (b:Peer {agent_id: row.b}) "
+                "CREATE (a)-[:BELIEVES_ABOUT {label: row.label, "
+                "drift_score: row.d, source: row.src, "
+                "recorded_at: row.t}]->(b)",
+                parameters={"rows": rows},
+            )
+            counts["BELIEVES_ABOUT"] = len(rows)
         return counts
 
     def _project_skills_and_wiki(
