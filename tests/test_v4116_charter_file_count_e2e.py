@@ -6,6 +6,7 @@ Exercises all 5 layers in sequence within a single test function:
   3. ActResult + finish_reason wiring — detector violations surface on result
   4. Remediation hint — _charter_file_count_hint formats violations
   5. ESCALATING_FINISH_REASONS membership — reason is registered for escalation
+  6. Trust-delta — apply_finish_reason demotes one tier (guards PR #39 sign-flip)
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import pytest
 from chimera.core.act import ActResult
 from chimera.core.escalation import ESCALATING_FINISH_REASONS
 from chimera.core.remediation import _charter_file_count_hint
+from chimera.trust.manager import TrustManager, TrustTier
 from chimera.core.witness import (
     check_charter_file_count,
     extract_charter_file_enumeration,
@@ -171,4 +173,22 @@ async def test_charter_file_count_e2e_all_layers(
     # ── Layer 5: ESCALATING_FINISH_REASONS membership ─────────
     assert "charter_file_count" in ESCALATING_FINISH_REASONS, (
         "Layer 5: 'charter_file_count' must be in ESCALATING_FINISH_REASONS"
+    )
+
+    # ── Layer 6: Trust-delta (guards PR #39 sign-flip regression) ──
+    tm = TrustManager(tmp_path / "trust_state.json")
+    tm.promote(reason="bootstrap")
+    tm.promote(reason="bootstrap")
+    assert tm.tier is TrustTier.T2
+
+    demoted = tm.apply_finish_reason("charter_file_count")
+
+    assert demoted == 1, f"Layer 6: expected +1 demote, got {demoted}"
+    assert tm.tier is TrustTier.T1, (
+        f"Layer 6: expected T1 after demote, got {tm.tier}"
+    )
+    last = tm.state.history[-1]
+    assert last.kind == "demote", f"Layer 6: expected demote, got {last.kind}"
+    assert "charter_file_count" in last.reason, (
+        f"Layer 6: history entry should cite charter_file_count, got {last.reason!r}"
     )
