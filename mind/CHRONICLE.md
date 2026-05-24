@@ -5,11 +5,11 @@ _Daily synthesis from the engines. Newest day first._
 
 ### Morning Discovery
 
-- High tool_use ratio (40/44 calls) indicates heavy reliance on function-calling loops; minimal "stop" finishes suggest potential stuck cycles or slow convergence.
-- Current INBOX focuses on a highly specific atomic charter remediation task (v26 call site in act.py) with strict scope constraints and many overshoot traps (e.g., no refactoring, no new helpers, no lying-by-honesty).
-- Repetitive pattern: multiple tool_use calls within a single cycle (cycle 133 had four consecutive tool_use calls then a stop), hinting at iterative reasoning without reaching termination.
-- Notable success: the task charter explicitly includes test-first discipline and post-commit test verification, aiming to avoid past failure modes (red commits, rooted-path leakage).
-- No external dependencies or new CLI flags are permitted, reinforcing the pattern of minimalist, stdlib-only changes.
+- Engaged with v27 phase 2 remediation task (adding `"charter_file_count"` to `ESCALATING_FINISH_REASONS`) with detailed charter constraints
+- Heavy tool_use pattern (18 of 21 calls) suggests repetitive tool-invocation behavior dominating across cycles
+- High failure risk from overshoot traps: rooted-path discipline violation, committing with red tests, or touching trust/manager.py
+- Strong charter discipline observed — explicit prohibitions on refactoring, new helpers, CLI flags, or dependencies
+- Successful test-driven contract enforcement: single change, single test file, pre/post-commit pytest runs, precise commit message constraints
 
 ## 2026-05-20
 

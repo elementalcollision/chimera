@@ -145,6 +145,14 @@ ESCALATING_FINISH_REASONS = frozenset({
     # hint that names the missing paths; routed through the same
     # three-strikes auto-skip as test_claim_invalid / syntax_invalid.
     "commit_message_diff_drift",
+    # v4.116 (ADR 0116): charter_file_count — the cumulative diff
+    # carries files the charter didn't enumerate. Soak v20-relaunch
+    # (PR #6) shipped an unsanctioned mind/research/ file without
+    # any escalation entry, so three-strikes never triggered and the
+    # runner retried 11 cycles. Recoverable with a hint that names
+    # the offending paths; routed through the same three-strikes
+    # auto-skip path as commit_message_diff_drift.
+    "charter_file_count",
     # v4.118 (ADR 0118): provenance_claim_invalid — the [agent] commit
     # message cited a version (``vX.Y``) or ADR number that doesn't
     # resolve against the repo (no tag, no source mention, no ADR
