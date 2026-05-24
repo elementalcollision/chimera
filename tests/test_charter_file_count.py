@@ -29,6 +29,7 @@ from chimera.core.remediation import (
     _HINT_BY_REASON,
     _charter_file_count_hint,
 )
+from chimera.core.escalation import ESCALATING_FINISH_REASONS
 from chimera.core.witness import (
     check_charter_file_count,
     extract_charter_file_enumeration,
@@ -310,3 +311,9 @@ def test_charter_file_count_hint_empty_falls_back() -> None:
     assert "git diff --name-only" in hint
     empty = _charter_file_count_hint("noop task", charter_file_count_violations=[])
     assert empty == hint
+
+
+# ── ESCALATING_FINISH_REASONS membership (v4.116, ADR 0116) ────
+
+def test_charter_file_count_in_escalating_finish_reasons() -> None:
+    assert "charter_file_count" in ESCALATING_FINISH_REASONS
