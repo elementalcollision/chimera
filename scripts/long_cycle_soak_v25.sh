@@ -483,6 +483,17 @@ OVERSHOOT TRAPS the panel should reject:
     message (v4.118 will fire)
   - Commit message mentioning files that aren't in the diff
     (v4.115 will fire — be precise about the 2 files)
+  - **Commit message rooted-path discipline** (v25-relaunch failure
+    mode): the commit message MUST NOT reference any rooted path
+    (`docs/foo.md`, `chimera/x.py`, `mind/y.md`, etc.) that is not
+    in the diff. v4.115 fires on rooted-path claims absent from the
+    diff — and fires INSIDE unrelated unit tests run on the branch
+    HEAD (test_act.py + test_subagent.py read git state). Keep the
+    commit message tight: name files actually in the diff or use
+    non-rooted references like "per PR #13" / "per ADR 0116".
+    Example BAD: "as documented in docs/wiring-decomposition-methodology.md"
+    (the doc lives on main, not in this commit). Example GOOD:
+    "per the wiring-decomposition methodology (PR landed earlier)".
 
 This is sub-soak v25 (sub-soak A) of the v4.116 wiring
 decomposition. The smallest atomic step: one field line + one
