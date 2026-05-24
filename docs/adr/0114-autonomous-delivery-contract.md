@@ -1,8 +1,8 @@
 # ADR 0114: Autonomous-delivery contract
 
-**Status**: Accepted
-**Date**: 2026-05-23
-**Soaks**: v17 (PR #7, merged), v18 (PR #8, merged)
+**Status**: Operational (atomic tier) · Emerging (composed tier) — amended 2026-05-24
+**Date**: 2026-05-23 (original) · 2026-05-24 (two-tier amendment + results sweep)
+**Soaks**: v17, v18, v19, v21, v25, v26, v27, v28, v29, v30 (atomic) · v4.116 wiring (composed)
 
 ## Context
 
@@ -174,3 +174,104 @@ The contract makes no claim about:
    (add-one-function, add-one-CLI-verb, add-one-check,
    add-one-test, etc.) Or a single update to this ADR with
    a results table?
+
+---
+
+## 2026-05-24 amendment — two-tier framing + results sweep
+
+The original "N ≥ 5" criterion in [Success criterion](#success-criterion)
+treated all shippable targets as one population. After [docs/wiring-decomposition-methodology.md](../wiring-decomposition-methodology.md)
+shipped, the soak series demonstrated that multi-file *wiring* tasks
+behave differently from single-function *atomic* targets. This
+amendment splits the criterion into two tiers and records the current
+result.
+
+### Tier definitions
+
+- **Atomic** — single-file / single-function / single-line targets
+  that fit the v17–v18 shape. Each verbatim-merged `[agent]` commit
+  counts as 1. **Bar: N ≥ 5.**
+- **Composed** — multi-file coordinated wiring tasks shipped via the
+  decomposition methodology. The composite (all sub-soaks shipping
+  verbatim through the coordinator's auto-merge gate) counts as 1.
+  **Bar: N ≥ 3.**
+
+A composed delivery's constituent sub-soaks ALSO count toward the
+atomic tier. (e.g. v4.116's five sub-soaks v25–v29 contribute 5 to
+atomic and 1 to composed.)
+
+### Verbatim-merge definition
+
+Per the original criterion: the agent's `[agent]`-prefixed commit
+was merged unchanged. Operator-side fixes *after* the merge
+(separate follow-up PRs) do not retroactively disqualify the ship —
+those become their own atomic-tier observations. The contract is
+about the merge act, not the long-term defect rate of the shipped
+code.
+
+### Results sweep (as of 2026-05-24)
+
+#### Atomic tier: **N = 10** (≥ 5 ✓ — operational)
+
+| Soak | PR | Shape | Verbatim merge? | Notes |
+|---|---|---|---|---|
+| v17 | #7 | add-one-function (orphan-worktree) | ✓ | Original ADR baseline |
+| v18 | #8 | add-one-function (prune_escalations) | ✓ | Original ADR baseline |
+| v19 | — | (referenced in methodology doc) | ✓ | — |
+| v21 | — | (referenced in methodology doc) | ✓ | Template for v25+ runners |
+| v25 | (squashed) | add-field (ActResult charter_file_count_violations) | ✓ | First sub-soak of v4.116 |
+| v26 | #22 | add-call-site | ✓ | Follow-up chip #23 caught a missing constructor wire-through; not a patch-on-merge |
+| v29 | #30 | add-remediation-hint | ✓ | Manually shipped after a coordinator hang (pre-watchdog retrofit) |
+| v27 | #37 | add-escalation-entry | ✓ | First auto-merge via wiring_coordinator |
+| v28 | #38 | add-trust-delta | ✓ | Shipped with silent `-1` sign-flip; PR #39 fixed as a separate atomic |
+| v30 | #42 | add-test-file (coverage hardening) | ✓ | Charter drift on layer count; PR #44 extended as a separate atomic |
+
+#### Composed tier: **N = 1** (≥ 3 — emerging)
+
+| Wiring target | Sub-soaks | Coordinator clean? | Notes |
+|---|---|---|---|
+| v4.116 (charter_file_count detector) | v25 + v26 + v29 + v27 + v28 (5/5 shipped) | ✓* | *v28's sign-flip was a layer-5 defect inside an otherwise verbatim composite. Strict reading: still counts (each sub-soak merged verbatim); cautious reading: composed-tier defect rate ≠ 0 and N=3 should reset if a future composite has a layer-defect class regression. |
+
+Two more composed wirings needed to clear the N ≥ 3 bar.
+
+### What changed in detection vs. the original ADR
+
+Components 1–3 unchanged. Additions since 2026-05-23:
+
+- **v4.115** — `commit_message_diff_drift` (rooted-path discipline)
+- **v4.116** — `charter_file_count` (this composite)
+- **v4.117** — Trust-T0 commit gate (blocks agent git commit/push at T0)
+- **v4.118** — `provenance_claim_invalid` (cited versions/ADRs resolve)
+- **v4.119** — Sticky detector-finding demotes (no auto-promote after a detector-induced demote)
+- **v4.120** — Soak-runner watchdog (kills mid-cycle hangs)
+
+These weren't required for the original v17/v18 demonstration but
+materially shape the failure modes the contract now covers. The
+v28 sign-flip is the kind of bug that the original 3-component
+chain could not have caught (the diff was structurally valid and
+the tests passed); it surfaced through the v4.116 composite
+itself misbehaving in production usage. This argues for a future
+**Component 4** in this ADR: composed-tier defect detection (e.g.
+property-test the wiring as a unit).
+
+### Revised open questions
+
+1. (Closed) ~~Should there be a separate ADR per target-class?~~
+   Answer: no — a single results table in this ADR is sufficient
+   when the tiers and shapes are tagged. Re-open if shapes
+   proliferate beyond ~8.
+
+2. **New**: How should the contract handle defects discovered
+   *after* a verbatim merge that were caused by the merged code?
+   v28's sign-flip is the canonical example. Current stance:
+   the merge act still counts as verbatim; the defect becomes
+   its own atomic-tier observation (PR #39 here). But this
+   inflates atomic counts artificially when a defect cascade
+   produces multiple follow-up PRs. Worth revisiting if seen
+   again.
+
+3. **New**: Should the composed tier's N reset when a composite
+   ships with any sub-component defect, or only when the
+   composite as a whole fails to merge? Current stance: count
+   the merge (N=1 for v4.116). Revisit if a future composite
+   has a defect cascade larger than v4.116's single sign-flip.
