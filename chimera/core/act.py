@@ -867,7 +867,11 @@ def check_commit_message_diff_drift(
       - Extracts rooted path claims (``tests/...``, ``chimera/...``,
         ``mind/...``, ``docs/...``, ``state/...``, ``scripts/...``)
         from the commit message body.
-      - Compares against ``git diff --name-only <base>..<head>``.
+      - Compares against the HEAD commit's OWN diff
+        (``git show --name-only --format= <head>``). ADR 0126 corrected
+        this from the prior cumulative ``<base>..<head>`` form, which
+        false-fired on fresh-fork branches where ``HEAD == base_ref``
+        (soak v29 smoking gun).
       - Returns claims missing from the diff. Charter: never raise;
         subprocess errors return ``[]``.
     """
@@ -890,7 +894,7 @@ def check_commit_message_diff_drift(
             cwd=str(root), capture_output=True, text=True, timeout=10,
         )
         touched = subprocess.run(
-            ["git", "diff", "--name-only", f"{base_ref}..{head_ref}"],
+            ["git", "show", "--name-only", "--format=", head_ref],
             cwd=str(root), capture_output=True, text=True, timeout=15,
         )
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):

@@ -144,6 +144,77 @@ def test_returns_empty_when_message_has_no_claims(tmp_path: Path) -> None:
     assert check_commit_message_diff_drift(tmp_path) == []
 
 
+def test_commit_only_semantics_when_base_equals_head(tmp_path: Path) -> None:
+    """ADR 0126: detector must inspect HEAD's OWN diff, not the
+    cumulative ``base..HEAD`` diff. With ``base_ref == head_ref`` the
+    cumulative diff is empty by construction; commit-only is still
+    non-empty when HEAD itself added files. Honest claims must pass.
+    """
+    _init_repo(tmp_path)
+    (tmp_path / "chimera").mkdir()
+    (tmp_path / "chimera" / "act.py").write_text("x = 1\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_foo.py").write_text("def test_x(): pass\n")
+    _git("add", "chimera/act.py", "tests/test_foo.py", cwd=tmp_path)
+    _git(
+        "commit", "-q", "-m",
+        "[agent] chimera/act.py: add x\n\nIncludes tests/test_foo.py.",
+        cwd=tmp_path,
+    )
+    assert check_commit_message_diff_drift(
+        tmp_path, base_ref="HEAD",
+    ) == []
+
+
+def test_v29_fresh_fork_does_not_fire(tmp_path: Path) -> None:
+    """ADR 0126 smoking gun: soak v29 created a fresh worktree from
+    main; branch HEAD == main HEAD. The most-recent ``[agent]`` merge
+    commit on main mentions ``tests/test_charter_file_count.py`` in its
+    body. Pre-fix: ``git diff main..HEAD`` is empty, so every rooted
+    path in that body looked like drift and the detector fired 5×
+    across cycles 134-136, collapsing trust to T0. Post-fix:
+    ``git show HEAD`` carries the file → no drift.
+    """
+    _init_repo(tmp_path)
+    _git("checkout", "-q", "main", cwd=tmp_path)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_charter_file_count.py").write_text(
+        "def test_x(): pass\n",
+    )
+    _git("add", "tests/test_charter_file_count.py", cwd=tmp_path)
+    _git(
+        "commit", "-q", "-m",
+        "[agent] v26 follow-up: wire charter_file_count violations\n\n"
+        "Adds tests/test_charter_file_count.py with passing coverage.",
+        cwd=tmp_path,
+    )
+    _git("checkout", "-q", "-b", "chimera-soak/v29", cwd=tmp_path)
+    assert check_commit_message_diff_drift(tmp_path) == []
+
+
+def test_genuine_commit_only_drift_still_fires(tmp_path: Path) -> None:
+    """ADR 0126: post-fix, genuine drift is preserved. HEAD's own
+    commit diff omits a path that the message claims → fires.
+    """
+    _init_repo(tmp_path)
+    (tmp_path / "chimera").mkdir()
+    (tmp_path / "chimera" / "act.py").write_text("def f(): return 1\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_missing.py").write_text(
+        "def test_x(): assert 1\n",
+    )
+    _git("add", "chimera/act.py", cwd=tmp_path)
+    _git(
+        "commit", "-q", "-m",
+        "[agent] chimera/act.py: add detector\n\n"
+        "Also adds tests/test_missing.py.",
+        cwd=tmp_path,
+    )
+    assert check_commit_message_diff_drift(tmp_path) == [
+        "tests/test_missing.py",
+    ]
+
+
 def test_subprocess_failure_returns_empty(tmp_path: Path) -> None:
     # Not a git repo → git log fails → detector returns [].
     assert check_commit_message_diff_drift(tmp_path) == []
