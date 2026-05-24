@@ -178,7 +178,7 @@ sub-soak runners, not here.
 
 ## Charter template per sub-soak
 
-Each sub-soak runner is a copy of `long_cycle_soak_v21.sh` (the
+Each sub-soak runner is a copy of `archive/long_cycle_soak_v21.sh` (the
 proven minimal-shape template) with these substitutions:
 
 ```
