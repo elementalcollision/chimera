@@ -314,6 +314,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Fetch the swarm-KFM state of one peer (or all if no name given).",
     )
     p_kfm.add_argument("name", nargs="?", help="Peer server-name as known to MCP loader.")
+    # ADR 0131: peer-card consolidation on demand. Attaches to the
+    # existing peers parent so future Phase 3 #2 (`peers ask`) lands as
+    # a sibling without re-shaping the namespace.
+    p_cards = peers_sub.add_parser(
+        "cards",
+        help="Refresh mind/peers/ snapshots on demand (ADR 0128–0131).",
+    )
+    p_cards.add_argument(
+        "--narrative", action="store_true",
+        help="Also generate the LLM theory-of-mind paragraph per card "
+             "(equivalent to CHIMERA_PEER_CARD_LLM=1 for this call).",
+    )
+    p_cards.add_argument(
+        "--mind-dir",
+        help="Override CHIMERA_MIND_DIR for this call.",
+    )
+    p_cards.add_argument(
+        "--state-dir",
+        help="Override CHIMERA_STATE_DIR for this call.",
+    )
+    p_cards.add_argument(
+        "--json", action="store_true",
+        help="Print a JSON summary instead of human-readable lines.",
+    )
 
     trust = sub.add_parser(
         "trust",
@@ -597,6 +621,75 @@ async def _ping_provider(name: str) -> int:
     reply = "".join(text_parts).strip()
     print(f"  [{name}] reply={reply!r} finish={finish!r}")
     return 0 if "pong" in reply.lower() else 1
+
+
+def _cmd_peers_cards(args) -> int:
+    """`chimera peers cards [--narrative]` — refresh ``mind/peers/`` on demand.
+
+    Deterministic-only by default; ``--narrative`` (or
+    ``CHIMERA_PEER_CARD_LLM=1`` in the environment) opts into the
+    sonnet-tier theory-of-mind paragraph per card (ADR 0130 / 0131).
+    """
+    import json as _json
+    import os as _os
+    from pathlib import Path
+
+    from .a2a.peer_trust_journal import list_decisions
+    from .a2a.peers import list_peer_chimeras
+    from .core import ChimeraLoop, LoopConfig
+    from .engines.peer_cards import (
+        build_peer_card,
+        build_self_card,
+        write_peer_card,
+    )
+
+    if args.mind_dir:
+        _os.environ["CHIMERA_MIND_DIR"] = args.mind_dir
+    if args.state_dir:
+        _os.environ["CHIMERA_STATE_DIR"] = args.state_dir
+
+    cfg = LoopConfig.from_env()
+    cfg.mind_dir.mkdir(parents=True, exist_ok=True)
+    cfg.state_dir.mkdir(parents=True, exist_ok=True)
+
+    # The ChimeraLoop carries the registry + TrustManager wired exactly
+    # as the running agent would have them. We don't run a cycle — just
+    # use its state to drive consolidation.
+    loop = ChimeraLoop(cfg)
+    peer_names = list_peer_chimeras(loop._registry)
+
+    cards = [build_self_card(trust_state=loop._trust.state)]
+    for name in peer_names:
+        cards.append(build_peer_card(
+            name,
+            decisions=list_decisions(name),
+            current_cycle=None,
+        ))
+
+    if args.narrative:
+        _os.environ["CHIMERA_PEER_CARD_LLM"] = "1"
+        try:
+            loop._enrich_cards_with_narratives(cards)
+        except Exception as exc:  # noqa: BLE001 — keep CLI resilient
+            print(f"warning: narrative enrichment failed: {exc}")
+
+    paths = [write_peer_card(cfg.mind_dir, c) for c in cards]
+    rels = [str(Path(p).relative_to(cfg.mind_dir.parent)) if cfg.mind_dir.parent in p.parents
+            else str(p) for p in paths]
+
+    if args.json:
+        print(_json.dumps({
+            "written": [str(p) for p in paths],
+            "count": len(paths),
+            "narrative": bool(args.narrative),
+            "peers": peer_names,
+        }, indent=2))
+    else:
+        narr = " (with narratives)" if args.narrative else ""
+        print(f"chimera peers cards: wrote {len(paths)} card(s){narr}")
+        for r in rels:
+            print(f"  {r}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1347,6 +1440,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {t}: error: {exc}")
             loop.close()
             return 0
+        if sub_cmd == "cards":
+            return _cmd_peers_cards(args)
         parser.error(f"unknown peers subcommand: {sub_cmd}")
         return 2
     if args.command == "a2a":
