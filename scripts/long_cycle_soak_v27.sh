@@ -538,7 +538,7 @@ log "phase-2 INBOX seeded"
 # AND a passing targeted test are detected. Uses soak_lib.sh v2 which
 # auto-allows mind/research/*-remediation.md (v19 retro polish).
 SOFT_SENTINEL_ALLOWED_FILES="chimera/core/doctor.py tests/test_doctor.py"
-SOFT_SENTINEL_TEST_CMD="uv run pytest tests/test_doctor.py -q"
+SOFT_SENTINEL_TEST_CMD="uv run pytest tests/test_charter_file_count.py -q 2>&1 | tail -2 | grep -qE '^[0-9]+ passed.*in [0-9.]+s$' && ! uv run pytest tests/test_charter_file_count.py -q 2>&1 | tail -2 | grep -q 'failed'"
 log "soft-sentinel armed: files=[$SOFT_SENTINEL_ALLOWED_FILES] test=[$SOFT_SENTINEL_TEST_CMD]"
 
 phase_loop "phase2" "$PHASE2_CAP_USD" "$PHASE2_START_ISO" "" "1"

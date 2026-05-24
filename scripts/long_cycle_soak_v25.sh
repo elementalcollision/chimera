@@ -504,7 +504,7 @@ log "phase-2 INBOX seeded"
 # v24 rejects any 'failed' line. Auto-allows
 # mind/research/*-remediation.md via soak_lib v3.
 SOFT_SENTINEL_ALLOWED_FILES="chimera/core/act.py tests/test_charter_file_count.py"
-SOFT_SENTINEL_TEST_CMD="uv run pytest tests/test_charter_file_count.py 2>&1 | tail -2 | grep -qE '^[0-9]+ passed.*in [0-9.]+s$' && ! uv run pytest tests/test_charter_file_count.py 2>&1 | tail -2 | grep -q 'failed'"
+SOFT_SENTINEL_TEST_CMD="uv run pytest tests/test_charter_file_count.py -q 2>&1 | tail -2 | grep -qE '^[0-9]+ passed.*in [0-9.]+s$' && ! uv run pytest tests/test_charter_file_count.py -q 2>&1 | tail -2 | grep -q 'failed'"
 log "soft-sentinel armed: files=[$SOFT_SENTINEL_ALLOWED_FILES] test=[$SOFT_SENTINEL_TEST_CMD]"
 
 phase_loop "phase2" "$PHASE2_CAP_USD" "$PHASE2_START_ISO" "" "1"
