@@ -202,3 +202,82 @@ def test_actresult_charter_file_count_violations_default_is_empty() -> None:
         task_text="x", completed=True, rounds=0, finish_reason="ok",
     )
     assert result.charter_file_count_violations == []
+
+
+# ── ActExecutor call-site wiring (v4.116, ADR 0116) ───────────
+
+
+import pytest  # noqa: E402
+
+from chimera.memory import open_and_init  # noqa: E402
+from chimera.providers import ChatResponse, Message  # noqa: E402
+from chimera.providers.base import Provider  # noqa: E402
+from chimera.providers.tiers import Provider as ProviderKind  # noqa: E402
+from chimera.tools import (  # noqa: E402
+    Dispatcher,
+    ToolRegistry,
+    register_shell_tool,
+)
+
+
+class _StopProvider(Provider):
+    """Minimal scripted provider — always returns a clean 'stop'."""
+
+    name = "fake"
+
+    async def stream(self, messages, *, model_id, max_tokens=4096, system=None):
+        if False:
+            yield None  # pragma: no cover
+
+    async def complete_with_tools(
+        self, messages: list[Message], *, model_id: str,
+        tools, max_tokens: int = 4096, system: str | None = None,
+    ) -> ChatResponse:
+        return ChatResponse(
+            text="done.", tool_uses=[], stop_reason="stop",
+            model_id=model_id, provider="fake",
+        )
+
+
+@pytest.mark.asyncio
+async def test_act_call_site_sets_charter_file_count_finish_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v4.116 wiring: detector violations surface on ActResult + flip finish_reason."""
+    from chimera.core import act as _act
+    from chimera.core.act import ActExecutor
+
+    monkeypatch.setattr(
+        _act, "check_charter_file_count",
+        lambda *a, **kw: ["mind/research/forbidden.md"],
+    )
+    # Isolate from sibling git-reading detectors (ADR 0122) so this test
+    # exercises ONLY the v4.116 call site.
+    monkeypatch.setattr(
+        _act, "check_commit_message_diff_drift", lambda *a, **kw: []
+    )
+    monkeypatch.setattr(
+        _act, "check_provenance_claim_valid", lambda *a, **kw: []
+    )
+
+    reg = ToolRegistry()
+    register_shell_tool(reg)
+    dispatcher = Dispatcher(reg)
+    db = open_and_init(tmp_path / "chimera.db")
+    try:
+        fake = _StopProvider()
+        executor = ActExecutor(
+            dispatcher=dispatcher,
+            providers={
+                ProviderKind.OPENROUTER: fake,
+                ProviderKind.ANTHROPIC: fake,
+            },
+            db=db,
+        )
+        result = await executor.execute("noop task", cycle=1)
+    finally:
+        db.close()
+
+    assert result.charter_file_count_violations == ["mind/research/forbidden.md"]
+    assert result.finish_reason == "charter_file_count"
+    assert result.completed is False
