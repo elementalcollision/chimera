@@ -348,6 +348,45 @@ def _commit_message_diff_drift_hint(
     )
 
 
+def _charter_file_count_hint(
+    task_text: str,
+    charter_file_count_violations: list[str] | None = None,
+) -> str:
+    """v4.116 (ADR 0116): the [agent] commit carried files outside
+    the charter's enumerated file-count budget.
+
+    Structural cousin of v4.115's commit-message drift detector. Where
+    v4.115 catches "commit message claims X but diff doesn't carry X"
+    (lying about what happened), this catches "diff carries Y but
+    charter forbade Y" (exceeding the explicit file budget). The hint
+    names the offending paths so the model knows exactly which files
+    to drop or move into a separate branch.
+
+    When the detector populated ``charter_file_count_violations`` on the
+    prior ActResult, the hint names the violating paths. Without that
+    detail (the DB-only path), the hint falls back to a generic
+    instruction.
+    """
+    if not charter_file_count_violations:
+        return (
+            "Your last commit included files outside the charter's "
+            "enumerated file-count budget. Run "
+            "`git diff --name-only main..HEAD` to see what was "
+            "committed, then `git reset` path-by-path to drop files "
+            "the charter doesn't enumerate. Don't add files the "
+            "charter hasn't budgeted."
+        )
+    paths = ", ".join(f"`{p}`" for p in charter_file_count_violations[:5])
+    return (
+        f"Your last commit included {paths} which are outside the "
+        f"charter's enumerated file-count budget. Either `git reset` "
+        f"those files and commit only what the charter enumerates, "
+        f"or split them into a follow-up PR whose charter explicitly "
+        f"includes them. Files outside the charter budget are the "
+        f"failure mode this gate closes."
+    )
+
+
 def _provenance_claim_invalid_hint(
     task_text: str,
     provenance_claim_failures: list[str] | None = None,
@@ -507,6 +546,7 @@ _HINT_BY_REASON = {
     "syntax_invalid": _syntax_invalid_hint,
     "test_claim_invalid": _test_claim_invalid_hint,
     "commit_message_diff_drift": _commit_message_diff_drift_hint,
+    "charter_file_count": _charter_file_count_hint,
     "provenance_claim_invalid": _provenance_claim_invalid_hint,
     "witness_rejected": _witness_rejected_hint,
     "max_rounds": _max_rounds_hint,
