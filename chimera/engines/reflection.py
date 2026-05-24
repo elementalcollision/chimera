@@ -16,12 +16,15 @@ schema and 0123 for the Honcho-inspired roadmap.
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..core.budget import ReasoningTier
 import logging
 import os
 import sqlite3
 from pathlib import Path
 
-from ..core.budget import ReasoningTier, tier_for_reasoning
 from ..memory import record_api_call, record_ladder_outcome
 from ..prompts import recent_history
 from ..providers import Message, Provider
@@ -64,8 +67,11 @@ class ReflectionEngine(EngineBase):
         chronicle: ChronicleManager,
         tier: str = "sonnet",
         max_tokens: int = 1024,
-        reasoning_tier: ReasoningTier | None = None,
+        reasoning_tier: "ReasoningTier | None" = None,
     ) -> None:
+        # Lazy import to avoid a circular through chimera.core.__init__
+        # → chimera/core/loop.py → chimera.engines.
+        from ..core.budget import tier_for_reasoning
         self._providers = providers
         self._db = db
         self._mind_dir = Path(mind_dir)
