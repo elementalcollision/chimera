@@ -338,6 +338,26 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true",
         help="Print a JSON summary instead of human-readable lines.",
     )
+    # ADR 0133: dialectic Q&A against a peer's grounded context.
+    p_ask = peers_sub.add_parser(
+        "ask",
+        help="Ask a natural-language question about a peer (ADR 0133).",
+    )
+    p_ask.add_argument("peer_name", help="Peer name (use 'self' for Chimera itself).")
+    p_ask.add_argument("question", help="The question to ask.")
+    p_ask.add_argument(
+        "--mind-dir",
+        help="Override CHIMERA_MIND_DIR for this call.",
+    )
+    p_ask.add_argument(
+        "--prompt-only", action="store_true",
+        help="Print the assembled prompt instead of calling the LLM. "
+             "Useful for debugging the context build.",
+    )
+    p_ask.add_argument(
+        "--json", action="store_true",
+        help="Emit a JSON object {peer_name, question, answer, sources_used}.",
+    )
 
     trust = sub.add_parser(
         "trust",
@@ -689,6 +709,101 @@ def _cmd_peers_cards(args) -> int:
         print(f"chimera peers cards: wrote {len(paths)} card(s){narr}")
         for r in rels:
             print(f"  {r}")
+    return 0
+
+
+def _cmd_peers_ask(args) -> int:
+    """`chimera peers ask <peer> "<question>"` — dialectic Q&A (ADR 0133).
+
+    Gathers grounded context (peer card + trust journal + beliefs if
+    available), assembles the dialectic prompt, then calls the local
+    sonnet-tier provider for an answer. With ``--prompt-only`` the
+    prompt is printed and no LLM call is made (useful for debugging).
+    """
+    import asyncio
+    import json as _json
+    import os as _os
+    from pathlib import Path
+
+    from .a2a.dialectic import (
+        build_dialectic_prompt,
+        gather_dialectic_context,
+        trim_answer,
+    )
+    from .core import LoopConfig
+
+    if args.mind_dir:
+        _os.environ["CHIMERA_MIND_DIR"] = args.mind_dir
+
+    cfg = LoopConfig.from_env()
+    ctx = gather_dialectic_context(args.peer_name, mind_dir=cfg.mind_dir)
+    prompt = build_dialectic_prompt(ctx, args.question)
+
+    if args.prompt_only:
+        if args.json:
+            print(_json.dumps({
+                "peer_name": args.peer_name,
+                "question": args.question,
+                "prompt": prompt,
+                "sources_used": ctx.sources_used,
+                "is_empty_context": ctx.is_empty(),
+            }, indent=2))
+        else:
+            print(prompt)
+        return 0
+
+    # Build a ChimeraLoop only to harvest its ACT provider topology.
+    from .core import ChimeraLoop
+    from .providers import Message
+    from .providers.tiers import Provider as ProviderKind
+    from .providers.tiers import select_rung
+
+    loop = ChimeraLoop(cfg)
+    try:
+        if loop._act is None or not loop._act.providers:
+            answer = (
+                f"(no providers configured — cannot answer about "
+                f"{args.peer_name}; assembled context only)"
+            )
+        else:
+            try:
+                rung = select_rung("sonnet")
+            except (ValueError, RuntimeError) as exc:
+                print(f"error: tier resolution failed: {exc}")
+                return 1
+            provider = loop._act.providers.get(rung.config.provider)
+            if provider is None:
+                answer = "(no provider available for sonnet tier)"
+            else:
+                model_id = (
+                    rung.config.model_id
+                    if rung.config.provider is ProviderKind.ANTHROPIC
+                    else rung.config.openrouter_model_id
+                )
+
+                async def _call() -> str:
+                    response = await provider.complete_with_tools(
+                        messages=[Message.user(prompt)],
+                        model_id=model_id,
+                        tools=[],
+                        max_tokens=384,
+                    )
+                    return response.text or ""
+
+                answer = trim_answer(asyncio.run(_call()))
+    finally:
+        loop.close()
+
+    if args.json:
+        print(_json.dumps({
+            "peer_name": args.peer_name,
+            "question": args.question,
+            "answer": answer,
+            "sources_used": ctx.sources_used,
+            "is_empty_context": ctx.is_empty(),
+        }, indent=2))
+    else:
+        print(answer)
     return 0
 
 
@@ -1442,6 +1557,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if sub_cmd == "cards":
             return _cmd_peers_cards(args)
+        if sub_cmd == "ask":
+            return _cmd_peers_ask(args)
         parser.error(f"unknown peers subcommand: {sub_cmd}")
         return 2
     if args.command == "a2a":
