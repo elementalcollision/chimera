@@ -37,6 +37,25 @@ class _ScriptedProvider(Provider):
         return self._responses.pop(0)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_v4115_v4118_from_git_state(monkeypatch):
+    """Isolate test_subagent from v4.115/v4.118 git-reading detectors per ADR 0122.
+
+    See tests/test_act.py for the rationale: the ACT pipeline shells out to
+    `git log` / `git diff` via check_commit_message_diff_drift (v4.115) and
+    check_provenance_claim_valid (v4.118), which can read the real branch
+    HEAD and trip during sub-agent tests.
+    """
+    from chimera.core import act as _act
+
+    monkeypatch.setattr(
+        _act, "check_commit_message_diff_drift", lambda *a, **kw: []
+    )
+    monkeypatch.setattr(
+        _act, "check_provenance_claim_valid", lambda *a, **kw: []
+    )
+
+
 @pytest.fixture
 def db(tmp_path: Path):
     c = open_and_init(tmp_path / "chimera.db")

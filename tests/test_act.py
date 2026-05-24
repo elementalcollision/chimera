@@ -72,6 +72,26 @@ class _FakeProvider(Provider):
 # ── Fixtures ────────────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _isolate_v4115_v4118_from_git_state(monkeypatch):
+    """Isolate test_act from v4.115/v4.118 git-reading detectors per ADR 0122.
+
+    check_commit_message_diff_drift (v4.115) and check_provenance_claim_valid
+    (v4.118) shell out to `git log` / `git diff` inside the ACT pipeline. In
+    unit tests the real branch HEAD's commit message can trip these detectors
+    and override the executor's finish_reason, leaking real-git state into
+    otherwise-isolated tests. Force both to return [] in this module.
+    """
+    from chimera.core import act as _act
+
+    monkeypatch.setattr(
+        _act, "check_commit_message_diff_drift", lambda *a, **kw: []
+    )
+    monkeypatch.setattr(
+        _act, "check_provenance_claim_valid", lambda *a, **kw: []
+    )
+
+
 @pytest.fixture
 def shell_env(tmp_path: Path, monkeypatch):
     mind = tmp_path / "mind"
