@@ -483,6 +483,94 @@ def _check_orphan_worktrees(repo_root: Path) -> CheckResult:
 
 
 
+def _check_soak_runner_liveness(state_dir: Path) -> CheckResult:
+    """ADR 0120: detect stalled soak runners by log-mtime staleness.
+
+    Companion to scripts/soak_lib.sh's `soak_run_chimera_with_watchdog`.
+    v22 post-mortem found a chimera-run subprocess died silently with no
+    log line and no exit-code propagation; the parent shell blocked
+    forever. The watchdog now kills the subprocess inside the soak, but
+    if the shell itself is wedged (e.g. between iterations), this check
+    surfaces the staleness to the operator.
+
+    Looks for ``long_cycle_v*_*.log`` files in ``state_dir`` whose mtime
+    is more than ``CHIMERA_DOCTOR_SOAK_LOG_STALE_MIN`` minutes old AND
+    whose corresponding runner process is still alive in ps.
+    Default threshold: 15 min.
+    """
+    import re as _re
+    import shutil
+    import subprocess
+    from datetime import datetime as _datetime, timezone as _timezone
+
+    try:
+        stale_min = int(
+            os.environ.get("CHIMERA_DOCTOR_SOAK_LOG_STALE_MIN", "15")
+        )
+    except (ValueError, TypeError):
+        stale_min = 15
+    stale_seconds = stale_min * 60
+
+    if not state_dir.is_dir():
+        return CheckResult("soak_liveness", "ok", f"no {state_dir}")
+
+    try:
+        log_files = sorted(state_dir.glob("long_cycle_v*_*.log"))
+    except OSError as exc:
+        return CheckResult("soak_liveness", "ok", f"cannot glob: {exc}")
+
+    if not log_files:
+        return CheckResult("soak_liveness", "ok", "no soak logs present")
+
+    pgrep = shutil.which("pgrep")
+    if not pgrep:
+        return CheckResult(
+            "soak_liveness", "ok",
+            "pgrep unavailable; cannot correlate logs with processes",
+        )
+
+    try:
+        out = subprocess.run(  # noqa: S603
+            [pgrep, "-fl", "long_cycle_soak_v"],
+            capture_output=True, text=True, timeout=2.0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return CheckResult("soak_liveness", "ok", "pgrep failed; skipping")
+    alive = out.stdout
+    now = _datetime.now(_timezone.utc).timestamp()
+    stalled: list[str] = []
+
+    for log in log_files:
+        # Extract version tag from name: long_cycle_v22_2026-05-23-2039.log
+        m = _re.match(r"long_cycle_(v\d+)_", log.name)
+        if not m:
+            continue
+        version = m.group(1)
+        try:
+            mtime = log.stat().st_mtime
+        except OSError:
+            continue
+        age = now - mtime
+        if age < stale_seconds:
+            continue
+        # Only flag when a runner of that version is still alive
+        if f"long_cycle_soak_{version}" in alive:
+            stalled.append(f"{log.name} (age={int(age // 60)}min)")
+
+    if not stalled:
+        return CheckResult(
+            "soak_liveness", "ok",
+            f"{len(log_files)} soak log(s); none stalled",
+        )
+    return CheckResult(
+        "soak_liveness", "warn",
+        f"stalled soak runner(s) — log untouched >{stale_min}min but "
+        f"process alive: {stalled}. Likely silent-death of chimera-run "
+        f"subprocess (ADR 0120). Inspect with "
+        f"`pgrep -af long_cycle_soak` and kill if confirmed.",
+    )
+
+
 def run_checks() -> list[CheckResult]:
     """Run every check. Pure: writes nothing (beyond creating state/mind dirs)."""
     state_dir = Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
@@ -503,6 +591,7 @@ def run_checks() -> list[CheckResult]:
         _check_cost_caps(state_dir),
         _check_trust_state(state_dir, mind_dir),
         _check_concurrent_soak_runners(),
+        _check_soak_runner_liveness(state_dir),
         _check_orphan_worktrees(Path.cwd()),
         *_check_provider_keys(),
     ]

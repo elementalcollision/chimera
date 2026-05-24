@@ -459,3 +459,71 @@ def test_check_uv_installed_in_registry(monkeypatch):
     monkeypatch.setattr(_doctor, "_check_uv_installed", lambda: sentinel)
     results = run_checks()
     assert sentinel in results
+
+
+# ADR 0120 — soak runner liveness check
+def test_soak_liveness_ok_when_no_logs(tmp_path, monkeypatch):
+    from chimera.core.doctor import _check_soak_runner_liveness
+    r = _check_soak_runner_liveness(tmp_path)
+    assert r.status == "ok"
+
+
+def test_soak_liveness_ok_when_log_is_fresh(tmp_path):
+    from chimera.core.doctor import _check_soak_runner_liveness
+    (tmp_path / "long_cycle_v22_2026-05-23-2039.log").write_text("fresh")
+    r = _check_soak_runner_liveness(tmp_path)
+    assert r.status == "ok", r.message
+
+
+def test_soak_liveness_warns_when_log_stale_and_runner_alive(tmp_path, monkeypatch):
+    """Stale log + matching runner-alive output → warn."""
+    import os, time
+    from chimera.core.doctor import _check_soak_runner_liveness
+    log = tmp_path / "long_cycle_v22_2026-05-23-2039.log"
+    log.write_text("stale")
+    # Age the log 30 min into the past
+    old = time.time() - (30 * 60)
+    os.utime(log, (old, old))
+
+    # Mock subprocess.run to report a v22 runner alive
+    import chimera.core.doctor as doc
+    class _FakeResult:
+        stdout = "12345 bash scripts/long_cycle_soak_v22.sh\n"
+    monkeypatch.setattr(doc.subprocess if hasattr(doc, 'subprocess') else __import__('subprocess'),
+                        "run", lambda *a, **k: _FakeResult())
+    # pgrep must be available
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda c: "/usr/bin/pgrep" if c == "pgrep" else None)
+    r = _check_soak_runner_liveness(tmp_path)
+    assert r.status == "warn"
+    assert "stalled" in r.message
+    assert "ADR 0120" in r.message
+
+
+def test_soak_liveness_ok_when_log_stale_but_no_runner(tmp_path, monkeypatch):
+    """Stale log but no matching live runner → ok (runner already exited)."""
+    import os, time
+    log = tmp_path / "long_cycle_v22_2026-05-23-2039.log"
+    log.write_text("stale")
+    old = time.time() - (30 * 60)
+    os.utime(log, (old, old))
+
+    import subprocess
+    class _FakeResult:
+        stdout = ""  # no runners alive
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeResult())
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda c: "/usr/bin/pgrep" if c == "pgrep" else None)
+    from chimera.core.doctor import _check_soak_runner_liveness
+    r = _check_soak_runner_liveness(tmp_path)
+    assert r.status == "ok"
+
+
+def test_soak_liveness_in_registry(monkeypatch):
+    """Verify _check_soak_runner_liveness is invoked by run_checks."""
+    from chimera.core.doctor import CheckResult as _CR
+    import chimera.core.doctor as _doctor
+    sentinel = _CR("soak_liveness", "ok", "sentinel")
+    monkeypatch.setattr(_doctor, "_check_soak_runner_liveness", lambda _: sentinel)
+    results = run_checks()
+    assert sentinel in results
