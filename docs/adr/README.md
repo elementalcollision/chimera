@@ -1,6 +1,6 @@
 # ADR index
 
-113 architecture decision records. Listed in numeric order. "Status" is the
+130 architecture decision records. Listed in numeric order. "Status" is the
 last column; "Accepted" means in force, "Deferred" means decided not to do
 this yet (with rationale), "Superseded by N" means later ADR replaces.
 
@@ -121,7 +121,10 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0114-autonomous-delivery-contract.md](./0114-autonomous-delivery-contract.md) | ADR 0114 — Autonomous-delivery contract | Accepted (2026-05-23) |
 | [0115-commit-message-diff-drift-detection.md](./0115-commit-message-diff-drift-detection.md) | ADR 0115 — Commit-message-vs-diff drift detection (v4.115) | Accepted (2026-05-23) |
 | [0116-charter-file-count-enforcement.md](./0116-charter-file-count-enforcement.md) | ADR 0116 — Charter file-count enforcement (v4.116) | Accepted (2026-05-23) |
+| [0117-trust-state-commit-gate.md](./0117-trust-state-commit-gate.md) | ADR 0117 — Trust-state commit gate (v4.117) | Accepted (2026-05-23) |
 | [0118-provenance-claim-validation.md](./0118-provenance-claim-validation.md) | ADR 0118 — Provenance-claim validation in [agent] commits (v4.118) | Accepted (2026-05-23) |
+| [0119-sticky-detector-demotes.md](./0119-sticky-detector-demotes.md) | ADR 0119 — Sticky detector-finding demotes (v4.119) | Accepted (2026-05-23) |
+| [0120-soak-runner-watchdog.md](./0120-soak-runner-watchdog.md) | ADR 0120 — Soak-runner watchdog for chimera-run liveness | Accepted (2026-05-23) |
 | [0121-soak-lib-v4-mind-auto-allow.md](./0121-soak-lib-v4-mind-auto-allow.md) | ADR 0121 — soak_lib v4: mind/* journal auto-allow in soft sentinel | Accepted (2026-05-24) |
 | [0122-isolate-tests-from-git-reading-detectors.md](./0122-isolate-tests-from-git-reading-detectors.md) | ADR 0122 — Isolate test_act + test_subagent from v4.115/v4.118 git-reading detectors | Accepted (2026-05-24) |
 | [0123-honcho-inspired-enhancements.md](./0123-honcho-inspired-enhancements.md) | ADR 0123 — Honcho-inspired enhancements roadmap (Phase 1: ReasoningTier + Context.to_openai) | Accepted (2026-05-24) |
