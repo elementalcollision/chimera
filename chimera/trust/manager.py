@@ -87,6 +87,11 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # names the missing paths and tells the agent to either git add
     # them or rewrite the commit message.
     "commit_message_diff_drift": 1,
+    # v4.??? (ADR ????): charter_file_count — the commit claims a charter file
+    # count that doesn't match the diff (phantom files, wrong tally).
+    # Negative trust delta: active demote, not just a zero. One lie
+    # costs one full tier.
+    "charter_file_count": -1,
     # v4.118 (ADR 0118): provenance_claim_invalid — the [agent] commit
     # message cited a version (``vX.Y``) or ADR number that doesn't
     # resolve against the repo. Soak v20-3rd shipped "v4.120 / ADR

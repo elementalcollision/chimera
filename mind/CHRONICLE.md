@@ -5,11 +5,11 @@ _Daily synthesis from the engines. Newest day first._
 
 ### Morning Discovery
 
-- Engaged with v27 phase 2 remediation task (adding `"charter_file_count"` to `ESCALATING_FINISH_REASONS`) with detailed charter constraints
-- Heavy tool_use pattern (18 of 21 calls) suggests repetitive tool-invocation behavior dominating across cycles
-- High failure risk from overshoot traps: rooted-path discipline violation, committing with red tests, or touching trust/manager.py
-- Strong charter discipline observed — explicit prohibitions on refactoring, new helpers, CLI flags, or dependencies
-- Successful test-driven contract enforcement: single change, single test file, pre/post-commit pytest runs, precise commit message constraints
+- Heavy reliance on tool_use calls (26 of 29) across all cycles, suggesting a pattern of iterative tool invocation rather than direct generation.
+- Deepseek/deepseek-v4-flash model used exclusively; no model diversity or switch attempts despite multiple retries.
+- Repetitive cycle 137 tool calls with increasing token counts (91 → 1557) hint at expanding context or stuck behavior before completion.
+- Current task is hyper-specific (single dict entry + test), but the charter imposes rigid constraints to prevent overshoot—failure mode if engine drifts.
+- No evidence of successful test passes or commits yet; history shows only tool calls, not terminal stops that deliver results.
 
 ## 2026-05-20
 
