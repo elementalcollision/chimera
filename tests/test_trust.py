@@ -179,3 +179,28 @@ def test_autopromote_capped_at_t5(trust_path):
         tm.maybe_autopromote(readiness=1.0)
     assert tm.tier is TrustTier.T5
     assert tm.maybe_autopromote(readiness=1.0) is False
+
+
+# ── apply_finish_reason: v4.116 charter_file_count (ADR 0116) ──
+
+
+def test_apply_finish_reason_charter_file_count_demotes_one_tier(trust_path):
+    """v4.116: charter_file_count must demote one tier (v4.115 pattern)."""
+    tm = TrustManager(trust_path)
+    tm.promote(reason="bootstrap")
+    tm.promote(reason="bootstrap")
+    assert tm.tier is TrustTier.T2
+
+    demoted = tm.apply_finish_reason("charter_file_count")
+
+    assert demoted == 1
+    assert tm.tier is TrustTier.T1
+    assert tm.state.history[-1].kind == "demote"
+    assert "charter_file_count" in tm.state.history[-1].reason
+
+
+def test_apply_finish_reason_charter_file_count_clamps_at_t0(trust_path):
+    """charter_file_count at T0 still returns 0 (clamped, not negative)."""
+    tm = TrustManager(trust_path)
+    assert tm.tier is TrustTier.T0
+    assert tm.apply_finish_reason("charter_file_count") == 0
