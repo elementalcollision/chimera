@@ -111,10 +111,76 @@ soak_phase2_deliverable_landed() {
 }
 
 # ─────────────────────────────────────────────────────────────────────
+# soak_run_chimera_with_watchdog
+# ─────────────────────────────────────────────────────────────────────
+#
+# Run `uv run chimera run` in $WORKTREE with a watchdog that kills the
+# subprocess if it exceeds $idle_timeout seconds. v22 post-mortem
+# (ADR 0120) found a chimera-run subprocess died silently mid-tool-call
+# (no exit-code propagation, no log line) and the parent shell blocked
+# forever waiting for a reaper that never arrived.
+#
+# Arguments:
+#   $1 = worktree path (absolute, must contain pyproject.toml)
+#   $2 = log file path (absolute, appended to)
+#   $3 = idle timeout seconds (optional, default 600 = 10 min, or
+#        the env var CHIMERA_RUN_IDLE_TIMEOUT_SEC if set)
+#
+# Echoes a single status line to stdout AND $log:
+#   ok       — clean exit
+#   nonzero  — non-zero exit (engine skips and gate denials are normal)
+#   watchdog — timeout fired, subprocess SIGTERM'd
+#
+# Returns:
+#   0  → clean exit OR non-zero (caller treats both as "iteration ran")
+#   1  → watchdog fired (caller may want to count this as an iter fail)
+#
+# Implementation note: uses a backgrounded subprocess + polling loop
+# rather than `timeout(1)` because the latter is BSD-flavored on macOS
+# (signal semantics differ) and not guaranteed installed.
+#
+soak_run_chimera_with_watchdog() {
+    local worktree="$1"
+    local log_file="$2"
+    local idle_timeout="${3:-${CHIMERA_RUN_IDLE_TIMEOUT_SEC:-600}}"
+
+    if [ -z "$worktree" ] || [ -z "$log_file" ]; then
+        echo "  watchdog: bad args (need worktree, log_file)" >&2
+        return 2
+    fi
+
+    ( cd "$worktree" && uv run chimera run ) >> "$log_file" 2>&1 &
+    local pid=$!
+    local elapsed=0
+    local poll_sec=5
+
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$elapsed" -ge "$idle_timeout" ]; then
+            kill -TERM "$pid" 2>/dev/null
+            sleep 2
+            kill -KILL "$pid" 2>/dev/null  # belt+suspenders if SIGTERM ignored
+            wait "$pid" 2>/dev/null
+            local msg="  watchdog: chimera run pid=$pid killed after ${idle_timeout}s (silent-death guard, ADR 0120)"
+            echo "$msg" | tee -a "$log_file"
+            return 1
+        fi
+        sleep "$poll_sec"
+        elapsed=$((elapsed + poll_sec))
+    done
+
+    wait "$pid" 2>/dev/null
+    local rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "  chimera run non-zero exit ($rc) (engine skips and gate denials are normal)" >> "$log_file"
+    fi
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────
 # soak_lib_version
 # ─────────────────────────────────────────────────────────────────────
 # Print the lib version. Runners log this so post-mortems can correlate
 # soak behavior with the lib revision when the lib changes shape.
 soak_lib_version() {
-    echo "soak_lib.sh v2 — soft-sentinel exit + remediation.md auto-allow (v17+v18 retro #1, v19 retro polish)"
+    echo "soak_lib.sh v3 — watchdog + soft-sentinel + remediation.md auto-allow (ADR 0120 soak-runner watchdog)"
 }
