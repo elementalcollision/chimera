@@ -4,11 +4,20 @@ Per Reggio: a Sonnet call writes a brief reflective narrative drawing on
 today's CHRONICLE entries (Morning Discovery, Midday Curiosity) and the
 day's api-call summary. Output replaces today's "Evening Reflection"
 sub-section.
+
+v4.124 (ADR 0125): when ``CHIMERA_REFLECTION_DERIVER=1``, a second
+structured-output call extracts typed conclusions
+(:class:`chimera.engines.deriver.ReflectionConclusions`) and appends
+them to ``mind/reflection_conclusions.jsonl``. The deriver path is
+opt-in and does not alter the prose reflection — see ADR 0124 for the
+schema and 0123 for the Honcho-inspired roadmap.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import sqlite3
 from pathlib import Path
 
@@ -19,6 +28,7 @@ from ..providers.tiers import Provider as ProviderKind
 from ..providers.tiers import select_rung
 from .base import EngineBase, EngineResult
 from .chronicle import ChronicleManager
+from .deriver import build_deriver_prompt, parse_conclusions
 
 logger = logging.getLogger(__name__)
 
@@ -164,9 +174,26 @@ class ReflectionEngine(EngineBase):
 
         body = response.text.strip() or "(no reflection)"
         self._chronicle.upsert_section(section_name="Evening Reflection", body=body)
+
+        # ADR 0125: opt-in deriver pass. Errors here MUST NOT mask a
+        # successful prose reflection — the prose is the load-bearing
+        # output; conclusions are a bonus signal.
+        deriver_api_calls = 0
+        if _deriver_enabled():
+            try:
+                deriver_api_calls = await self._run_deriver(
+                    cycle=cycle,
+                    provider=provider,
+                    model_id=model_id,
+                    day_so_far=day_so_far,
+                )
+            except Exception as exc:  # noqa: BLE001 — never fail the engine
+                logger.warning("reflection deriver failed: %s", exc)
+
+        total_api_calls = 1 + deriver_api_calls
         finish_engine_run(
             self._db, run_id, status="success",
-            api_calls=1,
+            api_calls=total_api_calls,
             tokens_in=response.input_tokens or 0,
             tokens_out=response.output_tokens or 0,
             chronicle_added=len(body.splitlines()),
@@ -177,6 +204,76 @@ class ReflectionEngine(EngineBase):
             skipped=False,
             fired_at=utc_now_iso(),
             artifacts=[str(self._chronicle.path)],
-            api_call_count=1,
+            api_call_count=total_api_calls,
             summary=body[:200],
         )
+
+    async def _run_deriver(
+        self,
+        *,
+        cycle: int,
+        provider: Provider,
+        model_id: str,
+        day_so_far: str,
+    ) -> int:
+        """Run the structured-output deriver pass and persist conclusions.
+
+        Returns the number of additional API calls made (1 on
+        success, 0 if the model returned unparseable output — we
+        still made the call). Does not raise; the caller wraps this
+        in a try/except so deriver hiccups never fail the reflection.
+        """
+        prompt = build_deriver_prompt(day_so_far)
+        response = await provider.complete_with_tools(
+            messages=[Message.user(prompt)],
+            model_id=model_id,
+            tools=[],
+            max_tokens=self._max_tokens,
+        )
+        record_api_call(
+            self._db,
+            cycle=cycle,
+            provider=provider.name,
+            model_id=response.model_id,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            latency_ms=response.latency_ms,
+            finish_reason=response.stop_reason,
+            caller=f"{self.name}.deriver",
+        )
+        conclusions = parse_conclusions(response.text or "")
+        if conclusions.is_empty():
+            logger.info("reflection deriver returned no conclusions")
+            return 1
+        _append_conclusions(self._mind_dir, cycle=cycle, conclusions=conclusions)
+        return 1
+
+
+def _deriver_enabled() -> bool:
+    """Honor ``CHIMERA_REFLECTION_DERIVER`` (default off — ADR 0125)."""
+    raw = os.environ.get("CHIMERA_REFLECTION_DERIVER", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _append_conclusions(
+    mind_dir: Path,
+    *,
+    cycle: int,
+    conclusions,
+) -> Path:
+    """Append a JSONL row to ``mind/reflection_conclusions.jsonl``.
+
+    JSONL chosen over a single JSON document so multiple days
+    accumulate without read-modify-write contention. The file is
+    created on first write.
+    """
+    from ..core.mind import utc_now_iso
+    target = Path(mind_dir) / "reflection_conclusions.jsonl"
+    record = {
+        "cycle": cycle,
+        "at": utc_now_iso(),
+        **conclusions.to_dict(),
+    }
+    with target.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return target
