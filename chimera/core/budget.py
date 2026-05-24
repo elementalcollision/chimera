@@ -25,6 +25,8 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from dataclasses import dataclass, field
+from enum import Enum
 
 
 # v4.47: per-tier round-budget multipliers. Higher tiers run more
@@ -417,3 +419,121 @@ def check_task_budget(db: sqlite3.Connection, *, task_signature: str) -> None:
         raise TaskBudgetExceeded(
             spend_usd=spend, budget_usd=budget, signature=task_signature,
         )
+
+
+# ── Honcho-inspired enhancements (ADR 0123) ─────────────────────────
+#
+# Two trivial additions ported from Honcho's design (NOT integrated as
+# a dependency; see ADR 0123 for the inspire-don't-integrate rationale):
+#
+#   1. ReasoningTier — explicit cost/quality knob on calls that route
+#      to dialectic/witness/reflection. Defaults to NORMAL so existing
+#      call sites keep behavior; future PRs wire tiers to model
+#      selection. Mirrors Honcho's five-level dialectic reasoning knob.
+#
+#   2. Context.to_openai() — token-aware prompt-assembly builder. Pure
+#      utility; truncates middle messages first under budget. Mirrors
+#      Honcho's session.context(...).to_openai() pattern.
+#
+# Both are backward-compatible additions — nothing existing changes.
+
+
+class ReasoningTier(Enum):
+    """Cost/quality knob for LLM-routed calls (dialectic/witness/reflection).
+
+    The tier is plumbed *through* existing budget and model-selection
+    logic without changing behavior — call sites that don't pass a
+    tier get :attr:`NORMAL`, which is a no-op. Future PRs will map
+    tiers to concrete model choices (e.g. MINIMAL → deepseek-flash,
+    MAX → cross-provider witness panel).
+    """
+
+    MINIMAL = "minimal"   # cheap, fast, structured-output only
+    NORMAL = "normal"     # current default behavior
+    DEEP = "deep"         # opus-class, agentic, multi-round
+    MAX = "max"           # cross-provider witness panel (existing v4.110+)
+
+
+def _estimate_tokens(text: str) -> int:
+    """Approximate token count for ``text``.
+
+    Uses ``tiktoken`` (cl100k_base) when installed; otherwise falls
+    back to a ~4-chars-per-token heuristic. No new dependency is
+    introduced — tiktoken is optional.
+    """
+    if not text:
+        return 0
+    try:
+        import tiktoken  # type: ignore[import-not-found]
+    except ImportError:
+        return max(1, (len(text) + 3) // 4)
+    try:
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(text))
+    except Exception:
+        return max(1, (len(text) + 3) // 4)
+
+
+def _message_tokens(message: dict) -> int:
+    """Token count for one openai-style chat message dict."""
+    content = message.get("content", "")
+    if isinstance(content, list):
+        content = " ".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in content
+        )
+    return _estimate_tokens(str(content)) + 4  # +4 for role + framing
+
+
+@dataclass
+class Context:
+    """Token-aware prompt-assembly bundle.
+
+    Mirrors Honcho's ``session.context(...).to_openai()`` shape: hold
+    a system prompt + a message list, then materialise an
+    openai.chat.completions.create-compatible payload that fits within
+    ``max_tokens``. Middle messages are truncated first so the system
+    prompt and the most recent two user/assistant turns are preserved.
+    """
+
+    system: str | None = None
+    messages: list[dict] = field(default_factory=list)
+    max_tokens: int = 8_000
+
+    def estimated_tokens(self) -> int:
+        total = _estimate_tokens(self.system or "")
+        for m in self.messages:
+            total += _message_tokens(m)
+        return total
+
+    def to_openai(self, *, model: str | None = None) -> dict:
+        """Return a payload shaped for ``client.chat.completions.create``.
+
+        Preserves the system prompt + last two messages and drops
+        middle messages from oldest-after-the-head until the estimate
+        fits ``max_tokens``. The payload is the dict the openai SDK
+        accepts as ``**kwargs``; ``model`` is included when provided.
+        """
+        kept: list[dict] = list(self.messages)
+        # Reserve the last 2 messages (most recent turn) plus the
+        # first message (often anchoring context) when trimming.
+        while kept and self.estimated_tokens_for(kept) > self.max_tokens:
+            if len(kept) <= 3:
+                break
+            # Drop the second message (index 1) — preserves head + tail.
+            kept.pop(1)
+
+        payload: dict = {"messages": []}
+        if self.system:
+            payload["messages"].append({"role": "system", "content": self.system})
+        payload["messages"].extend(kept)
+        if model is not None:
+            payload["model"] = model
+        return payload
+
+    def estimated_tokens_for(self, messages: list[dict]) -> int:
+        total = _estimate_tokens(self.system or "")
+        for m in messages:
+            total += _message_tokens(m)
+        return total
+
