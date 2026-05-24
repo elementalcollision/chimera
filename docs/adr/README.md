@@ -125,3 +125,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0121-soak-lib-v4-mind-auto-allow.md](./0121-soak-lib-v4-mind-auto-allow.md) | ADR 0121 — soak_lib v4: mind/* journal auto-allow in soft sentinel | Accepted (2026-05-24) |
 | [0122-isolate-tests-from-git-reading-detectors.md](./0122-isolate-tests-from-git-reading-detectors.md) | ADR 0122 — Isolate test_act + test_subagent from v4.115/v4.118 git-reading detectors | Accepted (2026-05-24) |
 | [0123-honcho-inspired-enhancements.md](./0123-honcho-inspired-enhancements.md) | ADR 0123 — Honcho-inspired enhancements roadmap (Phase 1: ReasoningTier + Context.to_openai) | Accepted (2026-05-24) |
+| [0124-deriver-style-extraction.md](./0124-deriver-style-extraction.md) | ADR 0124 — Deriver-style structured-output extraction (Phase 2 / item #3) | Accepted (2026-05-24) |
