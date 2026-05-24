@@ -24,6 +24,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from chimera.core.act import ActResult
 from chimera.core.witness import (
     check_charter_file_count,
     extract_charter_file_enumeration,
@@ -191,3 +192,13 @@ def test_violations_dedupe_when_diff_lists_duplicate(tmp_path: Path) -> None:
     )
     violations = check_charter_file_count(_CHARTER_TWO_FILES, tmp_path)
     assert violations == ["chimera/core/extra.py"]
+
+
+# ── ActResult defaults ────────────────────────────────
+
+def test_actresult_charter_file_count_violations_default_is_empty() -> None:
+    """charter_file_count_violations defaults to [] on a basic ActResult."""
+    result = ActResult(
+        task_text="x", completed=True, rounds=0, finish_reason="ok",
+    )
+    assert result.charter_file_count_violations == []
