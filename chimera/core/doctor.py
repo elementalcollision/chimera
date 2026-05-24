@@ -149,6 +149,38 @@ def checkpoint_wal(state_dir: Path) -> tuple[bool, str]:
     return True, f"checkpoint ok: {row}"
 
 
+def _check_uv_installed() -> CheckResult:
+    """warn when ``uv`` is not on PATH.
+
+    Runtime ``uv`` resolution errors (``FileNotFoundError`` when the
+    shell tool runs ``uv run pytest``, ``uv run chimera serve``, etc.)
+    are invisible to doctor without this check — the shell tool's
+    allow-list trimming only catches commands in ``RAW_ALLOWLIST``,
+    whereas ``uv`` is invoked dynamically via ``subprocess`` in act.py
+    and federation scenarios and never passes through allow-list
+    filtering.  The gap means an operator can start the server, see all
+    checks green, and discover the issue only when the first ACT task
+    or federation drill fails with an opaque subprocess error.
+    """
+    import shutil
+    try:
+        uv_path = shutil.which("uv")
+    except OSError as exc:
+        return CheckResult(
+            "uv_installed", "error",
+            f"could not check for uv: {exc}",
+        )
+    if uv_path is not None:
+        return CheckResult("uv_installed", "ok", f"uv found at {uv_path}")
+    return CheckResult(
+        "uv_installed", "error",
+        "uv not found on PATH. Chimera requires uv for subprocess "
+        "invocations (act.py test runner, federation drill). Install "
+        "uv via `curl -LsSf https://astral.sh/uv/install.sh | sh` "
+        "or the equivalent for your platform.",
+    )
+
+
 def _check_shell_allowlist() -> CheckResult:
     """v4.80: warn when an advertised shell allow-list entry isn't on PATH.
 
@@ -463,6 +495,7 @@ def run_checks() -> list[CheckResult]:
         _check_orphan_wal(state_dir),
         _check_sqlite(state_dir),
         _check_graph_dependency(),
+        _check_uv_installed(),
         _check_shell_allowlist(),
         _check_json_env("CHIMERA_MCP_SERVERS"),
         _check_json_env("CHIMERA_PEER_TOKENS"),
