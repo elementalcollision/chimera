@@ -600,6 +600,48 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--json", action="store_true", help="Emit a JSON result.")
 
+    # ── evals (ADR 0135) ────────────────────────────────────────
+    evals = sub.add_parser(
+        "evals",
+        help="Run memory-subsystem benchmark adapters (ADR 0135).",
+    )
+    evals_sub = evals.add_subparsers(
+        dest="evals_command", metavar="<evals-cmd>",
+    )
+    longmemeval = evals_sub.add_parser(
+        "longmemeval",
+        help="LongMemEval adapter (Phase 4 #8). Produces answers + provenance; "
+             "grading is the upstream harness's job.",
+    )
+    longmemeval.add_argument(
+        "--items",
+        help="Path to a LongMemEval JSONL items file. Required unless "
+             "--smoke is set.",
+    )
+    longmemeval.add_argument(
+        "--smoke", action="store_true",
+        help="Run the built-in 3-item synthetic fixture instead of an "
+             "external file. Useful for verifying the adapter end-to-end "
+             "without downloading the upstream dataset.",
+    )
+    longmemeval.add_argument(
+        "--n", type=int, default=None,
+        help="Cap the number of items processed (after --subset filter).",
+    )
+    longmemeval.add_argument(
+        "--subset",
+        help="Filter by category (case-insensitive substring match against "
+             "the item's category field).",
+    )
+    longmemeval.add_argument(
+        "--out",
+        help="Output JSONL path. Defaults to mind/evals/longmemeval-<ts>.jsonl.",
+    )
+    longmemeval.add_argument(
+        "--mind-dir",
+        help="Override CHIMERA_MIND_DIR for this call.",
+    )
+
     return parser
 
 
@@ -804,6 +846,92 @@ def _cmd_peers_ask(args) -> int:
         }, indent=2))
     else:
         print(answer)
+    return 0
+
+
+def _cmd_evals_longmemeval(args) -> int:
+    """`chimera evals longmemeval ...` — Phase 4 #8 adapter sweep (ADR 0135)."""
+    import os as _os
+    from pathlib import Path
+
+    from .core import LoopConfig
+    from .evals.longmemeval import (
+        LongMemEvalAdapter,
+        LongMemEvalItem,
+        default_results_path,
+        load_items,
+        run_batch,
+        write_results,
+    )
+
+    if args.mind_dir:
+        _os.environ["CHIMERA_MIND_DIR"] = args.mind_dir
+
+    cfg = LoopConfig.from_env()
+    cfg.mind_dir.mkdir(parents=True, exist_ok=True)
+
+    if not args.items and not args.smoke:
+        print(
+            "error: pass --items PATH or --smoke. The latter runs a built-in "
+            "3-item synthetic fixture for adapter verification."
+        )
+        return 2
+
+    if args.smoke:
+        items = [
+            LongMemEvalItem(
+                item_id="smoke-0",
+                question="What pet does the user have?",
+                history=[[
+                    {"role": "user", "content": "I just adopted a tabby cat."},
+                    {"role": "assistant", "content": "Congratulations!"},
+                ]],
+                expected_answer="a tabby cat",
+                category="single-session-user",
+            ),
+            LongMemEvalItem(
+                item_id="smoke-1",
+                question="Where does the user work?",
+                history=[
+                    [{"role": "user", "content": "I started at Acme today."}],
+                    [{"role": "user", "content": "Acme is treating me well."}],
+                ],
+                expected_answer="Acme",
+                category="multi-session",
+            ),
+            LongMemEvalItem(
+                item_id="smoke-2",
+                question="What is the user's favorite cuisine?",
+                history=[[{"role": "user", "content": "Today is Tuesday."}]],
+                expected_answer="",
+                category="abstention",
+            ),
+        ]
+    else:
+        items = load_items(Path(args.items))
+        if not items:
+            print(f"error: no items loaded from {args.items}")
+            return 1
+
+    adapter = LongMemEvalAdapter(mind_dir=cfg.mind_dir)
+    results = run_batch(
+        adapter, items, limit=args.n, subset=args.subset,
+    )
+
+    out_path = Path(args.out) if args.out else default_results_path(cfg.mind_dir)
+    write_results(results, out_path)
+
+    by_category: dict[str, int] = {}
+    errors = 0
+    for r in results:
+        by_category[r.category or "(none)"] = by_category.get(r.category or "(none)", 0) + 1
+        if r.error:
+            errors += 1
+    print(f"chimera evals longmemeval: {len(results)} item(s) → {out_path}")
+    for cat, n in sorted(by_category.items()):
+        print(f"  {cat}: {n}")
+    if errors:
+        print(f"  errors: {errors}")
     return 0
 
 
@@ -1288,6 +1416,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"chimera proposers: {st.proposer} → {st.status}")
             return 0
         print(f"chimera proposers: unknown subcommand {sub_cmd!r}")
+        return 2
+
+    if args.command == "evals":
+        sub_cmd = getattr(args, "evals_command", None)
+        if sub_cmd == "longmemeval":
+            return _cmd_evals_longmemeval(args)
+        parser.error(f"unknown evals subcommand: {sub_cmd}")
         return 2
 
     if args.command == "escalations":
