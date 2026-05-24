@@ -1,13 +1,13 @@
-# Inbox — Soak v27 phase 2 (remediation, engines on)
+# Inbox — Soak v28 phase 2 (remediation, engines on)
 
 Phase 1's design is in
-`mind/research/v27-escalation-entry-design.md` under
+`mind/research/v28-trust-delta-design.md` under
 `## READY-FOR-REMEDIATION`. Implement the atomic step.
 
 CHARTER (v4.112 charter extraction will pass this to the witness
 panel from this task text):
 
-  1. SCOPE: ONE new string in ESCALATING_FINISH_REASONS: `"charter_file_count"`. Place alongside the existing v4.115 entry near line 147.
+  1. SCOPE: ONE new dict entry: `"charter_file_count": -1` in FINISH_REASON_TRUST_DELTAS. Place alongside the existing v4.115 entry.
   2. SEMANTICS: per the template's behavior; preserve all
      defaults / exit-code semantics / never-raise guarantees.
   3. PATTERN: mirror the template exactly. Name swap only.
@@ -21,7 +21,7 @@ panel from this task text):
 ## Phase 2 tasks
 
 - [ ] Re-read the design from phase 1.
-- [ ] ONE new string in ESCALATING_FINISH_REASONS: `"charter_file_count"`. Place alongside the existing v4.115 entry near line 147.
+- [ ] ONE new dict entry: `"charter_file_count": -1` in FINISH_REASON_TRUST_DELTAS. Place alongside the existing v4.115 entry.
 - [ ] Add ONE test in `tests/test_charter_file_count.py` asserting the change.
 - [ ] BEFORE committing, run `uv run pytest tests/test_charter_file_count.py -q` and
   confirm ALL tests pass.
@@ -30,7 +30,7 @@ panel from this task text):
   in the diff (v4.115 will fire; ADR 0122 isolates but charter
   still requires the discipline).
 - [ ] Re-run tests post-commit, write the result line to
-  `mind/research/v27-escalation-entry-remediation.md` under `## Test results`.
+  `mind/research/v28-trust-delta-remediation.md` under `## Test results`.
 
 You are on the soak branch; push is scoped-out via a per-worktree
 config override. The wiring_coordinator handles push + PR + merge
@@ -42,11 +42,12 @@ OVERSHOOT TRAPS the panel should reject:
     tight to paths actually in the diff.
   - **Committing with red tests** (v23 failure mode).
   - **Lying-by-honesty**: shipping with failure counts.
-  - Adding 'charter_file_count' to other sets/lists in escalation.py (charter #1)
-  - Refactoring ESCALATING_FINISH_REASONS to a different data structure (charter #4)
-  - Touching trust/manager.py (v28's job)
+  - Changing delta to a value other than -1 (charter #3 — match v4.115)
+  - Adding a NEW dict for charter-related deltas (charter #4)
+  - Modifying the existing v4.115 delta (charter #4)
+  - Touching escalation.py (v27's job)
   - Touching remediation.py (v29's job)
 
-This is sub-soak v27 (sub-soak C) of the v4.116 wiring
+This is sub-soak v28 (sub-soak D) of the v4.116 wiring
 decomposition. The contract bar is strict.
 
