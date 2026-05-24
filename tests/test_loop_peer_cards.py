@@ -76,8 +76,10 @@ def test_peer_cards_failure_does_not_raise(loop, mind_dir, monkeypatch):
     def boom(**kwargs):
         raise RuntimeError("intentional test failure")
 
+    # ADR 0130 refactored the loop helper to call build_self_card +
+    # build_peer_card + write_peer_card directly; patch one of those.
     monkeypatch.setattr(
-        "chimera.engines.peer_cards.consolidate_peer_cards", boom,
+        "chimera.engines.peer_cards.build_self_card", boom,
     )
     # Should NOT raise.
     loop._consolidate_peer_cards_safe()
@@ -102,6 +104,90 @@ async def test_phase_rotate_writes_peer_cards_when_forced(loop, mind_dir, monkey
     assert (mind_dir / "peers" / "self.md").exists()
 
 
+# ── ADR 0130: LLM narrative path ──────────────────────────────────
+
+
+def test_narrative_skipped_when_no_providers(loop, mind_dir, monkeypatch):
+    monkeypatch.setenv("CHIMERA_PEER_CARD_LLM", "1")
+    loop._act = None
+    loop._consolidate_peer_cards_safe()
+    body = (mind_dir / "peers" / "self.md").read_text()
+    assert "## Narrative" not in body
+
+
+def test_narrative_disabled_by_default(loop, mind_dir, monkeypatch):
+    monkeypatch.delenv("CHIMERA_PEER_CARD_LLM", raising=False)
+    loop._consolidate_peer_cards_safe()
+    body = (mind_dir / "peers" / "self.md").read_text()
+    assert "## Narrative" not in body
+
+
+def test_narrative_enrichment_calls_provider(loop, mind_dir, monkeypatch):
+    monkeypatch.setenv("CHIMERA_PEER_CARD_LLM", "1")
+
+    from chimera.providers import ChatChunk, ChatResponse, Provider
+    from chimera.providers.tiers import Provider as ProviderKind
+
+    class _Fake(Provider):
+        name = "scripted"
+        calls = 0
+
+        async def stream(self, *a, **kw):  # pragma: no cover
+            if False:
+                yield ChatChunk(text="")
+
+        async def complete_with_tools(self, *a, **kw):
+            _Fake.calls += 1
+            return ChatResponse(
+                text="Self runs steady; no rotations triggered drift.",
+                tool_uses=[], stop_reason="stop",
+                model_id="sonnet", provider="scripted",
+            )
+
+    fake = _Fake()
+
+    class _StubAct:
+        providers = {
+            ProviderKind.ANTHROPIC: fake,
+            ProviderKind.OPENROUTER: fake,
+        }
+
+    loop._act = _StubAct()
+    loop._consolidate_peer_cards_safe()
+    body = (mind_dir / "peers" / "self.md").read_text()
+    assert "## Narrative" in body
+    assert "Self runs steady" in body
+    assert _Fake.calls >= 1
+
+
+def test_narrative_per_card_failure_isolated(loop, mind_dir, monkeypatch):
+    monkeypatch.setenv("CHIMERA_PEER_CARD_LLM", "1")
+
+    from chimera.providers import ChatChunk, Provider
+    from chimera.providers.tiers import Provider as ProviderKind
+
+    class _Bad(Provider):
+        name = "scripted"
+
+        async def stream(self, *a, **kw):  # pragma: no cover
+            if False:
+                yield ChatChunk(text="")
+
+        async def complete_with_tools(self, *a, **kw):
+            raise RuntimeError("provider down")
+
+    bad = _Bad()
+
+    class _StubAct:
+        providers = {ProviderKind.ANTHROPIC: bad, ProviderKind.OPENROUTER: bad}
+
+    loop._act = _StubAct()
+    loop._consolidate_peer_cards_safe()
+    body = (mind_dir / "peers" / "self.md").read_text()
+    assert "## Narrative" not in body
+    assert "# Peer card — self" in body
+
+
 # ── ADR 0129 doc presence ─────────────────────────────────────────
 
 
@@ -114,4 +200,15 @@ def test_adr_0129_present():
     body = adr.read_text()
     assert "CHIMERA_PEER_CARDS_ON_ROTATE" in body
     assert "_phase_rotate" in body
+    assert "0128" in body
+
+
+def test_adr_0130_present():
+    adr = (
+        Path(__file__).parent.parent
+        / "docs" / "adr" / "0130-peer-card-narrative.md"
+    )
+    assert adr.exists()
+    body = adr.read_text()
+    assert "CHIMERA_PEER_CARD_LLM" in body
     assert "0128" in body
