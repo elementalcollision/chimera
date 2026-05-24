@@ -214,32 +214,90 @@ Estimated cost (based on v17/v18/v19/v21 averages of $0.10/soak):
 multi-file attempt. The decomposed approach is cheaper AND more
 likely to ship.
 
-## Open questions
+## Resolved questions
 
-1. **Charter-file-count detector self-conflict.** v4.116 is the
-   detector that fires on commits exceeding the charter file count.
-   When sub-soak v27 (escalation entry) ships, it'll be ONE file +
-   tests = 2 files, charter-clean. But the FIRST sub-soak after
-   v27 merges will be subject to the NOW-LIVE v4.116 detector
-   firing on its own charter. Do we lock the chain to its v4.115
-   state until v25-v29 are all merged? Or test that v4.116
-   correctly skips sub-soak sized commits?
+### 1. Self-conflict — RESOLVED: order matters
 
-2. **Sub-soak nomenclature.** Are v25-v29 individual soak versions,
-   or are they a-e under v25 (the wiring meta-soak)? The N=5
-   contract counter — does each sub-soak count, or does the
-   coordinated wiring count as 1?
+**Decision**: Ship order is **v25 → v26 → v29 → v27 → v28**.
+v27 (escalation entry) and v28 (trust delta) are what make
+v4.116 "live" (it can fire and demote). Shipping them LAST means
+v25/v26/v29 run under the proven v4.115-only chain. Only the
+final two sub-soaks are subject to v4.116; by then the charter
+regex has been exercised against 3 successful runs and we have
+confidence in its behavior.
 
-3. **Operator-merge cadence.** The coordinator pauses between
-   sub-soaks for operator review. If we're trying to ship 5 PRs
-   in an hour, that's a lot of operator attention. Worth
-   experimenting with an "auto-merge if clean" mode for sub-soaks?
+### 2. Nomenclature & N counting — RESOLVED: two-tier contract
 
-4. **Generalization.** This methodology assumes wiring tasks
-   decompose cleanly. Some real wiring tasks have circular
-   dependencies (field needs hint helper, hint helper needs field
-   type). The taxonomy above handles the v4.115-shape; we should
-   document when it breaks down.
+**Decision**: Amend ADR 0114 to distinguish target classes:
+
+- **autonomous-delivery: atomic** — single-file/single-function
+  targets (v17/v18/v19/v21 success class). Each sub-soak counts
+  individually. Bar: **N ≥ 5**. Current: **N = 4**.
+- **autonomous-delivery: composed** — multi-file coordinated
+  wiring tasks shipped via the decomposition methodology. The
+  composite wiring (all sub-soaks shipping cleanly) counts as 1.
+  Bar: **N ≥ 3**. Current: **N = 0**.
+
+v25-v29 each count toward the atomic tier as they ship. The
+full v4.116 wiring, if all 5 ship, counts as the first composed
+delivery.
+
+### 3. Operator cadence — RESOLVED: auto-merge on green
+
+**Decision**: Coordinator auto-merges sub-soak PRs when BOTH:
+- The sub-soak's soft-sentinel exit fired (charter-clean commit
+  + targeted test green); AND
+- `uv run pytest -q` on the post-push branch head reports zero
+  failures across the full suite.
+
+Implementation: after each sub-soak ships, coordinator pushes
+the branch, opens the PR, runs the full suite locally on the
+branch head, and `gh pr merge --squash --delete-branch` if both
+gates pass. Operator intervenes only when the coordinator halts
+on failure.
+
+This is a substantive automation step. Trade-off: faster
+throughput vs. less per-PR oversight. The justification is that
+the soft-sentinel + full-suite combo is a strong signal — if
+both pass, the work is by definition shippable under the
+existing contract.
+
+### 4. Generalization limits — RESOLVED: `add-coupled-pair` primitive
+
+**Decision**: Extend the atomic-op taxonomy with a
+`add-coupled-pair` primitive for cases where two source files
+genuinely must ship together (e.g., a public API in one module
++ its test fixtures in another module that constructs instances
+via that API).
+
+Updated taxonomy:
+
+| Op | Shape | Typical size | Files |
+|---|---|---|---|
+| **add-field** | Add a new field to existing dataclass | +5-10 lines | 2 |
+| **add-call-site** | Insert call to existing function in existing place | +5-15 lines | 2 |
+| **add-line** | Add a single entry to a list or dict | +1-2 lines | 2 |
+| **add-function** | Define a new function in existing module | +20-50 lines | 2 |
+| **add-test-suite** | New test file or new tests in existing file | +50-200 lines | 1 |
+| **add-coupled-pair** | Two source files that must ship together (new API + its fixtures) | +30-100 lines | 4 |
+
+The `add-coupled-pair` charter pattern: 4 files (2 source + 2
+tests). The agent must treat the pair as a single atomic unit —
+either both layers ship or neither does. Soft-sentinel whitelist
+covers all 4 files explicitly; tests must be green on the
+combined surface.
+
+This generalizes the methodology beyond v4.115/v4.116's clean
+5-layer decomposition. Truly indecomposable wiring (tasks with
+cycles deeper than a pair) still falls back to hand-authoring
+under operator authorship.
+
+## Refinements after first run
+
+If v25 ships cleanly, the resolutions above hold. If v25
+surfaces a new gap (e.g., `add-field` isn't actually atomic
+because adding to a dataclass also requires updating
+constructors elsewhere), this section gets the post-mortem.
 
 ## Next step
 
