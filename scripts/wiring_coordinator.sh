@@ -63,6 +63,15 @@ for runner in "${RUNNERS[@]}"; do
     # sub-soak created.
     local_main_before="$(git -C "$REPO_ROOT" rev-parse main)"
 
+    # Snapshot chimera-soak/* branches BEFORE launch so we can identify
+    # the new one the runner creates by diff (vs the `head -1` arbitrary
+    # pick that surfaced as a real bug on v26's relaunch — picked an
+    # orphan worktree from a prior failed launch instead of the live one).
+    branches_before="$(git -C "$REPO_ROOT" worktree list --porcelain \
+                         | awk '/^branch / { print $2 }' \
+                         | grep -E '^refs/heads/chimera-soak/v[0-9]+-' \
+                         | sort)"
+
     # Run the sub-soak. Per soak_lib.sh v3 contract, it either ships
     # (soft-sentinel exit) or fails (budget cap / max iters / watchdog).
     if ! bash "$runner" >> "$LOG" 2>&1; then
@@ -71,23 +80,30 @@ for runner in "${RUNNERS[@]}"; do
         break
     fi
 
-    # Find the branch the sub-soak created.
-    soak_branch="$(git -C "$REPO_ROOT" branch -r --format='%(refname:short)' \
-                     | grep -E '^origin/chimera-soak/v[0-9]+-' \
+    # Find the branch the sub-soak created via before/after diff.
+    branches_after="$(git -C "$REPO_ROOT" worktree list --porcelain \
+                        | awk '/^branch / { print $2 }' \
+                        | grep -E '^refs/heads/chimera-soak/v[0-9]+-' \
+                        | sort)"
+    soak_branch="$(comm -23 <(echo "$branches_after") <(echo "$branches_before") \
                      | head -1 \
-                     | sed 's|^origin/||')"
+                     | sed 's|^refs/heads/||')"
+
+    # Fallback 1: worktree may have been self-cleaned by the runner;
+    # check remote branches that didn't exist before this run.
     if [ -z "$soak_branch" ]; then
-        # Sub-soak may not have pushed yet; check local worktree-attached
-        # branch.
-        soak_branch="$(git -C "$REPO_ROOT" worktree list --porcelain \
-                         | awk '/^branch / { print $2 }' \
-                         | grep -E '^refs/heads/chimera-soak/v[0-9]+-' \
-                         | head -1 \
-                         | sed 's|^refs/heads/||')"
+        remote_branches="$(git -C "$REPO_ROOT" branch -r --format='%(refname:short)' \
+                             | grep -E '^origin/chimera-soak/v[0-9]+-' \
+                             | sed 's|^origin/||' \
+                             | sort)"
+        before_local="$(echo "$branches_before" | sed 's|^refs/heads/||')"
+        soak_branch="$(comm -23 <(echo "$remote_branches") <(echo "$before_local") \
+                         | head -1)"
     fi
 
     if [ -z "$soak_branch" ]; then
         log "  FAIL: cannot locate sub-soak branch after $runner"
+        log "         (no new chimera-soak/* branch appeared since launch)"
         failed_runner="$runner"
         break
     fi
