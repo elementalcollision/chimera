@@ -126,3 +126,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0122-isolate-tests-from-git-reading-detectors.md](./0122-isolate-tests-from-git-reading-detectors.md) | ADR 0122 — Isolate test_act + test_subagent from v4.115/v4.118 git-reading detectors | Accepted (2026-05-24) |
 | [0123-honcho-inspired-enhancements.md](./0123-honcho-inspired-enhancements.md) | ADR 0123 — Honcho-inspired enhancements roadmap (Phase 1: ReasoningTier + Context.to_openai) | Accepted (2026-05-24) |
 | [0124-deriver-style-extraction.md](./0124-deriver-style-extraction.md) | ADR 0124 — Deriver-style structured-output extraction (Phase 2 / item #3) | Accepted (2026-05-24) |
+| [0125-wire-deriver-to-reflection.md](./0125-wire-deriver-to-reflection.md) | ADR 0125 — Wire the Deriver into ReflectionEngine (opt-in CHIMERA_REFLECTION_DERIVER) | Accepted (2026-05-24) |
