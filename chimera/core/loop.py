@@ -934,6 +934,10 @@ class ChimeraLoop:
             # peer-cards failure cannot prevent the rotation from
             # completing — rotation is the load-bearing operation.
             self._consolidate_peer_cards_safe()
+            # ADR 0132: ingest observer/observed beliefs from each
+            # registered peer's KFM snapshot. Independent of peer
+            # cards; same failure-isolation discipline.
+            self._ingest_peer_beliefs_safe()
             self._log_phase(f"ROTATE: rotated ({reason})")
             self._force_rotation_reason = None
             return True
@@ -1048,6 +1052,50 @@ class ChimeraLoop:
                 logger.warning(
                     "peer-card narrative failed for %s: %s", card.peer_name, exc,
                 )
+
+    def _ingest_peer_beliefs_safe(self) -> None:
+        """Append per-peer belief records to ``mind/peer_beliefs.jsonl`` (ADR 0132).
+
+        For each registered peer, fetch their KFM snapshot and derive
+        a coarse self-belief (TRUSTS / NEUTRAL / DISTRUSTS / UNKNOWN)
+        via :func:`chimera.a2a.peer_beliefs.belief_from_kfm`. Default-on;
+        opt out with ``CHIMERA_PEER_BELIEFS_ON_ROTATE=0``. Failures
+        per-peer are isolated; rotation always completes.
+        """
+        if os.environ.get("CHIMERA_PEER_BELIEFS_ON_ROTATE", "1").strip().lower() in (
+            "0", "false", "no", "off",
+        ):
+            return
+        try:
+            import asyncio
+
+            from ..a2a.peer_beliefs import belief_from_kfm, record_belief
+            from ..a2a.peers import fetch_peer_kfm, list_peer_chimeras
+
+            peer_names = list_peer_chimeras(self._registry)
+            if not peer_names:
+                self._log_phase("ROTATE: peer beliefs — no peers")
+                return
+
+            recorded = 0
+            for name in peer_names:
+                try:
+                    kfm = asyncio.run(
+                        fetch_peer_kfm(name, registry=self._registry),
+                    )
+                    belief = belief_from_kfm(name, kfm)
+                    record_belief(belief, mind_dir=self.config.mind_dir)
+                    recorded += 1
+                except Exception as exc:  # noqa: BLE001 — per-peer isolation
+                    logger.warning(
+                        "peer-belief ingest failed for %s: %s", name, exc,
+                    )
+            self._log_phase(
+                f"ROTATE: peer beliefs recorded ({recorded}/{len(peer_names)} peers)"
+            )
+        except Exception as exc:  # noqa: BLE001 — never fail rotation
+            logger.warning("peer beliefs ingest failed: %s", exc)
+            self._log_phase(f"ROTATE: peer beliefs failed ({exc})")
 
     # ── helpers ────────────────────────────────────────────
 

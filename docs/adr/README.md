@@ -136,3 +136,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0129-peer-cards-rotate-wiring.md](./0129-peer-cards-rotate-wiring.md) | ADR 0129 — Wire Peer Cards into `_phase_rotate` (default-on; `CHIMERA_PEER_CARDS_ON_ROTATE=0` opts out) | Accepted (2026-05-24) |
 | [0130-peer-card-narrative.md](./0130-peer-card-narrative.md) | ADR 0130 — Peer-Card LLM Narrative Layer (opt-in via `CHIMERA_PEER_CARD_LLM=1`) | Accepted (2026-05-24) |
 | [0131-peers-cli-verb.md](./0131-peers-cli-verb.md) | ADR 0131 — `chimera peers cards` CLI verb (final Phase 3 #4 follow-up) | Accepted (2026-05-24) |
+| [0132-observer-observed-beliefs.md](./0132-observer-observed-beliefs.md) | ADR 0132 — Observer/observed belief pairs (Phase 3 / item #1): `BELIEVES_ABOUT` edge + `mind/peer_beliefs.jsonl` | Accepted (2026-05-24) |
