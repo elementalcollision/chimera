@@ -9,7 +9,7 @@ witness panel, motivated by soak v13's RAW_ALLOWLIST over-expansion.
 Soak v14 (2026-05-22) was the first end-to-end calibration test of
 v4.110 in production. It surfaced a real gap.
 
-The v14 phase-2 INBOX (`scripts/long_cycle_soak_v14.sh:348-415`) put
+The v14 phase-2 INBOX (`scripts/archive/long_cycle_soak_v14.sh:348-415`) put
 an explicit charter in front of the agent and the panel:
 
 ```
@@ -129,5 +129,5 @@ template, same check #5, same parallel cross-provider voting.
 * `chimera/core/witness.py::extract_task_charter`
 * `tests/test_witness_charter.py` — `test_v14_*` fixtures
 * PR #3 — the v14 operator-trimmed deliverable
-* `scripts/long_cycle_soak_v14.sh` — phase-2 INBOX (the v14 charter
+* `scripts/archive/long_cycle_soak_v14.sh` — phase-2 INBOX (the v14 charter
   source-of-truth that v4.110 missed and v4.112 lifts)

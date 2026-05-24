@@ -2,7 +2,7 @@
 
 **Status**: accepted
 **Date**: 2026-05-23
-**Companion code**: `scripts/soak_lib.sh` v3, `scripts/long_cycle_soak_v23.sh`,
+**Companion code**: `scripts/soak_lib.sh` v3, `scripts/archive/long_cycle_soak_v23.sh`,
 `chimera/core/doctor.py::_check_soak_runner_liveness`
 
 ## Context
@@ -28,7 +28,7 @@ No log line, no exit code, no notification.
 
 ### Concrete failure: v22, 2026-05-23 ~20:39
 
-`bash scripts/long_cycle_soak_v22.sh` was launched in background. At
+`bash scripts/archive/long_cycle_soak_v22.sh` was launched in background. At
 20:39:48 phase2 iter 2 began. No further log activity. At 21:00 the
 chimera-run pid disappeared (`ps` empty) but the parent shell was still
 blocked on `wait`. The worktree had uncommitted in-progress edits,
@@ -49,7 +49,7 @@ that runs `uv run chimera run` as a backgrounded subprocess and polls
 the watchdog sends SIGTERM, waits 2s, then SIGKILL, and logs a
 `watchdog: chimera run pid=N killed after Ns` event.
 
-New soak script `scripts/long_cycle_soak_v23.sh` calls the watchdog
+New soak script `scripts/archive/long_cycle_soak_v23.sh` calls the watchdog
 helper in place of the raw `uv run` invocation. Older scripts (v17–v22)
 are NOT retrofitted — they are historical artifacts of failed soak
 cycles and should not be re-launched.
