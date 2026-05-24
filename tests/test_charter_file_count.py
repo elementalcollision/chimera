@@ -25,6 +25,10 @@ import subprocess
 from pathlib import Path
 
 from chimera.core.act import ActResult
+from chimera.core.remediation import (
+    _HINT_BY_REASON,
+    _charter_file_count_hint,
+)
 from chimera.core.witness import (
     check_charter_file_count,
     extract_charter_file_enumeration,
@@ -281,3 +285,28 @@ async def test_act_call_site_sets_charter_file_count_finish_reason(
     assert result.charter_file_count_violations == ["mind/research/forbidden.md"]
     assert result.finish_reason == "charter_file_count"
     assert result.completed is False
+
+
+def test_charter_file_count_hint_registered_in_dispatch() -> None:
+    assert _HINT_BY_REASON["charter_file_count"] is _charter_file_count_hint
+
+
+def test_charter_file_count_hint_formats_violations() -> None:
+    hint = _charter_file_count_hint(
+        "noop task",
+        charter_file_count_violations=[
+            "mind/research/extra.md",
+            "docs/foo.md",
+        ],
+    )
+    assert "mind/research/extra.md" in hint
+    assert "docs/foo.md" in hint
+    assert "charter" in hint
+
+
+def test_charter_file_count_hint_empty_falls_back() -> None:
+    hint = _charter_file_count_hint("noop task", charter_file_count_violations=None)
+    assert "charter" in hint
+    assert "git diff --name-only" in hint
+    empty = _charter_file_count_hint("noop task", charter_file_count_violations=[])
+    assert empty == hint
