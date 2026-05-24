@@ -314,9 +314,13 @@ phase_loop() {
         cycle_pre="$(last_cycle_in_db "$WORKTREE_DB")"
         log "$phase_name iter $iter  cycle=$cycle_pre  spend=\$$spend  cap=\$$cap_usd"
 
-        ( cd "$WORKTREE" && uv run chimera run ) >> "$LOG" 2>&1 || {
-            log "  chimera run non-zero exit (engine skips and gate denials are normal)"
-        }
+        # ADR 0120: watchdog-wrapped chimera run. v22 silently lost a
+        # chimera-run subprocess mid-tool-call; the parent shell blocked
+        # forever waiting on a SIGTERM that the OOM-killer/SIGHUP path
+        # never produced. v29 hit the same class. soak_run_chimera_with_watchdog
+        # kills the subprocess after CHIMERA_RUN_IDLE_TIMEOUT_SEC (default 600s).
+        soak_run_chimera_with_watchdog "$WORKTREE" "$LOG" || \
+            log "  watchdog fired for $phase_name iter $iter (treated as iter fail)"
         soak_check_trust_degradation "$trust_baseline" "$phase_name"
 
         # Soft-sentinel: check AFTER each chimera run, only when params
