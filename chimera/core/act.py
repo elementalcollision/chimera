@@ -34,8 +34,9 @@ from ..memory import record_api_call, record_ladder_outcome
 from ..prompts import build_system_prompt
 from .witness import (
     capture_diff_for_witness,
+    check_charter_file_count,
     extract_charter_excerpts,
-extract_task_charter,
+    extract_task_charter,
     should_witness,
     witness_enabled,
 )
@@ -2038,6 +2039,24 @@ class ActExecutor:
                     if commit_drift_claims:
                         completed = False
                         finish_reason = "commit_message_diff_drift"
+                # v4.116 (ADR 0116): charter file-count enforcement.
+                # Structural cousin of v4.115's drift detector. Where
+                # v4.115 catches "commit message claims X but diff
+                # doesn't carry X" (lying about what happened), this
+                # catches "diff carries Y but charter forbade Y"
+                # (exceeding the explicit file budget). Runs after
+                # the v4.115 path-drift check because both consume the
+                # same git diff; ordering doesn't matter since neither
+                # mutates state.
+                charter_violations: list[str] = []
+                if completed:
+                    charter_violations = check_charter_file_count(
+                        task_text,
+                        Path.cwd(),
+                    )
+                    if charter_violations:
+                        completed = False
+                        finish_reason = "charter_file_count"
                 # v4.118 (ADR 0118): provenance-citation validity.
                 # Soak v20-3rd shipped commit e3af158 citing v4.120 /
                 # ADR 0120 when neither existed (platform was v4.116).
