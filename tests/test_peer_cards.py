@@ -9,6 +9,8 @@ import pytest
 
 from chimera.engines.peer_cards import (
     PeerCard,
+    apply_narrative,
+    build_narrative_prompt,
     build_peer_card,
     build_self_card,
     consolidate_peer_cards,
@@ -244,6 +246,64 @@ def test_consolidate_empty_writes_nothing(tmp_path: Path):
     paths = consolidate_peer_cards(mind_dir=tmp_path)
     assert paths == []
     assert not peers_dir(tmp_path).exists()
+
+
+# ── Narrative layer (ADR 0130) ────────────────────────────────────
+
+
+def test_build_narrative_prompt_includes_all_card_fields():
+    card = PeerCard(
+        peer_name="alpha",
+        trust_label="ALLOW",
+        composite_score=0.812,
+        recent_events=[("2026-05-24T10:00:00+00:00", "ALLOW", "handshake ok")],
+        last_seen_at="2026-05-24T10:00:00+00:00",
+        cycles_since_last_contact=3,
+        kfm_snapshot={"cycle": 42, "plan_kfm_state": "OK"},
+    )
+    prompt = build_narrative_prompt(card)
+    assert "alpha" in prompt
+    assert "ALLOW" in prompt
+    assert "0.812" in prompt
+    assert "handshake ok" in prompt
+    assert "plan_kfm_state" in prompt
+    assert "UNDER 100 words" in prompt
+
+
+def test_build_narrative_prompt_empty_card_has_safe_fallbacks():
+    prompt = build_narrative_prompt(PeerCard(peer_name="alpha"))
+    assert "(unknown)" in prompt
+    assert "(none)" in prompt
+
+
+def test_apply_narrative_strips_markdown_fence():
+    card = PeerCard(peer_name="alpha")
+    apply_narrative(card, "```\nAlpha is a reliable peer.\n```")
+    assert card.narrative == "Alpha is a reliable peer."
+
+
+def test_apply_narrative_caps_at_120_words():
+    card = PeerCard(peer_name="alpha")
+    long_text = " ".join(["word"] * 200)
+    apply_narrative(card, long_text)
+    assert card.narrative is not None
+    # Trimmed and marked with ellipsis.
+    assert card.narrative.endswith("…")
+    assert len(card.narrative.split()) <= 121  # 120 + ellipsis token
+
+
+def test_apply_narrative_empty_response_leaves_narrative_unset():
+    card = PeerCard(peer_name="alpha")
+    apply_narrative(card, "")
+    assert card.narrative is None
+
+
+def test_render_narrative_section_after_apply():
+    card = PeerCard(peer_name="alpha")
+    apply_narrative(card, "Alpha tends to drift on synthesis tasks.")
+    out = render_peer_card(card)
+    assert "## Narrative" in out
+    assert "synthesis tasks" in out
 
 
 # ── ADR 0128 doc presence ─────────────────────────────────────────

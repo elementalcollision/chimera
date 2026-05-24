@@ -131,3 +131,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0127-reasoning-tier-wiring.md](./0127-reasoning-tier-wiring.md) | ADR 0127 — Wire `ReasoningTier` to `ReflectionEngine` (Phase 2 completion) | Accepted (2026-05-24) |
 | [0128-peer-cards.md](./0128-peer-cards.md) | ADR 0128 — Peer Cards (Phase 3 / item #4): per-peer markdown snapshots refreshed at ROTATE | Accepted (2026-05-24) |
 | [0129-peer-cards-rotate-wiring.md](./0129-peer-cards-rotate-wiring.md) | ADR 0129 — Wire Peer Cards into `_phase_rotate` (default-on; `CHIMERA_PEER_CARDS_ON_ROTATE=0` opts out) | Accepted (2026-05-24) |
+| [0130-peer-card-narrative.md](./0130-peer-card-narrative.md) | ADR 0130 — Peer-Card LLM Narrative Layer (opt-in via `CHIMERA_PEER_CARD_LLM=1`) | Accepted (2026-05-24) |

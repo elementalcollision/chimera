@@ -952,6 +952,11 @@ class ChimeraLoop:
         Failures are logged and swallowed so they cannot break the
         rotation path. KFM fetch is intentionally skipped here (sync
         only); a follow-up chip adds the async fetch.
+
+        When ``CHIMERA_PEER_CARD_LLM=1`` and ACT providers are
+        available, each card is enriched with a short narrative
+        paragraph via one sonnet-tier call per card (ADR 0130).
+        Narrative failures are isolated per-card.
         """
         if os.environ.get("CHIMERA_PEER_CARDS_ON_ROTATE", "1").strip().lower() in (
             "0", "false", "no", "off",
@@ -960,24 +965,89 @@ class ChimeraLoop:
         try:
             from ..a2a.peer_trust_journal import list_decisions
             from ..a2a.peers import list_peer_chimeras
-            from ..engines.peer_cards import consolidate_peer_cards
+            from ..engines.peer_cards import (
+                build_peer_card,
+                build_self_card,
+                write_peer_card,
+            )
 
             current_cycle = self._state.cycle if self._state is not None else 0
             peer_names = list_peer_chimeras(self._registry)
-            decisions_by_peer = {
-                name: list_decisions(name) for name in peer_names
-            }
-            paths = consolidate_peer_cards(
-                mind_dir=self.config.mind_dir,
-                trust_state=self._trust.state,
-                peer_names=peer_names,
-                decisions_by_peer=decisions_by_peer,
-                current_cycle=current_cycle,
+            narrative_enabled = os.environ.get(
+                "CHIMERA_PEER_CARD_LLM", "",
+            ).strip().lower() in ("1", "true", "yes", "on")
+
+            cards = [build_self_card(trust_state=self._trust.state)]
+            for name in peer_names:
+                cards.append(build_peer_card(
+                    name,
+                    decisions=list_decisions(name),
+                    current_cycle=current_cycle,
+                ))
+
+            if narrative_enabled:
+                self._enrich_cards_with_narratives(cards)
+
+            paths = [write_peer_card(self.config.mind_dir, c) for c in cards]
+            suffix = " + narratives" if narrative_enabled else ""
+            self._log_phase(
+                f"ROTATE: peer cards refreshed ({len(paths)} files{suffix})"
             )
-            self._log_phase(f"ROTATE: peer cards refreshed ({len(paths)} files)")
         except Exception as exc:  # noqa: BLE001 — never fail rotation
             logger.warning("peer cards consolidation failed: %s", exc)
             self._log_phase(f"ROTATE: peer cards failed ({exc})")
+
+    def _enrich_cards_with_narratives(self, cards: list) -> None:
+        """Best-effort narrative enrichment; per-card failures isolated (ADR 0130).
+
+        Uses the same provider topology as the daily engines (sonnet
+        tier). When ACT isn't configured (no providers) or the
+        provider call fails, the affected card simply doesn't get a
+        narrative — the deterministic body is still written.
+        """
+        if self._act is None or not getattr(self._act, "providers", None):
+            self._log_phase("ROTATE: peer card narratives skipped (no providers)")
+            return
+        import asyncio
+
+        from ..engines.peer_cards import apply_narrative, build_narrative_prompt
+        from ..providers import Message
+        from ..providers.tiers import Provider as ProviderKind
+        from ..providers.tiers import select_rung
+
+        try:
+            rung = select_rung("sonnet")
+        except (ValueError, RuntimeError) as exc:
+            logger.warning("peer-card narrative tier resolution failed: %s", exc)
+            return
+        provider = self._act.providers.get(rung.config.provider)
+        if provider is None:
+            self._log_phase("ROTATE: peer card narratives skipped (no provider for sonnet)")
+            return
+        model_id = (
+            rung.config.model_id
+            if rung.config.provider is ProviderKind.ANTHROPIC
+            else rung.config.openrouter_model_id
+        )
+
+        async def _call(prompt: str) -> str:
+            response = await provider.complete_with_tools(
+                messages=[Message.user(prompt)],
+                model_id=model_id,
+                tools=[],
+                max_tokens=256,
+            )
+            return response.text or ""
+
+        for card in cards:
+            try:
+                prompt = build_narrative_prompt(card)
+                text = asyncio.run(_call(prompt))
+                apply_narrative(card, text)
+            except Exception as exc:  # noqa: BLE001 — per-card isolation
+                logger.warning(
+                    "peer-card narrative failed for %s: %s", card.peer_name, exc,
+                )
 
     # ── helpers ────────────────────────────────────────────
 

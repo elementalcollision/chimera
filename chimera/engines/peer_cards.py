@@ -303,8 +303,115 @@ def consolidate_peer_cards(
     return written
 
 
+# ── LLM narrative (ADR 0130) ──────────────────────────────────────
+#
+# The narrative layer is opt-in. The module owns the prompt + the
+# response-applying helper, but does NOT make LLM calls itself —
+# matching the deriver pattern (ADR 0124). The caller (loop or CLI)
+# runs the provider and feeds the response text back in.
+
+
+PEER_CARD_NARRATIVE_PROMPT = """You are Chimera's Peer Card narrator.
+
+Write a single short paragraph (UNDER 100 words) describing what
+Chimera knows about this peer based on the structured data below.
+Theory-of-mind framing: who is this peer, how do they typically
+behave, what should Chimera expect from them. No preamble, no
+markdown, no bullet points — one paragraph of plain prose.
+
+Peer name: {peer_name}
+Is self: {is_self}
+Trust label: {trust_label}
+Composite / readiness: {composite_score}
+Last seen: {last_seen}
+Cycles since contact: {cycles_since_last_contact}
+
+Recent events:
+{events_block}
+
+KFM snapshot:
+{kfm_block}
+"""
+
+
+def _format_events(card: PeerCard) -> str:
+    if not card.recent_events:
+        return "(none)"
+    return "\n".join(
+        f"- {ts} {label}" + (f" — {reason}" if reason else "")
+        for ts, label, reason in card.recent_events
+    )
+
+
+def _format_kfm(card: PeerCard) -> str:
+    if not card.kfm_snapshot or card.is_self:
+        return "(none)"
+    return "\n".join(f"- {k}: {v}" for k, v in card.kfm_snapshot.items())
+
+
+def build_narrative_prompt(card: PeerCard) -> str:
+    """Render :data:`PEER_CARD_NARRATIVE_PROMPT` with ``card``'s fields.
+
+    Numeric / optional fields are formatted with safe fallbacks
+    (``"(unknown)"``) so the prompt is always well-formed even on a
+    half-empty card.
+    """
+    composite = (
+        f"{card.composite_score:.3f}"
+        if card.composite_score is not None
+        else "(unknown)"
+    )
+    return PEER_CARD_NARRATIVE_PROMPT.format(
+        peer_name=card.peer_name,
+        is_self=card.is_self,
+        trust_label=card.trust_label or "(unknown)",
+        composite_score=composite,
+        last_seen=card.last_seen_at or "(never)",
+        cycles_since_last_contact=(
+            card.cycles_since_last_contact
+            if card.cycles_since_last_contact is not None
+            else "(unknown)"
+        ),
+        events_block=_format_events(card),
+        kfm_block=_format_kfm(card),
+    )
+
+
+_WORD_RE = re.compile(r"\S+")
+_NARRATIVE_WORD_CAP = 120  # 100 + 20 slack for "under 100" phrasing
+
+
+def apply_narrative(card: PeerCard, response_text: str) -> PeerCard:
+    """Strip markdown / fences and cap to ~100 words; mutate + return ``card``.
+
+    The cap is defensive — the prompt says "under 100", but models
+    sometimes overshoot. Trim to a reasonable bound rather than
+    rejecting the whole response.
+    """
+    if not response_text:
+        return card
+    text = response_text.strip()
+    # Strip a leading markdown fence if the model added one anyway.
+    if text.startswith("```"):
+        # Drop the first line (fence) and any trailing fence line.
+        lines = text.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    words = _WORD_RE.findall(text)
+    if len(words) > _NARRATIVE_WORD_CAP:
+        text = " ".join(words[:_NARRATIVE_WORD_CAP]) + "…"
+    card.narrative = text
+    return card
+
+
 __all__ = [
+    "PEER_CARD_NARRATIVE_PROMPT",
     "PeerCard",
+    "apply_narrative",
+    "build_narrative_prompt",
     "build_peer_card",
     "build_self_card",
     "consolidate_peer_cards",
