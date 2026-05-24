@@ -128,3 +128,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0124-deriver-style-extraction.md](./0124-deriver-style-extraction.md) | ADR 0124 — Deriver-style structured-output extraction (Phase 2 / item #3) | Accepted (2026-05-24) |
 | [0125-wire-deriver-to-reflection.md](./0125-wire-deriver-to-reflection.md) | ADR 0125 — Wire the Deriver into ReflectionEngine (opt-in CHIMERA_REFLECTION_DERIVER) | Accepted (2026-05-24) |
 | [0126-v4115-commit-only-diff.md](./0126-v4115-commit-only-diff.md) | ADR 0126 — v4.115 inspects HEAD's own commit diff, not cumulative `base..HEAD` | Accepted (2026-05-24) |
+| [0127-reasoning-tier-wiring.md](./0127-reasoning-tier-wiring.md) | ADR 0127 — Wire `ReasoningTier` to `ReflectionEngine` (Phase 2 completion) | Accepted (2026-05-24) |

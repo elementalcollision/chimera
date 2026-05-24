@@ -21,6 +21,7 @@ import os
 import sqlite3
 from pathlib import Path
 
+from ..core.budget import ReasoningTier, tier_for_reasoning
 from ..memory import record_api_call, record_ladder_outcome
 from ..prompts import recent_history
 from ..providers import Message, Provider
@@ -63,12 +64,17 @@ class ReflectionEngine(EngineBase):
         chronicle: ChronicleManager,
         tier: str = "sonnet",
         max_tokens: int = 1024,
+        reasoning_tier: ReasoningTier | None = None,
     ) -> None:
         self._providers = providers
         self._db = db
         self._mind_dir = Path(mind_dir)
         self._chronicle = chronicle
-        self._tier = tier
+        # ADR 0127: if a ReasoningTier is supplied, it overrides the
+        # literal ``tier`` string. Default ``None`` preserves every
+        # existing caller's behavior.
+        self._tier = tier_for_reasoning(reasoning_tier, default=tier)
+        self._reasoning_tier = reasoning_tier
         self._max_tokens = max_tokens
 
     async def run(self, *, cycle: int) -> EngineResult:
