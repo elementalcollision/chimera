@@ -119,6 +119,8 @@ if [ -d "$WORKTREE" ]; then
 fi
 
 # ── set up worktree ────────────────────────────────────────────
+log "syncing local main from origin/main…"
+soak_sync_main_from_origin 2>&1 | tee -a "$LOG"
 log "creating worktree on branch $BRANCH from main…"
 git worktree add -b "$BRANCH" "$WORKTREE" main 2>&1 | tee -a "$LOG"
 
