@@ -1,6 +1,6 @@
 # ADR index
 
-132 architecture decision records. Listed in numeric order. "Status" is the
+133 architecture decision records. Listed in numeric order. "Status" is the
 last column; "Accepted" means in force, "Deferred" means decided not to do
 this yet (with rationale), "Superseded by N" means later ADR replaces.
 
@@ -140,3 +140,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0133-dialectic-api.md](./0133-dialectic-api.md) | ADR 0133 — Dialectic API (Phase 3 / item #2): `chimera peers ask` CLI + `chimera-ask` MCP tool | Accepted (2026-05-24) |
 | [0134-hybrid-search-eval.md](./0134-hybrid-search-eval.md) | ADR 0134 — Hybrid BM25 + vector search vendor decision (Phase 4 / item #6): `HybridSearcher` scaffold + FTS5 path; vector path deferred to #6.b | Proposed (2026-05-24) |
 | [0135-longmemeval-integration.md](./0135-longmemeval-integration.md) | ADR 0135 — LongMemEval adapter (Phase 4 / item #8): `chimera evals longmemeval` CLI + dialectic-API answer surface; smoke baseline 18/30 = 60% | Accepted (2026-05-24) |
+| [0136-temporal-aware-dialectic.md](./0136-temporal-aware-dialectic.md) | ADR 0136 — Temporal-Aware Dialectic (Phase 4 / item #7): time-series belief, trust, and drift queries on the `peers ask` surface | Proposed (2026-05-24) |
