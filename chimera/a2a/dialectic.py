@@ -157,7 +157,7 @@ _DIALECTIC_PROMPT = """You are Chimera's Dialectic agent. Answer the question \
 about peer "{peer_name}" in a single short paragraph (UNDER 120 words). \
 Use ONLY the grounding below — do not invent facts. If the grounding \
 doesn't support an answer, say so honestly.
-When the question requires information from multiple sessions, integrate facts across the entire history. When a fact stated in an earlier session is contradicted by a later session, prefer the later session.
+When the question requires information from multiple sessions, integrate facts across the entire history. When a fact stated in an earlier session is contradicted by a later session, prefer the later session. When the user has stated preferences about how they want to be answered, honor those preferences in your response.
 
 Question: {question}
 

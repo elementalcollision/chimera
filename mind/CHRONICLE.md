@@ -5,10 +5,11 @@ _Daily synthesis from the engines. Newest day first._
 
 ### Morning Discovery
 
-- High tool_use frequency (38/42 calls) indicates heavy reliance on tool-augmented reasoning or code generation.
-- New theme: implementing a single constrained `_check_main_worktree_branch_drift` function with strict charter limits to avoid overscope.
-- Repetition: multi-phase remediation with explicit overshoot traps suggests prior tendency to over-implement or escape scope.
-- Notable: cycle 140 ended with a stop after several tool_use calls, implying successful completion of a bounded subtask.
+- New theme: v34 preference-aware dialectic design with a strict single-sentence append charter and ADR 0137, moving from Phase 1 design to Phase 2 implementation.
+- Pattern: 23 of 27 recent API calls ended in `tool_use` (85%), suggesting heavy repetition of tool-driven code edits/tests; cycle 145 used only the pro model, possibly for a critical subtask.
+- Success: Soak branch automation (wiring_coordinator) handles push/PR/merge on soft-sentinel exit, enabling safe iterative remediation without manual overhead.
+- Failure trap: Charter explicitly locks T1.2’s two sentences and prohibits env knobs—past overshoots (rewriting full prompt, modifying locked content) are flagged as rejectable.
+
 
 ### Midday Curiosity
 
