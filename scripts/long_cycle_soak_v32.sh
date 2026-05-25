@@ -119,6 +119,11 @@ if [ -d "$WORKTREE" ]; then
 fi
 
 # ── set up worktree ────────────────────────────────────────────
+# NOTE for v33+ template authors: keep the soak_sync_main_from_origin
+# call below. It's the load-bearing fix for the v32 post-mortem (PR #61
+# body + PR #62) where the worktree forked from a 3-commit-stale local
+# main and the agent's diff targeted a since-renamed function. New
+# soak runners cloned from this template MUST preserve this sync step.
 log "syncing local main from origin/main…"
 soak_sync_main_from_origin 2>&1 | tee -a "$LOG"
 log "creating worktree on branch $BRANCH from main…"
