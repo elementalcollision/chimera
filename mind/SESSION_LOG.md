@@ -161,3 +161,5 @@ Append-only, cycle-by-cycle event log. Populated by the WRITE phase.
     · auto-promote skipped (sticky demote): finish_reason=scope_evasion delta=2 — cycle 141
 - cycle 142 @ 2026-05-25T02:23:23+00:00 — tasks_seen=4 flipped=3
 - cycle 143 @ 2026-05-25T02:31:52+00:00 — tasks_seen=1 flipped=1
+- cycle 144 @ 2026-05-25T03:00:35+00:00 — tasks_seen=4 flipped=3
+- cycle 145 @ 2026-05-25T03:03:19+00:00 — tasks_seen=1 flipped=1

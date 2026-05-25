@@ -325,3 +325,23 @@ def test_build_prompt_includes_cross_session_sentences():
     prompt = build_dialectic_prompt(ctx, "did alpha change?")
     assert "When the question requires information from multiple sessions, integrate facts across the entire history." in prompt
     assert "When a fact stated in an earlier session is contradicted by a later session, prefer the later session." in prompt
+
+
+def test_build_prompt_includes_preference_sentence():
+    """The preference-honoring sentence appears in build_dialectic_prompt output."""
+    from chimera.a2a.dialectic import DialecticContext, build_dialectic_prompt
+
+    ctx = DialecticContext(
+        peer_name="alpha",
+        peer_card_markdown="# Peer card — alpha",
+        recent_decisions=[
+            {
+                "decision": "ALLOW",
+                "reason": "handshake ok",
+                "drift_score": 0.1,
+                "recorded_at": "2026-05-24T10:00:00+00:00",
+            }
+        ],
+    )
+    prompt = build_dialectic_prompt(ctx, "is alpha ok?")
+    assert "When the user has stated preferences about how they want to be answered, honor those preferences in your response." in prompt
