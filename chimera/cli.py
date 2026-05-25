@@ -660,6 +660,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Independent cap per category (useful for smoke runs that "
              "want N items per category for an even spread).",
     )
+    longmemeval.add_argument(
+        "--answer-max-tokens", type=int, default=2048,
+        help="max_tokens budget for the --answer LLM call. Default 2048 "
+             "(raised from 512 to recover reasoning-token-exhaustion "
+             "empties observed on deep-history items in the smoke baseline; "
+             "Chip T1.1 of post-baseline development priorities).",
+    )
 
     return parser
 
@@ -934,7 +941,7 @@ def _cmd_evals_longmemeval(args) -> int:
 
     adapter = LongMemEvalAdapter(mind_dir=cfg.mind_dir)
     answer_fn = (
-        _build_openrouter_answer_fn(args.answer_model)
+        _build_openrouter_answer_fn(args.answer_model, max_tokens=args.answer_max_tokens)
         if args.answer else None
     )
     results = run_batch(
@@ -962,13 +969,18 @@ def _cmd_evals_longmemeval(args) -> int:
     return 0
 
 
-def _build_openrouter_answer_fn(model_id: str):
+def _build_openrouter_answer_fn(model_id: str, *, max_tokens: int = 2048):
     """Construct an ``AnswerFn`` that routes through OpenRouter.
 
     Uses ``chimera.providers.OpenRouterProvider`` with the operator-
     supplied ``model_id`` (default ``openai/gpt-mini-latest`` per the
     CLI flag). Requires ``OPENROUTER_API_KEY``; raises a clear error
     when absent.
+
+    ``max_tokens`` defaults to 2048 (raised from 512) to recover the
+    6/30 reasoning-token-exhaustion empties observed in the smoke
+    baseline (PR #56 §"6 empty hypotheses"). Callers can override via
+    ``--answer-max-tokens N`` on the CLI.
 
     Imported lazily so the test path that passes a deterministic stub
     never hits provider imports.
@@ -990,7 +1002,7 @@ def _build_openrouter_answer_fn(model_id: str):
             messages=[Message.user(prompt)],
             model_id=model_id,
             tools=[],
-            max_tokens=512,
+            max_tokens=max_tokens,
         )
         return (response.text or "").strip()
 
