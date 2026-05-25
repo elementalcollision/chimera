@@ -178,6 +178,8 @@ This amendment supplies the missing content shape — without touching `_DIALECT
 
 Design note: [`mind/research/timestamp-grounding-design-2026-05-25.md`](../../mind/research/timestamp-grounding-design-2026-05-25.md). Implementation: `chimera/evals/longmemeval.py` (`LongMemEvalItem`, `LongMemEvalAdapter.ingest_history`).
 
+**Promotion gate cleared (2026-05-25, post-T1.5 full sweep)**: temporal-reasoning **90.23%** (120/133, +36.85pp from 53.38%) AND overall **90.80%** (454/500, +10.20pp from 80.60%) — both bars cleared with margin. The 77.4% B1+B2 share from PR #68 collapsed: B2 zero-anchor went 24.2% → 0.8% (15 items → 1), B1 hedged-ignorance went 53.2% → 4.5% absolute (33 items → 6, the residual clustering on activity-duration questions a session-level date can't anchor). Mode-C wrong-value residual *shrank* in absolute terms (14 → 3), falsifying the "retrieval-mechanism" hypothesis: the cliff was content-shape, not retrieval. T2.1 hybrid retrieval defers indefinitely. See [`mind/research/longmemeval-baseline-post-t1.5-2026-05-25.md`](../../mind/research/longmemeval-baseline-post-t1.5-2026-05-25.md).
+
 ## References
 
 - [ADR 0133 — Dialectic API](./0133-dialectic-api.md) — extended by this ADR; temporal context is additive, not breaking.
