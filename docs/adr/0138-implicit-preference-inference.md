@@ -92,6 +92,79 @@ Accept 46.67% as the long-term ceiling for adapter+prompt engineering on single-
 3. **Rollback rule** — if the full sweep (post-spike) regresses any category by >3pp from 90.80% baseline, the chip rolls back regardless of the single-session-preference move. This is the standing post-T1.5 rule from PR #70.
 4. **Honest disclosure** — if the spike clears Gate A by exactly 2 items (the minimum), the chip still promotes but the research note explicitly flags the result is near the noise floor.
 
+## Option C — adopted 2026-05-25 (release v4.114.0)
+
+The conditional spike protocol of Option B ran twice. Both runs falsified
+the adapter-grounding-extension family at corpus scale; this ADR's forward
+recommendation flips to **Option C**.
+
+### Evidence
+
+| Run | PR | Surface | Spike outcome | Corpus outcome |
+|---|---|---|---|---|
+| v1 | [#72](https://github.com/elementalcollision/chimera/pull/72) → [#74](https://github.com/elementalcollision/chimera/pull/74) | `## User context` regex (noisy) | Gate B fail (5 right→wrong) | reverted before corpus measurement |
+| v2 | [#75](https://github.com/elementalcollision/chimera/pull/75) → [#77](https://github.com/elementalcollision/chimera/pull/77) | Redesigned heuristic (tightened conditioning) | Gate A pass / Gate B borderline (1 from clear) | **500-item sweep**: SPP +10.00pp ✓, **overall −0.80pp ✗** (knowledge-update −5.13pp the dominant drag) |
+
+The PR #77 corpus sweep is the load-bearing falsification. Per-category flips
+showed the redesigned heuristic is *active* (24 items flipped of 500) but
+net-negative outside the targeted category: the
+`## User context` block reorders peer-card prominence in ways that benefit
+single-session-preference and harm knowledge-update, with stochastic effects
+on multi-session and temporal-reasoning. Full attribution:
+[`mind/research/longmemeval-baseline-post-pr75-2026-05-25.md`](../../mind/research/longmemeval-baseline-post-pr75-2026-05-25.md).
+
+### Structural finding
+
+The LongMemEval adapter's **single global peer-card serves six task shapes**
+(knowledge-update, multi-session, single-session-{assistant,preference,user},
+temporal-reasoning). Any heuristic that elevates one task shape's signal
+necessarily reorders the prominence of the others. Two designs in the same
+content-shape family (regex and tightened-conditioning) confirm this is a
+**layering problem, not a heuristic-quality problem**. A v3 heuristic at
+this layer would re-encounter the same trade-off.
+
+### Forward path
+
+Three paths remain. None is shipped by v4.114.0; all are net-new design work
+tracked as future chips:
+
+- **Option C-i — hybrid retrieval at the dialectic boundary**. Reopen
+  [ADR 0134](./0134-hybrid-search-eval.md)'s deferred vector path
+  specifically for implicit-preference surfacing. The peer-card becomes
+  one of several retrieval sources; preference signal lives in a retrieval
+  index, not in adapter-time prominence. Requires a design ADR.
+- **Option C-ii — ingestion-time category-aware peer-card composition**.
+  Replace the single global peer-card with task-shape-conditioned
+  composition at adapter ingestion time. Heavier infra; addresses the
+  layering finding directly. Requires a design ADR.
+- **Option C-floor — accept 46.67% as the architectural ceiling at the
+  adapter+prompt layer.** This is what v4.114.0 ships against. It is not a
+  permanent verdict; it is the honest current state.
+
+### Why this ADR stays Proposed
+
+The diagnostic content of this ADR (taxonomy, disconfirmation tests, the
+locked-design table that guided the Option B v2 spike) remains valid as a
+record of the investigation. The Option B *recommendation* is now falsified,
+but the ADR's load-bearing role is the diagnostic; the spike-result research
+notes carry the falsification evidence. Promoting this ADR to Accepted would
+imply a shipped intervention; flipping to Deferred would lose the diagnostic
+content's referenceability. **Proposed** is the honest status: design space
+mapped, current intervention falsified, forward path identified but not
+adopted.
+
+### Charter rules carried forward to future chips
+
+- No future chip in this lineage may promote a heuristic to `main` based on
+  an n=30 single-category spike. Either the spike measures collateral
+  damage in at least the four largest categories (knowledge-update,
+  multi-session, single-session-user, temporal-reasoning), or the chip
+  charter mandates a corpus sweep before status promotion. PR #77's
+  finding is the rule's basis.
+- Paired-item gates (per PR #76) remain the recommended spike framing but
+  are no longer sufficient on their own — they need corpus follow-up
+  before promotion.
+
 ## References
 
 - [`mind/research/implicit-preference-inference-2026-05-25.md`](../../mind/research/implicit-preference-inference-2026-05-25.md) — the diagnostic this ADR rests on.
