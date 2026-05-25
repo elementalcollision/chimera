@@ -1,6 +1,29 @@
 # Chimera — Chronicle
 
 _Daily synthesis from the engines. Newest day first._
+## 2026-05-25
+
+### Morning Discovery
+
+- High tool_use frequency (38/42 calls) indicates heavy reliance on tool-augmented reasoning or code generation.
+- New theme: implementing a single constrained `_check_main_worktree_branch_drift` function with strict charter limits to avoid overscope.
+- Repetition: multi-phase remediation with explicit overshoot traps suggests prior tendency to over-implement or escape scope.
+- Notable: cycle 140 ended with a stop after several tool_use calls, implying successful completion of a bounded subtask.
+
+### Midday Curiosity
+
+Investigated: **High tool_use frequency (38/42 calls) indicates heavy reliance on tool-augmented reasoning or code generation.**
+
+See [wiki/projects/q003-high-tool-use-frequency-38-42-calls-indicates-he/notes.md](wiki/projects/q003-high-tool-use-frequency-38-42-calls-indicates-he/notes.md)
+
+Snippet:
+
+## Findings Note: High Tool-Use Frequency in LLM Agents
+
+A 38-of-42 tool-call ratio (90.5%) isn't just high — it's a symptom of a now well-documented pathology in tool-augmented LLM agents. Three recent papers converge on the same finding: agents over-call tools, often to their own detriment.
+
+**The "tool-use tax."** Zhang et al. (2026) demonstrate that tool-augmented reasoning does *not* universa…
+
 ## 2026-05-24
 
 ### Morning Discovery

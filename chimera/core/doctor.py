@@ -482,6 +482,67 @@ def _check_orphan_worktrees(repo_root: Path) -> CheckResult:
 
 
 
+def _check_main_worktree_branch_drift(repo_root: Path) -> CheckResult:
+    """Detect when a chip session has checked out a non-main branch
+    in the operator's main worktree, polluting main with in-progress
+    chip changes (chip-branch-jump papercut, layer 1/3).
+
+    Returns ``warn`` when cwd is the git toplevel AND the checked-out
+    branch is not ``main``.  Returns ``ok`` otherwise, including on
+    any git/filesystem error (false positives are worse than missed
+    detections).
+    """
+    import subprocess  # noqa: SIM117
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True,
+            cwd=str(repo_root), timeout=5.0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return CheckResult("worktree_branch_drift", "ok", "cannot run git rev-parse")
+
+    if result.returncode != 0:
+        return CheckResult("worktree_branch_drift", "ok", "git rev-parse failed (not a repo?)")
+
+    toplevel = Path(result.stdout.strip()).resolve()
+    cwd = repo_root.resolve()
+
+    if cwd != toplevel:
+        return CheckResult(
+            "worktree_branch_drift", "ok",
+            f"cwd {cwd} ≠ git toplevel {toplevel}; not the main worktree",
+        )
+
+    try:
+        result2 = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True,
+            cwd=str(repo_root), timeout=5.0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return CheckResult("worktree_branch_drift", "ok", "cannot read HEAD branch")
+
+    if result2.returncode != 0:
+        return CheckResult("worktree_branch_drift", "ok", "git rev-parse HEAD failed (detached?)")
+
+    branch = result2.stdout.strip()
+
+    if branch == "HEAD":
+        return CheckResult("worktree_branch_drift", "ok", "detached HEAD at toplevel; ok")
+
+    if branch == "main":
+        return CheckResult("worktree_branch_drift", "ok", f"main worktree on main ({toplevel})")
+
+    return CheckResult(
+        "worktree_branch_drift", "warn",
+        f"main worktree ({toplevel}) is on branch '{branch}', not main. "
+        "Chip sessions may pollute main with in-progress changes. "
+        "Switch back: `git checkout main`.",
+    )
+
+
 
 def _check_soak_runner_liveness(state_dir: Path) -> CheckResult:
     """ADR 0120: detect stalled soak runners by log-mtime staleness.
@@ -593,6 +654,7 @@ def run_checks() -> list[CheckResult]:
         _check_concurrent_soak_runners(),
         _check_soak_runner_liveness(state_dir),
         _check_orphan_worktrees(Path.cwd()),
+        _check_main_worktree_branch_drift(Path.cwd()),
         *_check_provider_keys(),
     ]
     return results
