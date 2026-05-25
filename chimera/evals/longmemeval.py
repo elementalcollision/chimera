@@ -88,18 +88,27 @@ class LongMemEvalItem:
             or []
         )
         return cls(
-            item_id=str(obj.get("item_id") or obj.get("id") or ""),
+            item_id=str(
+                obj.get("item_id")
+                or obj.get("id")
+                or obj.get("question_id")  # upstream LongMemEval key
+                or ""
+            ),
             question=str(obj.get("question", "")),
             history=list(history),
             expected_answer=str(obj.get("expected_answer")
                                 or obj.get("answer", "")),
-            category=str(obj.get("category", "")),
+            category=str(
+                obj.get("category")
+                or obj.get("question_type")  # upstream LongMemEval key
+                or ""
+            ),
             extra={
                 k: v for k, v in obj.items()
                 if k not in {
-                    "item_id", "id", "question", "history",
-                    "haystack_sessions", "expected_answer", "answer",
-                    "category",
+                    "item_id", "id", "question_id", "question",
+                    "history", "haystack_sessions", "expected_answer",
+                    "answer", "category", "question_type",
                 }
             },
         )
@@ -305,12 +314,32 @@ class LongMemEvalAdapter:
 
 
 def load_items(path: Path) -> list[LongMemEvalItem]:
-    """Read a JSONL of LongMemEval items. Skips malformed lines."""
+    """Read LongMemEval items from JSONL or a JSON array.
+
+    The upstream HuggingFace release ships a single JSON array
+    (`longmemeval_oracle.json`); operator-generated subsets are often
+    JSONL. Detect which by trying JSON first (cheap; either succeeds
+    on the array or raises on the first JSONL line) then falling
+    back to per-line parsing. Malformed JSONL lines are skipped.
+    """
     p = Path(path)
     if not p.exists():
         return []
+    text = p.read_text(encoding="utf-8")
+    # Try JSON-array first.
+    try:
+        arr = json.loads(text)
+        if isinstance(arr, list):
+            return [
+                LongMemEvalItem.from_dict(obj)
+                for obj in arr
+                if isinstance(obj, dict)
+            ]
+    except json.JSONDecodeError:
+        pass
+    # Fall back to JSONL.
     out: list[LongMemEvalItem] = []
-    for line in p.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
