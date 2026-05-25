@@ -422,6 +422,82 @@ def test_orphan_worktrees_malformed_metadata_returns_ok(tmp_path, monkeypatch):
 
 # ── v4.??: uv_installed check ──────────────────────────────────────
 
+# ── v31: main worktree branch drift ─────────────────────────────────
+
+def _drift_check(monkeypatch, rev_parse_stdout, head_stdout,
+                 rev_parse_rc=0, head_rc=0, repo_root=None):
+    """Call _check_main_worktree_branch_drift with mocked git subprocess."""
+    import subprocess as _subprocess
+
+    def fake_run(*args, **kwargs):
+        if "--show-toplevel" in (args[0] if args else []):
+            return _subprocess.CompletedProcess(
+                args=args, returncode=rev_parse_rc,
+                stdout=rev_parse_stdout, stderr="",
+            )
+        else:
+            return _subprocess.CompletedProcess(
+                args=args, returncode=head_rc,
+                stdout=head_stdout, stderr="",
+            )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    from chimera.core.doctor import _check_main_worktree_branch_drift
+    if repo_root is None:
+        # Default: cwd == git toplevel (both point at the same tmp_path)
+        repo_root = Path(rev_parse_stdout.strip())
+    return _check_main_worktree_branch_drift(repo_root)
+
+
+def test_worktree_branch_drift_ok_when_on_main(tmp_path, monkeypatch):
+    r = _drift_check(monkeypatch,
+        rev_parse_stdout=str(tmp_path) + "\n",
+        head_stdout="main\n")
+    assert r.status == "ok"
+
+
+def test_worktree_branch_drift_warns_when_on_feature_branch(tmp_path, monkeypatch):
+    r = _drift_check(monkeypatch,
+        rev_parse_stdout=str(tmp_path) + "\n",
+        head_stdout="chip/v31-fix\n")
+    assert r.status == "warn"
+    assert "chip/v31-fix" in r.message
+    assert "git checkout main" in r.message
+
+
+def test_worktree_branch_drift_ok_when_in_worktree_not_toplevel(tmp_path, monkeypatch):
+    r = _drift_check(monkeypatch,
+        rev_parse_stdout="/some/other/worktree/path\n",
+        head_stdout="chimera-soak/v31-xyz\n",
+        repo_root=tmp_path)
+    assert r.status == "ok"
+    assert "≠ git toplevel" in r.message
+
+
+def test_worktree_branch_drift_ok_when_git_fails(tmp_path, monkeypatch):
+    r = _drift_check(monkeypatch,
+        rev_parse_stdout="", rev_parse_rc=128,
+        head_stdout="",
+        repo_root=tmp_path)
+    assert r.status == "ok"
+
+
+def test_worktree_branch_drift_ok_when_detached_head(tmp_path, monkeypatch):
+    r = _drift_check(monkeypatch,
+        rev_parse_stdout=str(tmp_path) + "\n",
+        head_stdout="HEAD\n")
+    assert r.status == "ok"
+    assert "detached" in r.message
+
+
+def test_worktree_branch_drift_in_registry(monkeypatch):
+    from chimera.core.doctor import CheckResult as _CR
+    import chimera.core.doctor as _doctor
+    sentinel = _CR("worktree_branch_drift", "ok", "sentinel")
+    monkeypatch.setattr(_doctor, "_check_main_worktree_branch_drift", lambda _: sentinel)
+    results = run_checks()
+    assert sentinel in results
+
 
 def test_check_uv_installed_returns_ok_when_present(monkeypatch):
     """Monkeypatch shutil.which('uv') to return a path; check is ok."""
@@ -527,3 +603,26 @@ def test_soak_liveness_in_registry(monkeypatch):
     monkeypatch.setattr(_doctor, "_check_soak_runner_liveness", lambda _: sentinel)
     results = run_checks()
     assert sentinel in results
+
+# ── combined ok + warn: branch drift (parametrised) ─────────────────
+
+import pytest as _pytest
+
+@_pytest.mark.parametrize(
+    "branch,expected_status",
+    [("main", "ok"), ("chip/v31-fix", "warn")],
+)
+def test_worktree_branch_drift_ok_and_warn(tmp_path, monkeypatch, branch, expected_status):
+    import subprocess as _subprocess
+
+    def fake_run(*args, **kwargs):
+        return _subprocess.CompletedProcess(
+            args=args, returncode=0,
+            stdout=str(tmp_path) + "\n" if "--show-toplevel" in (args[0] if args else []) else branch + "\n",
+            stderr="",
+        )
+    monkeypatch.setattr("subprocess.run", fake_run)
+    from chimera.core.doctor import _check_main_worktree_branch_drift
+    from pathlib import Path
+    r = _check_main_worktree_branch_drift(tmp_path)
+    assert r.status == expected_status

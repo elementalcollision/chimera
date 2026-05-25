@@ -93,7 +93,7 @@ def test_actual_v7_v8_v9_runners_match_inbox():
         ("v8", "ping-pong-wiring-investigation.md"),
         ("v9", "ping-pong-wiring-investigation.md"),
     ]:
-        script = (REPO_ROOT / "scripts" / f"long_cycle_soak_{version}.sh").read_text()
+        script = (REPO_ROOT / "scripts" / "archive" / f"long_cycle_soak_{version}.sh").read_text()
         # Pull the phase-1 INBOX heredoc body (first INBOX_EOF block).
         start = script.index("<<'INBOX_EOF'") + len("<<'INBOX_EOF'")
         end = script.index("INBOX_EOF", start)
