@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -203,89 +202,6 @@ class LongMemEvalAdapter:
         if self._self_card_path.exists():
             self._self_card_path.unlink()
 
-    # ── implicit-preference heuristic ──────────────────────
-    # ADR 0138 redesigned heuristic (2026-05-25). PR #72's broader regex
-    # cleared Gate A (3 wrong→right) but failed Gate B (5 right→wrong)
-    # because `\bI\s+(am|'m)\b` and `\bmy\s+\w+\b` surfaced conversational
-    # filler ("I'm wondering", "my apologies"). The redesign narrows
-    # content matches to clear preference verbs, negation/rejection, and
-    # explicit identity statements; and restricts scope to the most
-    # recent N user turns so stale-then-rejected preferences don't leak
-    # through. See mind/research/implicit-preference-spike-result-2026-05-25.md.
-    _USER_CTX_VERBS_RE = re.compile(
-        r"\bI\s+(?:prefer|like|love|hate|avoid|tried|use|own|bought)\b",
-        re.IGNORECASE,
-    )
-    _USER_CTX_NEGATION_RE = re.compile(
-        r"\b(?:don'?t|won'?t|wouldn'?t|never)\s+(?:like|prefer|enjoy|want|do)\b",
-        re.IGNORECASE,
-    )
-    _USER_CTX_NOT_RE = re.compile(
-        r"\bnot\s+(?:interested in|a fan of|into)\b",
-        re.IGNORECASE,
-    )
-    _USER_CTX_IDENTITY_RE = re.compile(
-        r"\b(?:I'?m|I\s+am)\s+(?:a|an)\s+\w+\b",
-        re.IGNORECASE,
-    )
-    _USER_CTX_RECENT_N = 5
-    _USER_CTX_MAX_BULLETS = 6
-    _USER_CTX_TRUNCATE = 200
-
-    @classmethod
-    def _extract_user_context(
-        cls, item: LongMemEvalItem,
-    ) -> list[str]:
-        """Pull preference-bearing user turns out of ``item.history``.
-
-        Scope: only the most recent ``_USER_CTX_RECENT_N`` non-empty
-        user turns are considered, so a stale preference stated early
-        and rejected later doesn't leak into the section.
-
-        Content match: a turn is surfaced if it contains a clear
-        first-person preference verb ("I prefer/like/love/hate/avoid/
-        tried/use/own/bought"), a negation/rejection phrase ("don't
-        like", "never enjoy", "not interested in"), or an identity
-        statement ("I'm a vegetarian", "I am an engineer"). Conversational
-        filler ("I'm wondering", "my apologies") is intentionally NOT
-        matched — see PR #73 spike result for the regression evidence.
-
-        Returns at most ``_USER_CTX_MAX_BULLETS`` bullets, each
-        truncated to ``_USER_CTX_TRUNCATE`` chars, deduped. Empty list
-        when no signal — caller then omits the section.
-        """
-        user_turns: list[str] = []
-        for session in item.history:
-            for turn in session:
-                if str(turn.get("role", "")).lower() != "user":
-                    continue
-                content = str(turn.get("content", "")).strip()
-                if not content:
-                    continue
-                user_turns.append(content)
-        recent = user_turns[-cls._USER_CTX_RECENT_N :]
-
-        bullets: list[str] = []
-        seen: set[str] = set()
-        for content in recent:
-            if not (
-                cls._USER_CTX_VERBS_RE.search(content)
-                or cls._USER_CTX_NEGATION_RE.search(content)
-                or cls._USER_CTX_NOT_RE.search(content)
-                or cls._USER_CTX_IDENTITY_RE.search(content)
-            ):
-                continue
-            snippet = content.replace("\n", " ").strip()
-            if len(snippet) > cls._USER_CTX_TRUNCATE:
-                snippet = snippet[: cls._USER_CTX_TRUNCATE - 1].rstrip() + "…"
-            if snippet in seen:
-                continue
-            seen.add(snippet)
-            bullets.append(snippet)
-            if len(bullets) >= cls._USER_CTX_MAX_BULLETS:
-                break
-        return bullets
-
     def ingest_history(self, item: LongMemEvalItem) -> int:
         """Bulk-ingest ``item``'s history into two surfaces:
 
@@ -307,16 +223,6 @@ class LongMemEvalAdapter:
         card_lines: list[str] = [f"# Peer card — self", ""]
         if item.question_date:
             card_lines += [f"**Today's date:** {item.question_date}", ""]
-        # ADR 0138 redesigned heuristic — surface preference-bearing
-        # recent user turns above the verbatim transcript. Omitted when
-        # the heuristic finds no signal, preserving prior behaviour.
-        user_ctx = self._extract_user_context(item)
-        if user_ctx:
-            card_lines.append("## User context")
-            card_lines.append("")
-            for bullet in user_ctx:
-                card_lines.append(f"- {bullet}")
-            card_lines.append("")
         card_lines += ["## History", ""]
         for i, session in enumerate(item.history):
             card_lines.append(f"### Session {i}")
