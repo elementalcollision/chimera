@@ -289,6 +289,124 @@ def test_cli_evals_longmemeval_help_lists_flags(capsys):
     assert "--n" in out
 
 
+# ── summarize_results / format_summary_table (runbook helpers) ───
+
+
+def _write_graded(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+
+def test_summarize_results_per_category_accuracy(tmp_path):
+    from chimera.evals.longmemeval import summarize_results
+
+    p = tmp_path / "graded.jsonl"
+    _write_graded(p, [
+        {"category": "single-session-user", "is_correct": True},
+        {"category": "single-session-user", "is_correct": False},
+        {"category": "single-session-user", "is_correct": True},
+        {"category": "multi-session", "is_correct": True},
+        {"category": "abstention", "is_correct": False},
+    ])
+    summary = summarize_results(p)
+    assert summary["single-session-user"]["total"] == 3
+    assert summary["single-session-user"]["correct"] == 2
+    assert summary["single-session-user"]["accuracy"] == pytest.approx(2 / 3, abs=1e-4)
+    assert summary["_overall"]["total"] == 5
+    assert summary["_overall"]["correct"] == 3
+    assert summary["_overall"]["accuracy"] == pytest.approx(0.6, abs=1e-4)
+
+
+def test_summarize_results_missing_file_returns_empty(tmp_path):
+    from chimera.evals.longmemeval import summarize_results
+    assert summarize_results(tmp_path / "nope.jsonl") == {}
+
+
+def test_summarize_results_skips_malformed_lines(tmp_path):
+    from chimera.evals.longmemeval import summarize_results
+
+    p = tmp_path / "graded.jsonl"
+    p.write_text(
+        '{"category": "a", "is_correct": true}\n'
+        '{garbage\n'
+        '\n'
+        '[1, 2, 3]\n'
+        '{"category": "a", "is_correct": false}\n'
+    )
+    summary = summarize_results(p)
+    assert summary["a"]["total"] == 2
+    assert summary["a"]["correct"] == 1
+
+
+def test_summarize_results_uncategorised_bucket(tmp_path):
+    from chimera.evals.longmemeval import summarize_results
+    p = tmp_path / "graded.jsonl"
+    _write_graded(p, [{"is_correct": True}, {"is_correct": False}])
+    summary = summarize_results(p)
+    assert "(uncategorised)" in summary
+    assert summary["(uncategorised)"]["total"] == 2
+
+
+def test_summarize_results_custom_correctness_field(tmp_path):
+    """Operator may use a different upstream key (e.g. 'judged_correct')."""
+    from chimera.evals.longmemeval import summarize_results
+    p = tmp_path / "graded.jsonl"
+    _write_graded(p, [
+        {"category": "x", "judged_correct": True},
+        {"category": "x", "judged_correct": False},
+    ])
+    summary = summarize_results(p, correctness_field="judged_correct")
+    assert summary["x"]["correct"] == 1
+
+
+def test_summarize_results_ungraded_items_pull_accuracy_down(tmp_path):
+    """An item missing the correctness field counts toward total but not correct."""
+    from chimera.evals.longmemeval import summarize_results
+    p = tmp_path / "graded.jsonl"
+    _write_graded(p, [
+        {"category": "x", "is_correct": True},
+        {"category": "x"},  # ungraded
+    ])
+    summary = summarize_results(p)
+    assert summary["x"]["total"] == 2
+    assert summary["x"]["correct"] == 1
+    assert summary["x"]["accuracy"] == pytest.approx(0.5, abs=1e-4)
+
+
+def test_format_summary_table_includes_overall_row():
+    from chimera.evals.longmemeval import format_summary_table
+    table = format_summary_table({
+        "a": {"total": 2, "correct": 1, "accuracy": 0.5},
+        "_overall": {"total": 2, "correct": 1, "accuracy": 0.5},
+    })
+    assert "| Category |" in table
+    assert "| a | 2 | 1 | 50.00% |" in table
+    assert "**overall**" in table
+
+
+def test_format_summary_table_empty():
+    from chimera.evals.longmemeval import format_summary_table
+    assert "no results" in format_summary_table({})
+
+
+# ── Baseline note presence ────────────────────────────────────────
+
+
+def test_baseline_note_template_present():
+    note = (
+        Path(__file__).parent.parent
+        / "mind" / "research" / "longmemeval-baseline-2026-05-24.md"
+    )
+    assert note.exists()
+    body = note.read_text()
+    assert "LongMemEval" in body
+    # Promotion checklist landmarks.
+    assert "Promotion" in body or "promote" in body.lower()
+    assert "0135" in body
+    # Operator commands.
+    assert "chimera evals longmemeval" in body
+
+
 # ── ADR 0135 doc presence ─────────────────────────────────────────
 
 

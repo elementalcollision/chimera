@@ -327,12 +327,113 @@ def run_batch(
     return results
 
 
+# ── Graded-result summariser (operator runbook helper) ───────────
+
+
+def summarize_results(
+    graded_jsonl_path: Path,
+    *,
+    correctness_field: str = "is_correct",
+) -> dict[str, dict[str, float | int]]:
+    """Aggregate a graded LongMemEval JSONL into per-category accuracy.
+
+    The upstream grader (or any local grading pass) is expected to
+    annotate each row with a boolean ``is_correct`` field. This
+    helper reads the JSONL and produces:
+
+      {category: {"total": N, "correct": N, "accuracy": float},
+       "_overall": {"total": N, "correct": N, "accuracy": float}}
+
+    Items missing the correctness field are counted under
+    ``total`` but not ``correct`` — they pull the accuracy down,
+    which is the honest signal (an ungraded item is not a correct
+    item). Malformed JSONL lines are skipped, matching :func:`load_items`.
+
+    The function is intentionally provider-agnostic and grader-
+    agnostic — pass any flag-field name via ``correctness_field``
+    if the upstream harness uses a different key (e.g.
+    ``"correct"``, ``"judged_correct"``).
+    """
+    p = Path(graded_jsonl_path)
+    if not p.exists():
+        return {}
+    by_cat: dict[str, dict[str, int]] = {}
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        cat = str(obj.get("category") or "(uncategorised)")
+        bucket = by_cat.setdefault(cat, {"total": 0, "correct": 0})
+        bucket["total"] += 1
+        if bool(obj.get(correctness_field, False)):
+            bucket["correct"] += 1
+
+    out: dict[str, dict[str, float | int]] = {}
+    overall_total = 0
+    overall_correct = 0
+    for cat, b in sorted(by_cat.items()):
+        out[cat] = {
+            "total": b["total"],
+            "correct": b["correct"],
+            "accuracy": (
+                round(b["correct"] / b["total"], 4) if b["total"] else 0.0
+            ),
+        }
+        overall_total += b["total"]
+        overall_correct += b["correct"]
+    out["_overall"] = {
+        "total": overall_total,
+        "correct": overall_correct,
+        "accuracy": (
+            round(overall_correct / overall_total, 4) if overall_total else 0.0
+        ),
+    }
+    return out
+
+
+def format_summary_table(summary: dict[str, dict[str, float | int]]) -> str:
+    """Render :func:`summarize_results` output as a markdown table.
+
+    Suitable for pasting into ``mind/research/longmemeval-baseline-*.md``.
+    The ``_overall`` row is rendered last with a separator.
+    """
+    if not summary:
+        return "_(no results)_\n"
+    lines = [
+        "| Category | Total | Correct | Accuracy |",
+        "|---|---:|---:|---:|",
+    ]
+    overall = summary.get("_overall")
+    for cat, row in summary.items():
+        if cat == "_overall":
+            continue
+        lines.append(
+            f"| {cat} | {row['total']} | {row['correct']} | "
+            f"{row['accuracy']:.2%} |"
+        )
+    if overall is not None:
+        lines.append("| | | | |")
+        lines.append(
+            f"| **overall** | **{overall['total']}** | "
+            f"**{overall['correct']}** | **{overall['accuracy']:.2%}** |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 __all__ = [
     "AnswerResult",
     "LongMemEvalAdapter",
     "LongMemEvalItem",
     "default_results_path",
+    "format_summary_table",
     "load_items",
     "run_batch",
+    "summarize_results",
     "write_results",
 ]
