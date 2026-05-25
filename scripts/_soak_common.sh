@@ -96,6 +96,25 @@ soak_extract_sentinel_path() {
         | tr -d '`'
 }
 
+soak_sync_main_from_origin() {
+    # Fast-forward local `main` to `origin/main` so the soak worktree
+    # branches from the freshest commit. Operator workflows
+    # (chip-branch-jumps, divergent squash-merges) routinely leave local
+    # main behind origin/main; the v32 post-mortem traced a DOA diff
+    # (PR #61 body) to a worktree forked from a 3-commit-stale main.
+    #
+    # Strategy: fetch quietly (tolerate offline), checkout main, then
+    # `merge --ff-only`. Refuse to clobber a diverged local main — emit
+    # a WARN and let the caller proceed with the local pointer rather
+    # than risk losing operator work.
+    git fetch origin main --quiet 2>/dev/null || true
+    git checkout main --quiet 2>&1 || return 1
+    git merge --ff-only origin/main 2>&1 || {
+        echo "WARN: local main diverged from origin/main; using local pointer" >&2
+    }
+    return 0
+}
+
 soak_install_killgroup_trap() {
     # Capture the parent PID at trap-install time so the trap function
     # uses the script's PID, not a subshell's.
