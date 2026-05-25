@@ -57,6 +57,36 @@ def test_item_from_dict_upstream_aliases():
     assert len(item.history) == 1
 
 
+def test_item_from_dict_extracts_dates():
+    """Upstream LongMemEval ships question_date + haystack_dates parallel
+    to haystack_sessions. Both must land on the dataclass, not in extra,
+    so the adapter can surface them as grounding (chip: timestamp grounding 2026-05-25)."""
+    obj = {
+        "question_id": "tr-1",
+        "question_type": "temporal-reasoning",
+        "question": "How many days ago?",
+        "haystack_sessions": [
+            [{"role": "user", "content": "first"}],
+            [{"role": "user", "content": "second"}],
+        ],
+        "answer": "4 days ago",
+        "question_date": "2023/04/10 (Mon) 23:07",
+        "haystack_dates": ["2023/04/06 (Thu) 10:00", "2023/04/08 (Sat) 14:00"],
+    }
+    item = LongMemEvalItem.from_dict(obj)
+    assert item.question_date == "2023/04/10 (Mon) 23:07"
+    assert item.session_dates == ["2023/04/06 (Thu) 10:00", "2023/04/08 (Sat) 14:00"]
+    assert "question_date" not in item.extra
+    assert "haystack_dates" not in item.extra
+
+
+def test_item_from_dict_dates_default_empty():
+    """No-date items still load — defensive fallback for unit-test fixtures."""
+    item = LongMemEvalItem.from_dict({"item_id": "x", "question": "?", "history": []})
+    assert item.question_date == ""
+    assert item.session_dates == []
+
+
 def test_item_from_dict_extras_preserved():
     obj = {
         "item_id": "z", "question": "q", "history": [],
@@ -107,6 +137,59 @@ def test_ingest_skips_empty_turns(adapter, tmp_path):
     body = files[0].read_text()
     assert "real content" in body
     assert body.count("**user**") == 1
+
+
+def test_ingest_writes_today_date_anchor(adapter, tmp_path):
+    """question_date lands at the top of the self peer card so the
+    answerer has an absolute 'now' for temporal arithmetic
+    (chip: timestamp grounding 2026-05-25)."""
+    item = LongMemEvalItem(
+        item_id="tr-1", question="How many days ago?",
+        history=[[{"role": "user", "content": "I bought a car today"}]],
+        question_date="2023/04/10 (Mon) 23:07",
+        session_dates=["2023/04/06 (Thu) 10:00"],
+    )
+    adapter.ingest_history(item)
+    self_card = (tmp_path / "mind" / "peers" / "self.md").read_text()
+    assert "**Today's date:** 2023/04/10 (Mon) 23:07" in self_card
+    # Anchor must appear above the History section so the model reads it first.
+    assert self_card.index("Today's date:") < self_card.index("## History")
+
+
+def test_ingest_writes_per_session_date_headers(adapter, tmp_path):
+    """Each session block carries its send-timestamp on both the self
+    card and the per-session scratch file."""
+    item = LongMemEvalItem(
+        item_id="tr-2", question="?",
+        history=[
+            [{"role": "user", "content": "session zero"}],
+            [{"role": "user", "content": "session one"}],
+        ],
+        question_date="2023/04/10 (Mon) 23:07",
+        session_dates=["2023/04/06 (Thu) 10:00", "2023/04/08 (Sat) 14:00"],
+    )
+    adapter.ingest_history(item)
+    self_card = (tmp_path / "mind" / "peers" / "self.md").read_text()
+    assert "**Session date:** 2023/04/06 (Thu) 10:00" in self_card
+    assert "**Session date:** 2023/04/08 (Sat) 14:00" in self_card
+    # Scratch files also carry the timestamp for future hybrid retrieval.
+    scratch_dir = tmp_path / "mind" / "wiki" / "longmemeval"
+    bodies = [p.read_text() for p in sorted(scratch_dir.glob("*.md"))]
+    assert "**Session date:** 2023/04/06 (Thu) 10:00" in bodies[0]
+    assert "**Session date:** 2023/04/08 (Sat) 14:00" in bodies[1]
+
+
+def test_ingest_without_dates_omits_headers(adapter, tmp_path):
+    """Defensive: items without date metadata ingest cleanly with no
+    Today's-date / Session-date lines (preserves all pre-chip behaviour)."""
+    item = LongMemEvalItem(
+        item_id="t-nodates", question="?",
+        history=[[{"role": "user", "content": "hi"}]],
+    )
+    adapter.ingest_history(item)
+    self_card = (tmp_path / "mind" / "peers" / "self.md").read_text()
+    assert "Today's date" not in self_card
+    assert "Session date" not in self_card
 
 
 def test_reset_truncates_scratch(adapter, tmp_path):

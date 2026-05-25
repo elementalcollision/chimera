@@ -160,6 +160,24 @@ Both are heavier than reading the JSONL directly. Since the JSONL is append-only
 - Async-batched temporal context gathering across multiple peers — `peers ask` is single-peer; multi-peer temporal analysis is a future `peers sweep ask` surface.
 - Trend forecasting beyond simple linear projection — `cycles_to_threshold` is a straight-line extrapolation. Exponential or regression-based forecasting is deferred until an operator expresses need.
 
+## 2026-05-25 — grounding extension (timestamp surfacing)
+
+The cross-session-integration sentence shipped in PR #64 was necessary but, as the post-Tier-1 full sweep showed ([baseline note](../../mind/research/longmemeval-baseline-2026-05-25.md)), insufficient: the temporal-reasoning category landed at **53.38%** (71/133) — a floor not a ceiling.
+
+PR #68's investigation ([report](../../mind/research/temporal-reasoning-regression-2026-05-25.md)) traced **77.4%** of misses (B1 hedged-ignorance + B2 zero-anchor) to one root cause: the dialectic grounding had no absolute date anchors. Sessions arrived to the model as bare `### Session i` headers; the user's relative phrasing (*"today"*, *"yesterday"*, *"just"*) had nothing to resolve against. The prompt-wording change worked correctly on the items where dates *were* in source text; the wording was load-bearing but blind to a content-shape gap.
+
+This amendment supplies the missing content shape — without touching `_DIALECTIC_PROMPT`:
+
+- **Schema** — `LongMemEvalItem` now extracts `question_date` and `haystack_dates` from upstream (previously dropped into `extra`).
+- **Self-card top** — `**Today's date:** {question_date}` written above `## History` when present. This is the answerer's "now"; arithmetic anchor for *"N days ago"* questions.
+- **Session headers** — `**Session date:** {date}` written directly under each `### Session i` heading on both the self peer-card (load-bearing surface read by `gather_dialectic_context`) and the per-session scratch file (future hybrid-retrieval surface).
+- **Defensive** — items without date metadata render byte-identically to the pre-amendment adapter; no test-fixture churn, no behaviour change for non-LongMemEval callers.
+- **Surface boundary** — content insertion only. `chimera/a2a/dialectic.py` is untouched: `peer_card_markdown` is interpolated verbatim into the `{peer_card_block}` template slot, so any text we write to `mind/peers/self.md` reaches the answerer with no plumbing change. The "today" anchor riding inside the peer card avoids polluting the live `DialecticContext` shape with eval-only state.
+
+**Promotion gate (tightened for the next full sweep)**: temporal-reasoning **≥68%** (≥+15pp from 53.38%) AND overall **≥80%** (no regression from 80.60%). If timestamps alone clear the new gate, T2.1 hybrid retrieval can defer; if mode-C residual (22.6%) dominates, T2.1 becomes the chartered next chip.
+
+Design note: [`mind/research/timestamp-grounding-design-2026-05-25.md`](../../mind/research/timestamp-grounding-design-2026-05-25.md). Implementation: `chimera/evals/longmemeval.py` (`LongMemEvalItem`, `LongMemEvalAdapter.ingest_history`).
+
 ## References
 
 - [ADR 0133 — Dialectic API](./0133-dialectic-api.md) — extended by this ADR; temporal context is additive, not breaking.
