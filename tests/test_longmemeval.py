@@ -517,3 +517,78 @@ def test_adr_0135_present_and_proposed():
     assert "Proposed" in body  # status — locks Accepted only after baseline run
     assert "LongMemEval" in body
     assert "0123" in body
+
+
+# ── Chip T1.1 — --answer-max-tokens budget plumbing ───────────────
+
+
+def test_openrouter_answer_fn_default_max_tokens_is_2048(monkeypatch):
+    """Chip T1.1: default budget is 2048 (raised from 512 to recover the
+    6/30 reasoning-token-exhaustion empties surfaced in the smoke
+    baseline). The CLI default and the function default agree."""
+    from chimera import cli as _cli
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        text = "ok"
+
+    class _FakeProvider:
+        async def complete_with_tools(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "chimera.providers.OpenRouterProvider",
+        lambda: _FakeProvider(),
+    )
+
+    fn = _cli._build_openrouter_answer_fn("openai/test-model")
+    out = fn("hello")
+    assert out == "ok"
+    assert captured["max_tokens"] == 2048, (
+        f"default max_tokens should be 2048 (Chip T1.1), got {captured['max_tokens']}"
+    )
+
+
+def test_openrouter_answer_fn_explicit_max_tokens_passes_through(monkeypatch):
+    """Chip T1.1: caller-supplied --answer-max-tokens N is plumbed
+    through the function signature into the provider call verbatim."""
+    from chimera import cli as _cli
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        text = "ok"
+
+    class _FakeProvider:
+        async def complete_with_tools(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "chimera.providers.OpenRouterProvider",
+        lambda: _FakeProvider(),
+    )
+
+    fn = _cli._build_openrouter_answer_fn("openai/test-model", max_tokens=4096)
+    fn("hello")
+    assert captured["max_tokens"] == 4096
+
+
+def test_cli_answer_max_tokens_flag_present_with_default_2048():
+    """Chip T1.1: --answer-max-tokens is a registered argparse flag
+    with default 2048. Parsing without it yields 2048; explicit value
+    is preserved."""
+    from chimera import cli as _cli
+
+    parser = _cli._build_parser()
+    ns_default = parser.parse_args(["evals", "longmemeval", "--smoke"])
+    assert ns_default.answer_max_tokens == 2048
+
+    ns_explicit = parser.parse_args(
+        ["evals", "longmemeval", "--smoke", "--answer-max-tokens", "1024"]
+    )
+    assert ns_explicit.answer_max_tokens == 1024
