@@ -289,6 +289,103 @@ def test_cli_evals_longmemeval_help_lists_flags(capsys):
     assert "--n" in out
 
 
+# ── --answer / answer_fn path ─────────────────────────────────────
+
+
+def test_answer_with_answer_fn_returns_hypothesis(adapter):
+    """When answer_fn is provided, hypothesis + question_id populate."""
+    item = LongMemEvalItem(
+        item_id="t-ans", question="What pet?",
+        history=[[{"role": "user", "content": "I have a tabby cat."}]],
+    )
+    adapter.ingest_history(item)
+
+    seen_prompts: list[str] = []
+
+    def fake_answer(prompt: str) -> str:
+        seen_prompts.append(prompt)
+        return "A tabby cat."
+
+    result = adapter.answer(item, answer_fn=fake_answer)
+    assert result.hypothesis == "A tabby cat."
+    assert result.answer == "A tabby cat."  # answer aliases hypothesis
+    assert result.question_id == "t-ans"
+    assert len(seen_prompts) == 1
+    assert "What pet?" in seen_prompts[0]
+
+
+def test_answer_without_answer_fn_keeps_prompt(adapter):
+    """Default path (no answer_fn) keeps the prompt-only behaviour."""
+    item = LongMemEvalItem(
+        item_id="t-prompt", question="?",
+        history=[[{"role": "user", "content": "hi"}]],
+    )
+    adapter.ingest_history(item)
+    result = adapter.answer(item)
+    assert result.hypothesis is None
+    assert result.question_id is None
+    # answer holds the assembled dialectic prompt
+    assert "?" in result.answer
+
+
+def test_run_batch_threads_answer_fn(adapter):
+    items = [
+        LongMemEvalItem(
+            item_id=f"b-{i}", question="q",
+            history=[[{"role": "user", "content": "x"}]],
+            category="single-session-user",
+        )
+        for i in range(3)
+    ]
+
+    calls = {"n": 0}
+
+    def stub(prompt: str) -> str:
+        calls["n"] += 1
+        return f"answer-{calls['n']}"
+
+    results = run_batch(adapter, items, answer_fn=stub)
+    assert calls["n"] == 3
+    assert all(r.hypothesis and r.hypothesis.startswith("answer-") for r in results)
+    assert all(r.question_id is not None for r in results)
+
+
+def test_run_batch_per_category_limit(adapter):
+    items = [
+        LongMemEvalItem(
+            item_id=f"i-{i}", question="?",
+            history=[[{"role": "user", "content": "x"}]],
+            category=cat,
+        )
+        for i, cat in enumerate(
+            ["a", "a", "a", "b", "b", "c", "c", "c", "c"]
+        )
+    ]
+    results = run_batch(adapter, items, per_category_limit=2)
+    cats = [r.category for r in results]
+    assert cats.count("a") == 2
+    assert cats.count("b") == 2
+    assert cats.count("c") == 2
+
+
+def test_run_batch_per_category_limit_combines_with_subset(adapter):
+    items = [
+        LongMemEvalItem(
+            item_id=f"i-{i}", question="?",
+            history=[[{"role": "user", "content": "x"}]],
+            category=cat,
+        )
+        for i, cat in enumerate(
+            ["abstention", "abstention", "abstention", "temporal-reasoning"]
+        )
+    ]
+    results = run_batch(
+        adapter, items, subset="abstention", per_category_limit=2,
+    )
+    assert len(results) == 2
+    assert all(r.category == "abstention" for r in results)
+
+
 # ── summarize_results / format_summary_table (runbook helpers) ───
 
 

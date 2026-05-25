@@ -41,10 +41,17 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 logger = logging.getLogger(__name__)
+
+
+# An ``AnswerFn`` takes the assembled dialectic prompt and returns
+# the model's natural-language hypothesis. Provider-agnostic by
+# design — the CLI wires Chimera's ACT sonnet rung; tests pass a
+# deterministic stub.
+AnswerFn = Callable[[str], str]
 
 
 # ── Typed schema ──────────────────────────────────────────────────
@@ -100,7 +107,24 @@ class LongMemEvalItem:
 
 @dataclass(frozen=True)
 class AnswerResult:
-    """One adapter answer + provenance, JSON-serialisable."""
+    """One adapter answer + provenance, JSON-serialisable.
+
+    Field semantics:
+
+      * ``answer`` — in default (prompt-only) mode, this is the
+        assembled dialectic prompt. With an ``answer_fn`` passed to
+        :meth:`LongMemEvalAdapter.answer`, this is the LLM-generated
+        hypothesis the upstream grader will judge.
+      * ``hypothesis`` — alias of ``answer`` written under the key the
+        upstream LongMemEval grader expects (``hypothesis``). Populated
+        only when ``answer_fn`` ran.
+      * ``question_id`` — alias of ``item_id`` under the upstream key.
+        Same population rule.
+
+    The aliasing avoids a post-processing rename when piping into the
+    upstream grader (`src/evaluation/evaluate_qa.py` reads
+    ``question_id`` + ``hypothesis``).
+    """
 
     item_id: str
     question: str
@@ -109,6 +133,8 @@ class AnswerResult:
     category: str = ""
     expected_answer: str = ""
     error: str | None = None
+    hypothesis: str | None = None
+    question_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -209,15 +235,24 @@ class LongMemEvalAdapter:
 
     # ── answer ─────────────────────────────────────────────
 
-    def answer(self, item: LongMemEvalItem) -> AnswerResult:
+    def answer(
+        self,
+        item: LongMemEvalItem,
+        *,
+        answer_fn: "AnswerFn | None" = None,
+    ) -> AnswerResult:
         """Produce an :class:`AnswerResult` for ``item``.
 
-        Today the adapter uses the dialectic API's
-        :func:`chimera.a2a.dialectic.gather_dialectic_context` plus
-        :func:`build_dialectic_prompt` to assemble grounding from the
-        ingested wiki sessions. The assembled prompt is what the
-        upstream harness would pass to a judge; we return it as
-        ``answer`` so the operator can pipe through their grader.
+        The adapter always assembles the dialectic prompt from the
+        ingested history (ADR 0133 grounding pipeline). When
+        ``answer_fn`` is ``None`` (default), the assembled prompt is
+        returned as ``answer`` and the upstream grader can't run on
+        the result — ADR 0135's cost-containment default.
+
+        When ``answer_fn`` is provided, the adapter calls it once with
+        the assembled prompt; the returned string lands in both
+        ``answer`` and ``hypothesis``. This produces a row the upstream
+        ``src/evaluation/evaluate_qa.py`` grader can consume directly.
 
         Errors are captured into :attr:`AnswerResult.error` rather
         than raised, so a single bad item doesn't kill a sweep.
@@ -233,13 +268,22 @@ class LongMemEvalAdapter:
             # Chimera's own (synthetic) history.
             ctx = gather_dialectic_context("self", mind_dir=self._mind_dir)
             prompt = build_dialectic_prompt(ctx, item.question)
+
+            hypothesis: str | None = None
+            answer_text = prompt
+            if answer_fn is not None:
+                hypothesis = answer_fn(prompt)
+                answer_text = hypothesis
+
             return AnswerResult(
                 item_id=item.item_id,
                 question=item.question,
-                answer=prompt,
+                answer=answer_text,
                 sources_used=list(ctx.sources_used),
                 category=item.category,
                 expected_answer=item.expected_answer,
+                hypothesis=hypothesis,
+                question_id=item.item_id if hypothesis is not None else None,
             )
         except Exception as exc:  # noqa: BLE001 — never fail a sweep
             logger.warning(
@@ -305,23 +349,38 @@ def run_batch(
     *,
     limit: int | None = None,
     subset: str | None = None,
+    answer_fn: "AnswerFn | None" = None,
+    per_category_limit: int | None = None,
 ) -> list[AnswerResult]:
     """Iterate ``items`` through ``adapter``; reset between items.
 
-    ``subset`` filters by ``category`` (case-insensitive substring).
-    ``limit`` caps the count after filtering. Both default to no-op.
+    Filters:
+      * ``subset`` — case-insensitive substring match on ``category``.
+      * ``limit`` — overall cap after the subset filter.
+      * ``per_category_limit`` — independent cap per category. Useful
+        for "smoke" runs that want N items per category for an even
+        spread (e.g. ``--n-per-category 5``).
+      * ``answer_fn`` — when provided, threaded through into
+        :meth:`LongMemEvalAdapter.answer` so each result gets a real
+        hypothesis the upstream grader can judge.
     """
     results: list[AnswerResult] = []
     sub = subset.lower() if subset else None
+    per_cat_counts: dict[str, int] = {}
     n = 0
     for item in items:
         if sub is not None and sub not in item.category.lower():
             continue
+        if per_category_limit is not None:
+            cat = item.category or "(uncategorised)"
+            if per_cat_counts.get(cat, 0) >= int(per_category_limit):
+                continue
+            per_cat_counts[cat] = per_cat_counts.get(cat, 0) + 1
         if limit is not None and n >= int(limit):
             break
         adapter.reset()
         adapter.ingest_history(item)
-        results.append(adapter.answer(item))
+        results.append(adapter.answer(item, answer_fn=answer_fn))
         n += 1
     adapter.reset()
     return results
@@ -427,6 +486,7 @@ def format_summary_table(summary: dict[str, dict[str, float | int]]) -> str:
 
 
 __all__ = [
+    "AnswerFn",
     "AnswerResult",
     "LongMemEvalAdapter",
     "LongMemEvalItem",
