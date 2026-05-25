@@ -43,6 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from .hybrid_retrieval import EmbedFn, select_top_k_sessions
+
 
 logger = logging.getLogger(__name__)
 
@@ -183,11 +185,19 @@ class LongMemEvalAdapter:
         *,
         mind_dir: Path,
         ingest_subdir: str = "longmemeval",
+        hybrid_retrieval: bool = False,
+        retrieval_top_k: int = 8,
+        embed_fn: "EmbedFn | None" = None,
     ) -> None:
         self._mind_dir = Path(mind_dir)
         self._ingest_subdir = ingest_subdir
         self._scratch_dir = self._mind_dir / "wiki" / ingest_subdir
         self._self_card_path = self._mind_dir / "peers" / "self.md"
+        self._hybrid_retrieval = bool(hybrid_retrieval)
+        self._retrieval_top_k = int(retrieval_top_k)
+        self._embed_fn = embed_fn
+        # Survives across items: identical session text → identical vector.
+        self._embed_cache: dict[str, list[float]] = {}
 
     # ── ingest / reset ─────────────────────────────────────
 
@@ -224,7 +234,10 @@ class LongMemEvalAdapter:
         if item.question_date:
             card_lines += [f"**Today's date:** {item.question_date}", ""]
         card_lines += ["## History", ""]
-        for i, session in enumerate(item.history):
+
+        selected_indexes = self._select_session_indexes(item)
+        for i in selected_indexes:
+            session = item.history[i]
             card_lines.append(f"### Session {i}")
             if i < len(item.session_dates) and item.session_dates[i]:
                 card_lines.append(f"**Session date:** {item.session_dates[i]}")
@@ -257,6 +270,34 @@ class LongMemEvalAdapter:
             path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
             count += 1
         return count
+
+    # ── retrieval ──────────────────────────────────────────
+
+    def _select_session_indexes(self, item: LongMemEvalItem) -> list[int]:
+        """Pick which session indexes go into the self-card.
+
+        Default (``hybrid_retrieval=False``): every session, original
+        order — matches pre-T2.1 behaviour exactly.
+
+        Hybrid retrieval (``hybrid_retrieval=True``): BM25 + dense
+        fused via RRF; auto no-ops when ``len(history) <= top_k`` so
+        oracle items (1–3 sessions) pass through unchanged. See
+        :mod:`chimera.evals.hybrid_retrieval` and the ADR 0142 design
+        note for the locked-design contract.
+        """
+        n = len(item.history)
+        if not self._hybrid_retrieval:
+            return list(range(n))
+        if n <= self._retrieval_top_k:
+            return list(range(n))
+        session_texts = [_session_to_text(s) for s in item.history]
+        return select_top_k_sessions(
+            session_texts,
+            item.question,
+            top_k=self._retrieval_top_k,
+            embed_fn=self._embed_fn,
+            embed_cache=self._embed_cache,
+        )
 
     # ── answer ─────────────────────────────────────────────
 
@@ -324,6 +365,17 @@ class LongMemEvalAdapter:
                 expected_answer=item.expected_answer,
                 error=str(exc),
             )
+
+
+def _session_to_text(session: list[dict[str, str]]) -> str:
+    """Flatten a session's turn list into a single string for retrieval indexing."""
+    parts: list[str] = []
+    for turn in session:
+        role = str(turn.get("role", "user"))
+        content = str(turn.get("content", "")).strip()
+        if content:
+            parts.append(f"{role}: {content}")
+    return "\n".join(parts)
 
 
 # ── JSONL I/O ─────────────────────────────────────────────────────
