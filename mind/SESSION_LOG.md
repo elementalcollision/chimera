@@ -149,3 +149,13 @@ Append-only, cycle-by-cycle event log. Populated by the WRITE phase.
 - cycle 136 @ 2026-05-24T19:58:24+00:00 — tasks_seen=4 flipped=2
 - cycle 137 @ 2026-05-24T20:07:57+00:00 — tasks_seen=4 flipped=2
 - cycle 138 @ 2026-05-24T20:48:01+00:00 — tasks_seen=3 flipped=1
+- cycle 139 @ 2026-05-24T23:53:41+00:00 — tasks_seen=4 flipped=3
+- cycle 140 @ 2026-05-24T23:58:00+00:00 — tasks_seen=1 flipped=1
+- cycle 141 @ 2026-05-25T00:03:15+00:00 — tasks_seen=7 flipped=2
+- 2026-05-25T00:12:01+00:00 ⚠️  trust degradation: baseline=T5 current=T1 drop=4 threshold=2
+    · 2026-05-19T16:11:50+00:00 demote T5→T4  drift demote_plan: composite 0.31 ≥ lockdown (0.3)
+    · 2026-05-25T00:06:23+00:00 demote T5→T4  finish_reason=fix_without_test delta=1 — cycle 141
+    · 2026-05-25T00:08:52+00:00 demote T4→T3  finish_reason=fix_without_test delta=1 — cycle 141
+    · 2026-05-25T00:10:34+00:00 demote T3→T2  finish_reason=scope_evasion delta=2 — cycle 141
+    · 2026-05-25T00:10:34+00:00 demote T2→T1  finish_reason=scope_evasion delta=2 — cycle 141
+    · auto-promote skipped (sticky demote): finish_reason=scope_evasion delta=2 — cycle 141
