@@ -1,6 +1,6 @@
 # ADR 0135 — LongMemEval adapter (Phase 4 / item #8)
 
-**Status**: **Proposed** (status locks to Accepted once a baseline sweep validates the adapter end-to-end against the upstream harness)
+**Status**: **Accepted** (2026-05-24 — smoke baseline captured against `longmemeval_oracle.json`; see [`mind/research/longmemeval-baseline-2026-05-24.md`](../../mind/research/longmemeval-baseline-2026-05-24.md). Full 500-item sweep remains a follow-up but is no longer a blocker on the surface contract.)
 
 **Relationship**: Phase 4 item #8 from [ADR 0123](./0123-honcho-inspired-enhancements.md): *"LongMemEval / LoCoMo benchmarks — integrate the eval harness (run their evals; don't port)."* Implements the LongMemEval-first recommendation captured in [`mind/research/eval-harness-2026-05-24.md`](../../mind/research/eval-harness-2026-05-24.md).
 

@@ -643,11 +643,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     longmemeval.add_argument(
         "--answer", action="store_true",
-        help="Run each assembled dialectic prompt through the local "
-             "sonnet-tier provider and write the LLM's reply as "
-             "`hypothesis` + `question_id` (the upstream "
+        help="Run each assembled dialectic prompt through OpenRouter "
+             "(default model: openai/gpt-mini-latest) and write the "
+             "LLM's reply as `hypothesis` + `question_id` (the upstream "
              "src/evaluation/evaluate_qa.py grader's expected fields). "
-             "Default off — adapter returns prompts only.",
+             "Requires OPENROUTER_API_KEY. Default off — adapter "
+             "returns prompts only.",
+    )
+    longmemeval.add_argument(
+        "--answer-model", default="openai/gpt-mini-latest",
+        help="OpenRouter model ID for --answer. Default: "
+             "openai/gpt-mini-latest.",
     )
     longmemeval.add_argument(
         "--n-per-category", type=int, default=None,
@@ -927,7 +933,10 @@ def _cmd_evals_longmemeval(args) -> int:
             return 1
 
     adapter = LongMemEvalAdapter(mind_dir=cfg.mind_dir)
-    answer_fn = _build_sonnet_answer_fn(cfg) if args.answer else None
+    answer_fn = (
+        _build_openrouter_answer_fn(args.answer_model)
+        if args.answer else None
+    )
     results = run_batch(
         adapter, items,
         limit=args.n, subset=args.subset,
@@ -944,7 +953,7 @@ def _cmd_evals_longmemeval(args) -> int:
         by_category[r.category or "(none)"] = by_category.get(r.category or "(none)", 0) + 1
         if r.error:
             errors += 1
-    label = " (with --answer)" if args.answer else ""
+    label = f" (--answer via {args.answer_model})" if args.answer else ""
     print(f"chimera evals longmemeval{label}: {len(results)} item(s) → {out_path}")
     for cat, n in sorted(by_category.items()):
         print(f"  {cat}: {n}")
@@ -953,39 +962,28 @@ def _cmd_evals_longmemeval(args) -> int:
     return 0
 
 
-def _build_sonnet_answer_fn(cfg):
-    """Construct an ``AnswerFn`` that calls Chimera's sonnet rung via ACT.
+def _build_openrouter_answer_fn(model_id: str):
+    """Construct an ``AnswerFn`` that routes through OpenRouter.
 
-    Imported lazily inside the CLI handler so the test path that
-    passes a deterministic stub never hits provider imports.
+    Uses ``chimera.providers.OpenRouterProvider`` with the operator-
+    supplied ``model_id`` (default ``openai/gpt-mini-latest`` per the
+    CLI flag). Requires ``OPENROUTER_API_KEY``; raises a clear error
+    when absent.
+
+    Imported lazily so the test path that passes a deterministic stub
+    never hits provider imports.
     """
     import asyncio
+    import os as _os
 
-    from .core import ChimeraLoop
-    from .providers import Message
-    from .providers.tiers import Provider as ProviderKind
-    from .providers.tiers import select_rung
+    from .providers import Message, OpenRouterProvider
 
-    loop = ChimeraLoop(cfg)
-    if loop._act is None or not loop._act.providers:
-        loop.close()
+    if not _os.environ.get("OPENROUTER_API_KEY"):
         raise RuntimeError(
-            "--answer needs ACT providers configured; none found. "
-            "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY and retry."
+            "--answer needs OPENROUTER_API_KEY; not set. "
+            "Export it and retry."
         )
-    rung = select_rung("sonnet")
-    provider = loop._act.providers.get(rung.config.provider)
-    if provider is None:
-        loop.close()
-        raise RuntimeError(
-            f"--answer: no provider for sonnet rung "
-            f"({rung.config.provider})"
-        )
-    model_id = (
-        rung.config.model_id
-        if rung.config.provider is ProviderKind.ANTHROPIC
-        else rung.config.openrouter_model_id
-    )
+    provider = OpenRouterProvider()
 
     async def _call(prompt: str) -> str:
         response = await provider.complete_with_tools(
