@@ -1,6 +1,8 @@
 # ADR 0137 — Preference-Aware Dialectic
 
-**Status**: Proposed (2026-05-24)
+**Status**: Accepted (2026-05-25)
+
+> Promotion gate cleared: ADR 0137's locked-design table required single-session-preference move **≥20pp** on the post-Tier-1 sweep; observed **+30pp** (20.00% → 50.00%) on the 500-item full sweep. See [`mind/research/longmemeval-baseline-2026-05-25.md`](../../mind/research/longmemeval-baseline-2026-05-25.md).
 
 ## Context
 

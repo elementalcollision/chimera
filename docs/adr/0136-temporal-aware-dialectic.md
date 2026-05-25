@@ -1,6 +1,8 @@
-# ADR 0136 — Temporal-Aware Dialectic (Proposed)
+# ADR 0136 — Temporal-Aware Dialectic
 
-**Status:** Proposed
+**Status:** Accepted (2026-05-25)
+
+> Promotion gate cleared: full-sweep overall **80.60%** vs **75.00%** Tier-1 bar; T1.2's two cross-session sentences delivered **+70.98pp** on multi-session and **+73.59pp** on knowledge-update vs the pre-Tier-1 smoke baseline. See [`mind/research/longmemeval-baseline-2026-05-25.md`](../../mind/research/longmemeval-baseline-2026-05-25.md).
 
 **Relationship:** Extends [ADR 0133 — Dialectic API](./0133-dialectic-api.md) by adding time-series belief, trust, and drift queries to the `peers ask` surface. Consumes the JSONL journals from [ADR 0132 — Observer/observed beliefs](./0132-observer-observed-beliefs.md) and the `peer_trust_journal` format established by [ADR 0128](./0128-peer-cards.md) and [ADR 0131](./0131-peers-cli-verb.md).
 
