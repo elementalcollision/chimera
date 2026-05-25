@@ -92,6 +92,56 @@ Accept 46.67% as the long-term ceiling for adapter+prompt engineering on single-
 3. **Rollback rule** — if the full sweep (post-spike) regresses any category by >3pp from 90.80% baseline, the chip rolls back regardless of the single-session-preference move. This is the standing post-T1.5 rule from PR #70.
 4. **Honest disclosure** — if the spike clears Gate A by exactly 2 items (the minimum), the chip still promotes but the research note explicitly flags the result is near the noise floor.
 
+## 2026-05-25 — Redesigned heuristic (post-PR #73 spike)
+
+PR #72 shipped the locked-design heuristic. The ADR 0138 spike measured it
+against the n=30 single-session-preference oracle:
+
+- **Gate A: PASS** — 3 wrong→right flips (`0a34ad58`, `6b7dfb22`, `95228167`)
+- **Gate B: FAIL** — 5 right→wrong flips (`1c0ddc50`, `1d4e3b97`, `32260d93`, `b6025781`, `d6233ab6`)
+
+Per the decision tree, PR #72 was reverted (PR #74). Spike analysis
+([`implicit-preference-spike-result-2026-05-25.md`](../../mind/research/implicit-preference-spike-result-2026-05-25.md))
+classified the regressions: the `\bI\s+(am|'m)\b` and `\bmy\s+\w+\b` patterns
+surfaced conversational filler ("I'm wondering", "my apologies") and the
+heuristic missed negation/rejection ("I don't like true crime"), so stale
+preferences leaked into the section. **The prominence-shape direction is
+correct** — the 3 Gate A flips show that surfacing relevant user context
+above `## History` does help — but the content filter was too generous.
+
+The redesigned heuristic:
+
+| Change | Old | New |
+|---|---|---|
+| Drop `\bI\s+(am|'m)\b` | matched filler | removed |
+| Drop `\bmy\s+\w+\b` | matched filler | removed |
+| Keep preference verbs | `I have/own/like/prefer/use/bought/usually/recently/tried/don't like/hate/love/avoid/am/'m` | narrowed to `I prefer/like/love/hate/avoid/tried/use/own/bought` |
+| Add negation/rejection | (missing) | `(don't/won't/wouldn't/never) (like/prefer/enjoy/want/do)` |
+| Add not-X phrases | (missing) | `not (interested in/a fan of/into)` |
+| Add identity statements | (under bare `I'm`) | `(I'm/I am) (a/an) <word>` — narrower than bare `I'm` |
+| Recency restriction | scanned full transcript | last 5 user turns only (drops stale-then-rejected leak) |
+| Drop first-turn anchor | unconditional first user turn | removed (incidental first turns were noise) |
+
+Cap-at-6 / 200-char truncate / dedup / empty-list-omits-section bounds preserved.
+
+**Status stays Proposed** until the respike measures the redesigned heuristic
+against the same n=30 paired-item gates. Pre-registered expectations:
+
+- **Gate A** (≥2/16 wrong→right): expected pass — narrowing should not lose
+  most of the prominence-shape signal.
+- **Gate B** (0/14 right→wrong): the load-bearing gate — must be met.
+- **Supplementary regression check**: the 3 items that flipped wrong→right in
+  PR #73's spike (`0a34ad58`, `6b7dfb22`, `95228167`) should still flip in
+  this respike; if any go right→wrong, the redesign is over-narrow.
+
+If Gate A passes and Gate B fails again, the prominence-shape direction is
+right but no current heuristic is sharp enough — fall back to Option C
+(hybrid retrieval or ingestion-time preference extraction). If Gate A fails,
+the prominence-shape direction is wrong — also Option C.
+
+The respike is operator-fired post-merge of this chip's PR; no code in this
+chip runs the spike.
+
 ## References
 
 - [`mind/research/implicit-preference-inference-2026-05-25.md`](../../mind/research/implicit-preference-inference-2026-05-25.md) — the diagnostic this ADR rests on.
