@@ -192,6 +192,86 @@ def test_ingest_without_dates_omits_headers(adapter, tmp_path):
     assert "Session date" not in self_card
 
 
+def test_ingest_writes_user_context_section(adapter, tmp_path):
+    """ADR 0138 — preference-bearing user turns surface in a dedicated
+    `## User context` section above `## History` so the answerer reads
+    them before skimming the verbatim transcript. First user turn is
+    always included as topic anchor."""
+    item = LongMemEvalItem(
+        item_id="pref-1", question="What hotel for Miami?",
+        history=[[
+            {"role": "user", "content": "Planning a Seattle trip."},
+            {"role": "assistant", "content": "Nice — what dates?"},
+            {"role": "user", "content": "I prefer rooftop pools and hot tubs on the balcony."},
+            {"role": "user", "content": "My usual budget is around $300/night."},
+        ]],
+        question_date="2023/05/01 (Mon) 10:00",
+    )
+    adapter.ingest_history(item)
+    card = (tmp_path / "mind" / "peers" / "self.md").read_text()
+    assert "## User context" in card
+    assert "rooftop pools" in card
+    assert "My usual budget" in card
+    # Topic anchor (first user turn) included even without a verb match.
+    assert "Planning a Seattle trip." in card
+    # Ordering: User context block sits between today's-date anchor and History.
+    assert card.index("Today's date:") < card.index("## User context")
+    assert card.index("## User context") < card.index("## History")
+
+
+def test_ingest_omits_user_context_when_no_signal(adapter, tmp_path):
+    """Items whose user turns carry no preference signal AND no first-
+    person ownership phrasing still produce a clean card — the section
+    is omitted, preserving pre-chip behaviour for items the heuristic
+    can't help."""
+    item = LongMemEvalItem(
+        item_id="no-pref", question="?",
+        history=[[
+            {"role": "assistant", "content": "Hello, how can I help?"},
+            {"role": "assistant", "content": "Let me know what you need."},
+        ]],
+    )
+    adapter.ingest_history(item)
+    card = (tmp_path / "mind" / "peers" / "self.md").read_text()
+    assert "## User context" not in card
+    assert "## History" in card
+
+
+def test_extract_user_context_caps_and_truncates():
+    """Heuristic caps at 6 bullets and truncates each to 200 chars
+    (ADR 0138 locked design). Duplicate snippets dedupe."""
+    long_turn = "I prefer " + ("really " * 50) + "long answers."
+    item = LongMemEvalItem(
+        item_id="cap", question="?",
+        history=[[
+            {"role": "user", "content": "Topic anchor turn."},
+            {"role": "user", "content": "I have a cat."},
+            {"role": "user", "content": "I have a cat."},  # dup
+            {"role": "user", "content": "I own a guitar."},
+            {"role": "user", "content": "I prefer espresso."},
+            {"role": "user", "content": "I bought a NAS recently."},
+            {"role": "user", "content": "I usually run in the morning."},
+            {"role": "user", "content": "I tried baking sourdough."},
+            {"role": "user", "content": long_turn},  # should not appear (cap hit)
+        ]],
+    )
+    bullets = LongMemEvalAdapter._extract_user_context(item)
+    assert len(bullets) == 6
+    assert bullets[0] == "Topic anchor turn."
+    # Dedup: "I have a cat." appears once.
+    assert sum(1 for b in bullets if b == "I have a cat.") == 1
+    # Long turn never reaches the bullet list (cap of 6 hit first), so
+    # synthesise truncation directly to lock the 200-char invariant.
+    item2 = LongMemEvalItem(
+        item_id="trunc", question="?",
+        history=[[{"role": "user", "content": long_turn}]],
+    )
+    bullets2 = LongMemEvalAdapter._extract_user_context(item2)
+    assert len(bullets2) == 1
+    assert len(bullets2[0]) <= 200
+    assert bullets2[0].endswith("…")
+
+
 def test_reset_truncates_scratch(adapter, tmp_path):
     item = LongMemEvalItem(
         item_id="t-1", question="?",
