@@ -1,6 +1,6 @@
 # ADR index
 
-137 architecture decision records. Listed in numeric order. "Status" is the
+138 architecture decision records. Listed in numeric order. "Status" is the
 last column; "Accepted" means in force, "Deferred" means decided not to do
 this yet (with rationale), "Superseded by N" means later ADR replaces.
 
@@ -143,3 +143,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0136-temporal-aware-dialectic.md](./0136-temporal-aware-dialectic.md) | ADR 0136 — Temporal-Aware Dialectic (Phase 4 / item #7): time-series belief, trust, and drift queries on the `peers ask` surface | Accepted (2026-05-25) |
 | [0137-preference-aware-dialectic.md](./0137-preference-aware-dialectic.md) | ADR 0137 — Preference-Aware Dialectic (Phase 4 / item #7 follow-up): single preference-honoring sentence appended to the dialectic prompt | Accepted (2026-05-25) |
 | [0138-implicit-preference-inference.md](./0138-implicit-preference-inference.md) | ADR 0138 — Implicit Preference Inference (Tier-2B diagnostic): adapter grounding extension recommended, conditional on n=30 spike with paired-item gates; Option A (prompt extension) falsified by behavior of right items | Proposed (2026-05-25) |
+| [0140-stratified-spike-protocol.md](./0140-stratified-spike-protocol.md) | ADR 0140 — Stratified Spike Protocol: refines ADR 0138's n=30 category-localized spike with stratified sampling across all six LongMemEval categories, per-category gates, and a corpus-promotion criterion; motivated by PR #77's $2-corpus surprise | Proposed (2026-05-25) |
