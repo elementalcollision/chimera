@@ -1,6 +1,6 @@
 # ADR 0138 — Implicit Preference Inference
 
-**Status**: Proposed (2026-05-25) — spike-code landed, spike not yet run. Flips to Accepted only after the operator runs the paired-item spike and both gates clear.
+**Status**: Proposed (2026-05-25)
 
 > Diagnostic-only chip. Recommends Option B (adapter grounding extension) **conditional on a single-category n=30 spike clearing two paired-item gates**; falls back to Option C (declare out-of-reach at this layer) if the spike fails. No code shipped in this ADR — the chip is the investigation that produced the recommendation.
 
@@ -84,100 +84,6 @@ Accept 46.67% as the long-term ceiling for adapter+prompt engineering on single-
 **Expected delta**: 0pp from this chip. Defers the problem.
 
 **Verdict**: Fallback if Option B's spike fails either gate.
-
-## Implementation notes (spike code, pre-spike)
-
-The spike intervention landed in `chimera/evals/longmemeval.py` as a
-private classmethod `_extract_user_context(item)` plus a 6-line
-insertion in `ingest_history`. The exact heuristic:
-
-```python
-_USER_CTX_VERBS_RE = re.compile(
-    r"\bI\s+(?:have|own|like|prefer|use|bought|usually|recently|"
-    r"tried|don'?t\s+like|hate|love|avoid|am|'m)\b",
-    re.IGNORECASE,
-)
-_USER_CTX_MY_RE = re.compile(r"\bmy\s+\w+\b", re.IGNORECASE)
-_USER_CTX_MAX_BULLETS = 6
-_USER_CTX_TRUNCATE = 200  # chars per bullet
-```
-
-Rules:
-
-1. Always include the first non-empty user turn as topic anchor (no
-   regex required — `0a34ad58`-style "I'm planning a trip to Tokyo"
-   already matches the verb pattern, but `35a27287`-style "I'd love
-   some cultural-event ideas" needs the anchor rule to surface).
-2. Subsequent user turns surface only if they match either the verb
-   pattern (first-person stance) or the `my <noun>` pattern.
-3. Cap at 6 bullets; truncate each to 200 chars; dedupe exact
-   duplicates.
-4. Empty bullet list → omit the `## User context` section entirely.
-   Items where the heuristic finds nothing degrade to pre-chip
-   behaviour, by design.
-
-The card layout becomes:
-
-```
-# Peer card — self
-
-**Today's date:** <question_date>
-
-## User context        ← new, conditional
-
-- <first user turn>
-- <preference-bearing user turn>
-- ...
-
-## History
-
-### Session 0
-...
-```
-
-The `_DIALECTIC_PROMPT` is unchanged. The intervention is purely a
-grounding-layer prominence change (PR #69's template).
-
-## Spike runbook (operator)
-
-Pre-intervention graded results from PR #70 live at
-`/tmp/chimera-baseline-t15/results-post-t1.5-graded.jsonl`. The chip
-ships the code; the operator runs the n=30 single-category sweep
-against this branch and compares paired-item outcomes against PR
-#70's results:
-
-```bash
-# 1. Filter oracle to single-session-preference (30 items)
-jq '[.[] | select(.question_type == "single-session-preference")]' \
-    /Users/dave/Claude_Primary/LongMemEval/data/longmemeval_oracle.json \
-    > /tmp/spp-only.json
-
-# 2. Run the chip's adapter against just those 30 items
-chimera evals longmemeval \
-    --items /tmp/spp-only.json \
-    --answer \
-    --answer-model openai/o4-mini \
-    --answer-max-tokens 2048 \
-    --out /tmp/chimera-baseline-t2b/spp-spike.jsonl
-
-# 3. Grade with the upstream judge
-python /tmp/chimera-baseline-t15/grade.py \
-    /tmp/spp-only.json /tmp/chimera-baseline-t2b/spp-spike.jsonl \
-    > /tmp/chimera-baseline-t2b/spp-spike.graded.jsonl
-
-# 4. Paired-item diff vs PR #70's graded results
-#    See mind/research/implicit-preference-spike-design-2026-05-25.md
-#    for the comparison script template.
-```
-
-Cost: ~$0.05 (30 × o4-mini + 30 × gpt-4o-mini), vs ~$2 for a 500-item
-full sweep.
-
-After running, the operator writes
-`mind/research/implicit-preference-spike-result-2026-05-25.md` with
-the paired-item flip table and gate verdicts. If both gates clear,
-this ADR flips to Accepted and the operator may charter a T1.6 full
-sweep against the intervention as a separate chip.
 
 ## Charter-discipline notes
 

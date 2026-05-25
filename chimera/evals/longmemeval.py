@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -203,66 +202,6 @@ class LongMemEvalAdapter:
         if self._self_card_path.exists():
             self._self_card_path.unlink()
 
-    # Preference-signal heuristic — ADR 0138 locked design.
-    # First-person assertions about taste, ownership, habit, or recent
-    # behaviour ("I prefer X", "I bought Y", "my Z"). The diagnostic in
-    # mind/research/implicit-preference-inference-2026-05-25.md showed
-    # the signal is present in grounding but the model under-engages
-    # with it; this surfaces the signal in a dedicated section above
-    # the verbatim transcript so the answerer reads it first.
-    _USER_CTX_VERBS_RE = re.compile(
-        r"\bI\s+(?:have|own|like|prefer|use|bought|usually|recently|tried|don'?t\s+like|hate|love|avoid|am|'m)\b",
-        re.IGNORECASE,
-    )
-    _USER_CTX_MY_RE = re.compile(r"\bmy\s+\w+\b", re.IGNORECASE)
-    _USER_CTX_MAX_BULLETS = 6
-    _USER_CTX_TRUNCATE = 200
-
-    @classmethod
-    def _extract_user_context(
-        cls, item: LongMemEvalItem,
-    ) -> list[str]:
-        """Pull preference-bearing user turns out of ``item.history``.
-
-        Heuristic (ADR 0138 §locked-design):
-          * always include the first non-empty user turn (topic anchor)
-          * include any subsequent user turn matching either the
-            first-person-verb pattern or the "my <noun>" pattern
-          * cap at 6 bullets, truncate each to 200 chars
-
-        Returns an empty list when no signal is found — caller omits
-        the section in that case, preserving pre-chip behaviour for
-        items without detectable preferences.
-        """
-        bullets: list[str] = []
-        seen: set[str] = set()
-        first_user_seen = False
-        for session in item.history:
-            for turn in session:
-                if str(turn.get("role", "")).lower() != "user":
-                    continue
-                content = str(turn.get("content", "")).strip()
-                if not content:
-                    continue
-                is_anchor = not first_user_seen
-                first_user_seen = True
-                if not (
-                    is_anchor
-                    or cls._USER_CTX_VERBS_RE.search(content)
-                    or cls._USER_CTX_MY_RE.search(content)
-                ):
-                    continue
-                snippet = content.replace("\n", " ").strip()
-                if len(snippet) > cls._USER_CTX_TRUNCATE:
-                    snippet = snippet[: cls._USER_CTX_TRUNCATE - 1].rstrip() + "…"
-                if snippet in seen:
-                    continue
-                seen.add(snippet)
-                bullets.append(snippet)
-                if len(bullets) >= cls._USER_CTX_MAX_BULLETS:
-                    return bullets
-        return bullets
-
     def ingest_history(self, item: LongMemEvalItem) -> int:
         """Bulk-ingest ``item``'s history into two surfaces:
 
@@ -284,16 +223,6 @@ class LongMemEvalAdapter:
         card_lines: list[str] = [f"# Peer card — self", ""]
         if item.question_date:
             card_lines += [f"**Today's date:** {item.question_date}", ""]
-        # ADR 0138 — surface preference-bearing user turns above the
-        # verbatim transcript so the answerer engages with them before
-        # skimming ## History. Omitted when the heuristic finds nothing.
-        user_ctx = self._extract_user_context(item)
-        if user_ctx:
-            card_lines.append("## User context")
-            card_lines.append("")
-            for bullet in user_ctx:
-                card_lines.append(f"- {bullet}")
-            card_lines.append("")
         card_lines += ["## History", ""]
         for i, session in enumerate(item.history):
             card_lines.append(f"### Session {i}")
