@@ -151,7 +151,7 @@ export CHIMERA_MIND_DIR="$WORKTREE/mind"
 cat > "$WORKTREE/mind/INBOX.md" <<'INBOX_EOF'
 # Inbox — Soak v32 phase 1 (investigation only, engines off)
 
-**Chip T1.1** from `mind/research/post-baseline-development-priorities-2026-05-24.md`.
+**Chip T1.1** from the post-baseline priorities doc (landed via PR #57).
 **Atomic op**: `parameter-tune` + `add-one-cli-flag`.
 **Target**: Raise `max_tokens` default in `_build_openrouter_answer_fn`
 from 512 to 2048; add `--answer-max-tokens N` CLI flag to plumb a
