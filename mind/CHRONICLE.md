@@ -5,10 +5,11 @@ _Daily synthesis from the engines. Newest day first._
 
 ### Morning Discovery
 
-- High tool_use frequency (38/42 calls) indicates heavy reliance on tool-augmented reasoning or code generation.
-- New theme: implementing a single constrained `_check_main_worktree_branch_drift` function with strict charter limits to avoid overscope.
-- Repetition: multi-phase remediation with explicit overshoot traps suggests prior tendency to over-implement or escape scope.
-- Notable: cycle 140 ended with a stop after several tool_use calls, implying successful completion of a bounded subtask.
+- New theme: Token budget remediation (v32 phase 2) with strict charter and overshoot traps to enforce surgical edits.  
+- Pattern: Overwhelming tool_use (115/122 calls) indicates repetitive tool-invocation; few stop responses.  
+- Failure: High API call count (122) suggests inefficient loops; cycle 144 shows multiple tool_use before a single stop.  
+- Success: Charter explicitly forbids scope creep (adaptive logic, env knobs, ADR), ensuring focused implementation.
+
 
 ### Midday Curiosity
 

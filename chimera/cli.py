@@ -650,6 +650,11 @@ def _build_parser() -> argparse.ArgumentParser:
              "Default off — adapter returns prompts only.",
     )
     longmemeval.add_argument(
+        "--answer-max-tokens", type=int, default=512,
+        help="Max tokens for the sonnet-tier LLM answer when --answer is "
+             "set. Default 512.",
+    )
+    longmemeval.add_argument(
         "--n-per-category", type=int, default=None,
         help="Independent cap per category (useful for smoke runs that "
              "want N items per category for an even spread).",
@@ -927,7 +932,7 @@ def _cmd_evals_longmemeval(args) -> int:
             return 1
 
     adapter = LongMemEvalAdapter(mind_dir=cfg.mind_dir)
-    answer_fn = _build_sonnet_answer_fn(cfg) if args.answer else None
+    answer_fn = _build_sonnet_answer_fn(cfg, args.answer_max_tokens) if args.answer else None
     results = run_batch(
         adapter, items,
         limit=args.n, subset=args.subset,
@@ -953,7 +958,7 @@ def _cmd_evals_longmemeval(args) -> int:
     return 0
 
 
-def _build_sonnet_answer_fn(cfg):
+def _build_sonnet_answer_fn(cfg, max_tokens: int = 512):
     """Construct an ``AnswerFn`` that calls Chimera's sonnet rung via ACT.
 
     Imported lazily inside the CLI handler so the test path that
@@ -992,7 +997,7 @@ def _build_sonnet_answer_fn(cfg):
             messages=[Message.user(prompt)],
             model_id=model_id,
             tools=[],
-            max_tokens=512,
+            max_tokens=max_tokens,
         )
         return (response.text or "").strip()
 
