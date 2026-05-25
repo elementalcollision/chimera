@@ -641,6 +641,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "--mind-dir",
         help="Override CHIMERA_MIND_DIR for this call.",
     )
+    longmemeval.add_argument(
+        "--answer", action="store_true",
+        help="Run each assembled dialectic prompt through the local "
+             "sonnet-tier provider and write the LLM's reply as "
+             "`hypothesis` + `question_id` (the upstream "
+             "src/evaluation/evaluate_qa.py grader's expected fields). "
+             "Default off — adapter returns prompts only.",
+    )
+    longmemeval.add_argument(
+        "--n-per-category", type=int, default=None,
+        help="Independent cap per category (useful for smoke runs that "
+             "want N items per category for an even spread).",
+    )
 
     return parser
 
@@ -914,8 +927,12 @@ def _cmd_evals_longmemeval(args) -> int:
             return 1
 
     adapter = LongMemEvalAdapter(mind_dir=cfg.mind_dir)
+    answer_fn = _build_sonnet_answer_fn(cfg) if args.answer else None
     results = run_batch(
-        adapter, items, limit=args.n, subset=args.subset,
+        adapter, items,
+        limit=args.n, subset=args.subset,
+        answer_fn=answer_fn,
+        per_category_limit=args.n_per_category,
     )
 
     out_path = Path(args.out) if args.out else default_results_path(cfg.mind_dir)
@@ -927,12 +944,62 @@ def _cmd_evals_longmemeval(args) -> int:
         by_category[r.category or "(none)"] = by_category.get(r.category or "(none)", 0) + 1
         if r.error:
             errors += 1
-    print(f"chimera evals longmemeval: {len(results)} item(s) → {out_path}")
+    label = " (with --answer)" if args.answer else ""
+    print(f"chimera evals longmemeval{label}: {len(results)} item(s) → {out_path}")
     for cat, n in sorted(by_category.items()):
         print(f"  {cat}: {n}")
     if errors:
         print(f"  errors: {errors}")
     return 0
+
+
+def _build_sonnet_answer_fn(cfg):
+    """Construct an ``AnswerFn`` that calls Chimera's sonnet rung via ACT.
+
+    Imported lazily inside the CLI handler so the test path that
+    passes a deterministic stub never hits provider imports.
+    """
+    import asyncio
+
+    from .core import ChimeraLoop
+    from .providers import Message
+    from .providers.tiers import Provider as ProviderKind
+    from .providers.tiers import select_rung
+
+    loop = ChimeraLoop(cfg)
+    if loop._act is None or not loop._act.providers:
+        loop.close()
+        raise RuntimeError(
+            "--answer needs ACT providers configured; none found. "
+            "Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY and retry."
+        )
+    rung = select_rung("sonnet")
+    provider = loop._act.providers.get(rung.config.provider)
+    if provider is None:
+        loop.close()
+        raise RuntimeError(
+            f"--answer: no provider for sonnet rung "
+            f"({rung.config.provider})"
+        )
+    model_id = (
+        rung.config.model_id
+        if rung.config.provider is ProviderKind.ANTHROPIC
+        else rung.config.openrouter_model_id
+    )
+
+    async def _call(prompt: str) -> str:
+        response = await provider.complete_with_tools(
+            messages=[Message.user(prompt)],
+            model_id=model_id,
+            tools=[],
+            max_tokens=512,
+        )
+        return (response.text or "").strip()
+
+    def answer_fn(prompt: str) -> str:
+        return asyncio.run(_call(prompt))
+
+    return answer_fn
 
 
 def main(argv: list[str] | None = None) -> int:
