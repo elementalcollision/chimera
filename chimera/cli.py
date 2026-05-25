@@ -34,6 +34,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true",
         help="Emit JSON instead of formatted text.",
     )
+    doctor_p.add_argument(
+        "--install-hooks", action="store_true",
+        help="Install the chip-branch-jump pre-commit hook (ADR 0141 Layer 3). "
+             "Idempotent; never clobbers a foreign hook.",
+    )
     sub.add_parser(
         "fragmentation",
         help="Show the v4.5 fragmentation log (compound-task failures).",
@@ -113,7 +118,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit a JSON ladder snapshot AND mirror to state/tiers.json.",
     )
 
-    run = sub.add_parser("run", help="Run one cycle of the agent loop (stub).")
+    run = sub.add_parser(
+        "run",
+        help="Run one cycle of the agent loop (stub).",
+        epilog="Refuses to start in the main worktree on a non-main branch "
+               "(ADR 0141 Layer 2, chip-branch-jump prevention). Override "
+               "with CHIMERA_ALLOW_MAIN_BRANCH_DRIFT=1.",
+    )
     run.add_argument("prompt", nargs="?", help="Optional ad-hoc prompt to enqueue.")
 
     cost = sub.add_parser(
@@ -1608,6 +1619,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         from pathlib import Path as _Path
         from .core import checkpoint_wal, run_checks
+        if getattr(args, "install_hooks", False):
+            from .hooks import install_pre_commit_hook
+            result = install_pre_commit_hook(_Path.cwd())
+            marker = {
+                "installed": "✓", "already_installed": "✓",
+                "foreign_hook": "!", "no_git_dir": "!",
+            }.get(result.status, "?")
+            print(f"chimera doctor --install-hooks: [{marker}] {result.message}")
         if getattr(args, "fix", False):
             state_dir = _Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
             ok, msg = checkpoint_wal(state_dir)
@@ -1645,6 +1664,32 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "run":
         from .core import ChimeraLoop, LoopConfig
+        # ADR 0141 Layer 2: refuse to start in the main worktree on a
+        # non-main branch (chip-branch-jump papercut). BEFORE any provider
+        # spend. Override: CHIMERA_ALLOW_MAIN_BRANCH_DRIFT=1.
+        from .core.doctor import detect_main_worktree_branch_drift
+        if not os.environ.get("CHIMERA_ALLOW_MAIN_BRANCH_DRIFT", "").strip():
+            signal = detect_main_worktree_branch_drift(Path.cwd())
+            if signal.drifted:
+                msg = (
+                    "ERROR: chimera run refuses to operate in the main worktree "
+                    "on a non-main branch.\n\n"
+                    f"  worktree : {signal.toplevel}\n"
+                    f"  branch   : {signal.branch}\n\n"
+                    "This is the chip-branch-jump papercut "
+                    "(ADR 0114 / PR #46 / ADR 0141).\nTo recover:\n\n"
+                    "  1. Stash any uncommitted work:  "
+                    "git stash push -u -m \"chip-recovery-$(date +%s)\"\n"
+                    "  2. Switch back to main:         git checkout main\n"
+                    "  3. Move the chip work to a fresh worktree:\n"
+                    f"     git worktree add ../<dir> {signal.branch}\n"
+                    "     cd ../<dir>\n"
+                    "  4. Restore your work in the new worktree: git stash pop\n\n"
+                    "Override (operator-aware, single-use): "
+                    "export CHIMERA_ALLOW_MAIN_BRANCH_DRIFT=1"
+                )
+                print(msg, file=sys.stderr)
+                return 2
         # v4.41: honour the optional ad-hoc prompt — append it to INBOX.md
         # so ASSESS picks it up as an open task on this cycle.
         if args.prompt:

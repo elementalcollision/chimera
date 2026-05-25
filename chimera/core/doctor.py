@@ -482,15 +482,24 @@ def _check_orphan_worktrees(repo_root: Path) -> CheckResult:
 
 
 
-def _check_main_worktree_branch_drift(repo_root: Path) -> CheckResult:
-    """Detect when a chip session has checked out a non-main branch
-    in the operator's main worktree, polluting main with in-progress
-    chip changes (chip-branch-jump papercut, layer 1/3).
+@dataclass(frozen=True)
+class DriftSignal:
+    """Shared chip-branch-jump signal — consumed by both Layer 1
+    (``chimera doctor`` warn) and Layer 2 (``chimera run`` refusal).
+    """
+    drifted: bool
+    branch: str | None
+    toplevel: Path | None
+    reason: str
 
-    Returns ``warn`` when cwd is the git toplevel AND the checked-out
-    branch is not ``main``.  Returns ``ok`` otherwise, including on
-    any git/filesystem error (false positives are worse than missed
-    detections).
+
+def detect_main_worktree_branch_drift(repo_root: Path) -> DriftSignal:
+    """Return whether ``repo_root`` is the main worktree on a non-main
+    branch — the chip-branch-jump papercut.
+
+    Conservative: any git/filesystem error returns ``drifted=False`` with
+    a diagnostic ``reason``. False positives would block legitimate
+    ``chimera run`` invocations, so we err toward not detecting.
     """
     import subprocess  # noqa: SIM117
 
@@ -501,17 +510,17 @@ def _check_main_worktree_branch_drift(repo_root: Path) -> CheckResult:
             cwd=str(repo_root), timeout=5.0,
         )
     except (subprocess.SubprocessError, OSError):
-        return CheckResult("worktree_branch_drift", "ok", "cannot run git rev-parse")
+        return DriftSignal(False, None, None, "cannot run git rev-parse")
 
     if result.returncode != 0:
-        return CheckResult("worktree_branch_drift", "ok", "git rev-parse failed (not a repo?)")
+        return DriftSignal(False, None, None, "git rev-parse failed (not a repo?)")
 
     toplevel = Path(result.stdout.strip()).resolve()
     cwd = repo_root.resolve()
 
     if cwd != toplevel:
-        return CheckResult(
-            "worktree_branch_drift", "ok",
+        return DriftSignal(
+            False, None, toplevel,
             f"cwd {cwd} ≠ git toplevel {toplevel}; not the main worktree",
         )
 
@@ -522,22 +531,39 @@ def _check_main_worktree_branch_drift(repo_root: Path) -> CheckResult:
             cwd=str(repo_root), timeout=5.0,
         )
     except (subprocess.SubprocessError, OSError):
-        return CheckResult("worktree_branch_drift", "ok", "cannot read HEAD branch")
+        return DriftSignal(False, None, toplevel, "cannot read HEAD branch")
 
     if result2.returncode != 0:
-        return CheckResult("worktree_branch_drift", "ok", "git rev-parse HEAD failed (detached?)")
+        return DriftSignal(False, None, toplevel, "git rev-parse HEAD failed (detached?)")
 
     branch = result2.stdout.strip()
 
     if branch == "HEAD":
-        return CheckResult("worktree_branch_drift", "ok", "detached HEAD at toplevel; ok")
+        return DriftSignal(False, "HEAD", toplevel, "detached HEAD at toplevel; ok")
 
     if branch == "main":
-        return CheckResult("worktree_branch_drift", "ok", f"main worktree on main ({toplevel})")
+        return DriftSignal(False, "main", toplevel, f"main worktree on main ({toplevel})")
 
+    return DriftSignal(
+        True, branch, toplevel,
+        f"main worktree ({toplevel}) is on branch '{branch}', not main",
+    )
+
+
+def _check_main_worktree_branch_drift(repo_root: Path) -> CheckResult:
+    """Layer 1 (chip-branch-jump papercut): warn when ``chimera doctor``
+    runs from the main worktree on a non-main branch.
+
+    Thin wrapper that maps :func:`detect_main_worktree_branch_drift` to
+    a :class:`CheckResult`. Layer 2 (``chimera run`` refusal) consumes
+    the same detector directly.
+    """
+    signal = detect_main_worktree_branch_drift(repo_root)
+    if not signal.drifted:
+        return CheckResult("worktree_branch_drift", "ok", signal.reason)
     return CheckResult(
         "worktree_branch_drift", "warn",
-        f"main worktree ({toplevel}) is on branch '{branch}', not main. "
+        f"main worktree ({signal.toplevel}) is on branch '{signal.branch}', not main. "
         "Chip sessions may pollute main with in-progress changes. "
         "Switch back: `git checkout main`.",
     )

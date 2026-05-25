@@ -508,6 +508,63 @@ def test_check_uv_installed_returns_ok_when_present(monkeypatch):
     assert "/usr/local/bin/uv" in r.message
 
 
+# ── ADR 0141 Layer 3: pre-commit hook installer ─────────────────────────
+
+def _fake_repo(tmp_path):
+    """Materialize a tmp dir that looks like a git repo (`.git/`)."""
+    (tmp_path / ".git").mkdir()
+    return tmp_path
+
+
+def test_install_hook_writes_executable_with_sentinel(tmp_path):
+    from chimera.hooks import HOOK_SENTINEL, install_pre_commit_hook
+    repo = _fake_repo(tmp_path)
+    result = install_pre_commit_hook(repo)
+    assert result.status == "installed", result.message
+    assert result.path is not None and result.path.exists()
+    content = result.path.read_text()
+    assert HOOK_SENTINEL in content
+    assert "chip-branch-jump detected" in content
+    assert "mind/CHRONICLE.md" in content
+    # Executable bit set for user
+    import stat as _stat
+    mode = result.path.stat().st_mode
+    assert mode & _stat.S_IXUSR, "hook should be user-executable"
+
+
+def test_install_hook_is_idempotent(tmp_path):
+    from chimera.hooks import install_pre_commit_hook
+    repo = _fake_repo(tmp_path)
+    r1 = install_pre_commit_hook(repo)
+    assert r1.status == "installed"
+    first_mtime = r1.path.stat().st_mtime
+    r2 = install_pre_commit_hook(repo)
+    assert r2.status == "already_installed", r2.message
+    # No rewrite — mtime unchanged
+    assert r2.path.stat().st_mtime == first_mtime
+
+
+def test_install_hook_refuses_to_clobber_foreign_hook(tmp_path):
+    from chimera.hooks import install_pre_commit_hook
+    repo = _fake_repo(tmp_path)
+    hooks_dir = repo / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True)
+    foreign = hooks_dir / "pre-commit"
+    foreign.write_text("#!/bin/sh\n# someone-else's hook\nexit 0\n")
+    result = install_pre_commit_hook(repo)
+    assert result.status == "foreign_hook"
+    # Foreign content untouched
+    assert "someone-else's hook" in foreign.read_text()
+
+
+def test_install_hook_reports_no_git_dir(tmp_path):
+    from chimera.hooks import install_pre_commit_hook
+    # No .git/ in tmp_path
+    result = install_pre_commit_hook(tmp_path)
+    assert result.status == "no_git_dir"
+    assert "not a directory" in result.message or "not a git" in result.message
+
+
 def test_check_uv_installed_returns_error_when_missing(monkeypatch):
     """Monkeypatch shutil.which('uv') to return None; check is error."""
     import shutil
