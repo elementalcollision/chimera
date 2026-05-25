@@ -78,6 +78,8 @@ class LongMemEvalItem:
     history: list[list[dict[str, str]]]
     expected_answer: str = ""
     category: str = ""
+    question_date: str = ""
+    session_dates: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -87,6 +89,7 @@ class LongMemEvalItem:
             or obj.get("haystack_sessions")
             or []
         )
+        session_dates = obj.get("session_dates") or obj.get("haystack_dates") or []
         return cls(
             item_id=str(
                 obj.get("item_id")
@@ -103,12 +106,15 @@ class LongMemEvalItem:
                 or obj.get("question_type")  # upstream LongMemEval key
                 or ""
             ),
+            question_date=str(obj.get("question_date", "") or ""),
+            session_dates=[str(d) for d in session_dates],
             extra={
                 k: v for k, v in obj.items()
                 if k not in {
                     "item_id", "id", "question_id", "question",
                     "history", "haystack_sessions", "expected_answer",
                     "answer", "category", "question_type",
+                    "question_date", "haystack_dates", "session_dates",
                 }
             },
         )
@@ -210,10 +216,18 @@ class LongMemEvalAdapter:
         Returns the number of session files written.
         """
         # Synthetic self card — load-bearing.
+        # Top-of-card "today" anchor (LongMemEval question_date) so the
+        # answerer has an absolute reference for "how many days ago" arithmetic;
+        # see mind/research/timestamp-grounding-design-2026-05-25.md.
         self._self_card_path.parent.mkdir(parents=True, exist_ok=True)
-        card_lines = [f"# Peer card — self", "", "## History", ""]
+        card_lines: list[str] = [f"# Peer card — self", ""]
+        if item.question_date:
+            card_lines += [f"**Today's date:** {item.question_date}", ""]
+        card_lines += ["## History", ""]
         for i, session in enumerate(item.history):
             card_lines.append(f"### Session {i}")
+            if i < len(item.session_dates) and item.session_dates[i]:
+                card_lines.append(f"**Session date:** {item.session_dates[i]}")
             for turn in session:
                 role = str(turn.get("role", "user"))
                 content = str(turn.get("content", "")).strip()
@@ -231,6 +245,8 @@ class LongMemEvalAdapter:
         for i, session in enumerate(item.history):
             path = self._scratch_dir / f"{item.item_id or 'item'}-s{i:03d}.md"
             lines = [f"# Session {i} — {item.item_id}", ""]
+            if i < len(item.session_dates) and item.session_dates[i]:
+                lines += [f"**Session date:** {item.session_dates[i]}", ""]
             for turn in session:
                 role = str(turn.get("role", "user"))
                 content = str(turn.get("content", "")).strip()
