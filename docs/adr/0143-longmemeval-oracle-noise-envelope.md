@@ -99,6 +99,17 @@ follow-up decision for ADR 0140 once it's promoted from Proposed.
    floor of the o4-mini answerer. A temperature=0 / seed-locked
    alternative (or fallback to gpt-4o-mini as answerer for substrate
    sweeps) is the leverage point for tightening the envelope further.
+   **Empirical update (2026-05-26)**: T2.1d's first sweep with
+   `openai/gpt-4o-mini --answer-temperature 0` scored **45.40%
+   overall**, 43pp below this ADR's lower-gate. The fallback to
+   gpt-4o-mini-as-answerer is **falsified at the sanity floor** — the
+   model-strength differential dominates the sampling-temperature
+   differential by orders of magnitude on this benchmark. See
+   [T2.1d falsification note](../../mind/research/t21d-deterministic-answerer-envelope-2026-05-26.md)
+   for the per-category collapse table and the structural reading.
+   The envelope-tightening leverage point exists in principle but is
+   not accessible via this answerer choice; the o4-mini envelope
+   stands.
 
 ### Negative
 
@@ -153,6 +164,21 @@ non-determinism (provider-side batching, kernel choice). T2.1d will
 produce a new, tighter envelope; this ADR's policy is what governs the
 *current* answerer.
 
+**Empirical update (2026-05-26)**: T2.1d was chartered and ran one
+sweep at `openai/gpt-4o-mini --answer-temperature 0`. Result: **45.40%
+overall** vs this ADR's 88.47% gate. The substrate switch is rejected
+at the sanity floor and the alternative is **closed, not pending**.
+The failure mode was not what this ADR anticipated (residual T=0
+non-determinism); it was a model-strength ceiling — gpt-4o-mini lacks
+the long-context reasoning capability that o4-mini contributes,
+collapsing the multi-session category from 89.22% to 22.56%. The
+o4-mini envelope remains the operative noise model. The next
+envelope-tightening leverage point would be either a stronger T=0
+answerer (`openai/gpt-4.1-mini` or similar) or provider-side `seed`
+pinning on o4-mini itself — both recorded as candidate next chips in
+the [T2.1d note](../../mind/research/t21d-deterministic-answerer-envelope-2026-05-26.md),
+neither currently chartered.
+
 ## Implementation
 
 1. Update [longmemeval-baseline-post-t1.5-2026-05-25.md](../../mind/research/longmemeval-baseline-post-t1.5-2026-05-25.md)
@@ -172,3 +198,4 @@ produce a new, tighter envelope; this ADR's policy is what governs the
 - [Post-T1.5 baseline note](../../mind/research/longmemeval-baseline-post-t1.5-2026-05-25.md) — the single-sweep point estimate this ADR widens
 - [ADR 0140](./0140-stratified-spike-protocol.md) — stratified spike protocol; gets quantitative backing from this envelope
 - [ADR 0142](./0142-hybrid-retrieval-for-long-horizon.md) — hybrid retrieval; verdict not modified here, but envelope contextualizes it
+- [T2.1d falsification note](../../mind/research/t21d-deterministic-answerer-envelope-2026-05-26.md) — empirically closes §Alternatives.C and updates §Consequences.Positive.3

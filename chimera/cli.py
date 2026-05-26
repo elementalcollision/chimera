@@ -684,6 +684,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Top-k sessions to retain when --hybrid-retrieval is on. Default 8.",
     )
     longmemeval.add_argument(
+        "--answer-temperature", type=float, default=None,
+        help="Sampling temperature for the --answer LLM call. Default "
+             "None (omit from request — provider/model default applies). "
+             "Set to 0 for deterministic answerers (ADR 0144, T2.1d "
+             "envelope characterisation). Ignored if the chosen model "
+             "rejects the parameter (e.g. some reasoning models).",
+    )
+    longmemeval.add_argument(
         "--answer-max-tokens", type=int, default=2048,
         help="max_tokens budget for the --answer LLM call. Default 2048 "
              "(raised from 512 to recover reasoning-token-exhaustion "
@@ -979,7 +987,11 @@ def _cmd_evals_longmemeval(args) -> int:
         embed_fn=embed_fn,
     )
     answer_fn = (
-        _build_openrouter_answer_fn(args.answer_model, max_tokens=args.answer_max_tokens)
+        _build_openrouter_answer_fn(
+            args.answer_model,
+            max_tokens=args.answer_max_tokens,
+            temperature=args.answer_temperature,
+        )
         if args.answer else None
     )
     results = run_batch(
@@ -1007,7 +1019,12 @@ def _cmd_evals_longmemeval(args) -> int:
     return 0
 
 
-def _build_openrouter_answer_fn(model_id: str, *, max_tokens: int = 2048):
+def _build_openrouter_answer_fn(
+    model_id: str,
+    *,
+    max_tokens: int = 2048,
+    temperature: float | None = None,
+):
     """Construct an ``AnswerFn`` that routes through OpenRouter.
 
     Uses ``chimera.providers.OpenRouterProvider`` with the operator-
@@ -1036,12 +1053,15 @@ def _build_openrouter_answer_fn(model_id: str, *, max_tokens: int = 2048):
     provider = OpenRouterProvider()
 
     async def _call(prompt: str) -> str:
-        response = await provider.complete_with_tools(
-            messages=[Message.user(prompt)],
-            model_id=model_id,
-            tools=[],
-            max_tokens=max_tokens,
-        )
+        kwargs: dict = {
+            "messages": [Message.user(prompt)],
+            "model_id": model_id,
+            "tools": [],
+            "max_tokens": max_tokens,
+        }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        response = await provider.complete_with_tools(**kwargs)
         return (response.text or "").strip()
 
     def answer_fn(prompt: str) -> str:
