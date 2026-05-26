@@ -699,6 +699,77 @@ def _build_parser() -> argparse.ArgumentParser:
              "Chip T1.1 of post-baseline development priorities).",
     )
 
+    locomo = evals_sub.add_parser(
+        "locomo",
+        help="LoCoMo adapter (ADR 0144). Chimera's second eval surface — "
+             "snap-research/locomo, 10 long peer-to-peer conversations.",
+    )
+    locomo.add_argument(
+        "--items",
+        help="Path to upstream data/locomo10.json. Required unless --smoke.",
+    )
+    locomo.add_argument(
+        "--smoke", action="store_true",
+        help="Run a built-in 3-item synthetic fixture instead of a corpus file.",
+    )
+    locomo.add_argument(
+        "--n", type=int, default=None,
+        help="Cap the number of items processed (after --subset/--sample-id).",
+    )
+    locomo.add_argument(
+        "--subset",
+        help="Filter by canonical category (substring match): single-hop / "
+             "multi-hop / temporal-reasoning / open-domain / adversarial.",
+    )
+    locomo.add_argument(
+        "--sample-id",
+        help="Filter by conversation sample_id (substring match, e.g. 'conv-26').",
+    )
+    locomo.add_argument(
+        "--out",
+        help="Output JSONL path. Defaults to mind/evals/locomo-<ts>.jsonl.",
+    )
+    locomo.add_argument(
+        "--mind-dir",
+        help="Override CHIMERA_MIND_DIR for this call.",
+    )
+    locomo.add_argument(
+        "--answer", action="store_true",
+        help="Run each assembled dialectic prompt through OpenRouter and "
+             "write the LLM's reply as `hypothesis` for the grader. "
+             "Requires OPENROUTER_API_KEY.",
+    )
+    locomo.add_argument(
+        "--answer-model", default="openai/gpt-mini-latest",
+        help="OpenRouter model ID for --answer. Default: openai/gpt-mini-latest.",
+    )
+    locomo.add_argument(
+        "--n-per-category", type=int, default=None,
+        help="Independent cap per canonical category. Useful for the "
+             "ADR 0144 directional spike (n=6 per cat ≈ 30 items total).",
+    )
+    locomo.add_argument(
+        "--hybrid-retrieval", action="store_true",
+        help="Insert BM25 + dense retrieval before ingest (ADR 0142). "
+             "LoCoMo conversations are 19–32 sessions so the flag is "
+             "meaningful from day one. Default off — match upstream "
+             "paper's full-context baseline.",
+    )
+    locomo.add_argument(
+        "--retrieval-top-k", type=int, default=8,
+        help="Top-k sessions to retain when --hybrid-retrieval is on.",
+    )
+    locomo.add_argument(
+        "--answer-temperature", type=float, default=None,
+        help="Sampling temperature for the --answer LLM call. Default "
+             "None (omit from request — provider/model default applies).",
+    )
+    locomo.add_argument(
+        "--answer-max-tokens", type=int, default=2048,
+        help="max_tokens budget for the --answer LLM call. Default 2048 "
+             "(matches LongMemEval default; deep histories need the headroom).",
+    )
+
     return parser
 
 
@@ -1012,6 +1083,121 @@ def _cmd_evals_longmemeval(args) -> int:
             errors += 1
     label = f" (--answer via {args.answer_model})" if args.answer else ""
     print(f"chimera evals longmemeval{label}: {len(results)} item(s) → {out_path}")
+    for cat, n in sorted(by_category.items()):
+        print(f"  {cat}: {n}")
+    if errors:
+        print(f"  errors: {errors}")
+    return 0
+
+
+def _cmd_evals_locomo(args) -> int:
+    """`chimera evals locomo ...` — second eval surface (ADR 0144)."""
+    import os as _os
+    from pathlib import Path
+
+    from .core import LoopConfig
+    from .evals.locomo import (
+        LoCoMoAdapter,
+        LoCoMoItem,
+        default_results_path,
+        items_from_sample,
+        load_items,
+        run_batch,
+        write_results,
+    )
+
+    if args.mind_dir:
+        _os.environ["CHIMERA_MIND_DIR"] = args.mind_dir
+
+    cfg = LoopConfig.from_env()
+    cfg.mind_dir.mkdir(parents=True, exist_ok=True)
+
+    if not args.items and not args.smoke:
+        print(
+            "error: pass --items PATH (upstream data/locomo10.json) or --smoke. "
+            "The latter runs a built-in synthetic fixture for adapter verification."
+        )
+        return 2
+
+    if args.smoke:
+        smoke_sample = {
+            "sample_id": "smoke-conv",
+            "conversation": {
+                "speaker_a": "Alice",
+                "speaker_b": "Bob",
+                "session_1_date_time": "1 Jan 2026",
+                "session_1": [
+                    {"speaker": "Alice", "dia_id": "D1:1",
+                     "text": "I adopted a tabby cat last week."},
+                    {"speaker": "Bob", "dia_id": "D1:2",
+                     "text": "Congrats! What's the name?"},
+                    {"speaker": "Alice", "dia_id": "D1:3",
+                     "text": "We named her Pixel."},
+                ],
+                "session_2_date_time": "8 Jan 2026",
+                "session_2": [
+                    {"speaker": "Alice", "dia_id": "D2:1",
+                     "text": "Pixel is settling in well."},
+                ],
+            },
+            "qa": [
+                {"question": "What pet did Alice adopt?",
+                 "answer": "a tabby cat", "evidence": ["D1:1"], "category": 1},
+                {"question": "What is the cat's name?",
+                 "answer": "Pixel", "evidence": ["D1:3"], "category": 1},
+                {"question": "What is Bob's favorite cuisine?",
+                 "answer": "(unanswerable)", "evidence": [], "category": 5},
+            ],
+        }
+        items = items_from_sample(smoke_sample)
+    else:
+        items = load_items(Path(args.items))
+        if not items:
+            print(f"error: no items loaded from {args.items}")
+            return 1
+
+    embed_fn = None
+    if args.hybrid_retrieval:
+        from .evals.hybrid_retrieval import build_default_embed_fn
+        embed_fn = build_default_embed_fn()
+        if embed_fn is None:
+            print(
+                "warning: --hybrid-retrieval enabled but OPENAI_API_KEY unset; "
+                "falling back to BM25-only retrieval (ADR 0142)."
+            )
+    adapter = LoCoMoAdapter(
+        mind_dir=cfg.mind_dir,
+        hybrid_retrieval=args.hybrid_retrieval,
+        retrieval_top_k=args.retrieval_top_k,
+        embed_fn=embed_fn,
+    )
+    answer_fn = (
+        _build_openrouter_answer_fn(
+            args.answer_model,
+            max_tokens=args.answer_max_tokens,
+            temperature=args.answer_temperature,
+        )
+        if args.answer else None
+    )
+    results = run_batch(
+        adapter, items,
+        limit=args.n, subset=args.subset,
+        sample_id=args.sample_id,
+        answer_fn=answer_fn,
+        per_category_limit=args.n_per_category,
+    )
+
+    out_path = Path(args.out) if args.out else default_results_path(cfg.mind_dir)
+    write_results(results, out_path)
+
+    by_category: dict[str, int] = {}
+    errors = 0
+    for r in results:
+        by_category[r.category or "(none)"] = by_category.get(r.category or "(none)", 0) + 1
+        if r.error:
+            errors += 1
+    label = f" (--answer via {args.answer_model})" if args.answer else ""
+    print(f"chimera evals locomo{label}: {len(results)} item(s) → {out_path}")
     for cat, n in sorted(by_category.items()):
         print(f"  {cat}: {n}")
     if errors:
@@ -1557,6 +1743,8 @@ def main(argv: list[str] | None = None) -> int:
         sub_cmd = getattr(args, "evals_command", None)
         if sub_cmd == "longmemeval":
             return _cmd_evals_longmemeval(args)
+        if sub_cmd == "locomo":
+            return _cmd_evals_locomo(args)
         parser.error(f"unknown evals subcommand: {sub_cmd}")
         return 2
 
