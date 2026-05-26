@@ -116,22 +116,53 @@ caveats in the baseline note).
   difficulty ordering). They do not block the chip — the locked
   sanity rule is ≥3/5 cats ≥20%, met.
 
+### F1 follow-up complete (2026-05-26)
+
+Full corpus sweep (1,986 items, gpt-4o-mini answerer + judge, T=0,
+full-context, no retrieval) landed at **49.35%** overall. Per-category:
+
+| Category | n | Accuracy |
+|---|---:|---:|
+| open-domain | 841 | 77.88% |
+| single-hop | 282 | 47.16% |
+| temporal-reasoning | 96 | 45.83% |
+| multi-hop | 321 | 28.97% |
+| adversarial | 446 | 12.33% |
+
+Zero adapter errors. Per-conversation range 44.61–60.00%, no single
+conversation drives the headline. Category ordering matches the
+paper's reported difficulty ordering exactly; overall 49.35% lands at
+the top of the paper's published 30–50% range, consistent with
+LLM-judge leniency over F1/EM and gpt-4o-mini's strength relative to
+the paper's gpt-3.5/gpt-4 anchor.
+
+**Spike vs full reconciliation**: spike's 60% overshot the corpus
+49.35% by 10.65pp; the gap is entirely explained by the spike's
+"first-6-per-cat-from-conv-26" sampling pulling disproportionately
+from easy early-conversation single-hop and open-domain items. The
+locked-design's >20%-on-≥3-cats sanity rule was the right gate (it
+caught wiring without over-claiming quality). Full detail in
+[locomo-baseline-full-2026-05-26.md](../../mind/research/locomo-baseline-full-2026-05-26.md).
+
+ADR 0144 status unchanged: **Accepted**. F1 confirms wiring is
+production-correct.
+
 ### What this chip's infrastructure unlocks (follow-up ladder)
 
-These are **future chips**, not deliverables of this one. They are
-mentioned here so the operator can charter them against a known
-baseline.
+F1 is the no-flag baseline F2/F3/F4 need. These are future chips.
 
-| ID | Question this answers | Cost / time |
+| ID | Question this answers | Status / cost |
 |---|---|---|
-| **F1** | Full LoCoMo corpus sweep (1,986 items) — is the spike's 60% representative or a single-conversation artifact? | ~$5–10, ~70 min, operator-gated |
-| **F2** | Does ADR 0142's `_s`-only retrieval verdict reproduce on LoCoMo's uniformly-long conversations? | depends on F1 baseline |
-| **F3** | Does ADR 0143's σ envelope reproduce on LoCoMo with the same judge? | n=3 rerun pattern from T2.1c |
-| **F4** | Where does Chimera's dialectic shine vs the model-strength ceiling observed in T2.1d? | cross-benchmark localisation |
+| ~~F1~~ | ~~Full LoCoMo corpus sweep — is the spike representative?~~ | ✅ **Complete 2026-05-26**, ~$8 / ~4h35min |
+| **F2** | Does ADR 0142's `_s`-only retrieval verdict reproduce on LoCoMo's uniformly-long conversations? | ~$8 / ~4h, operator-gated. Read deltas vs F1 baseline. |
+| **F3** | Does ADR 0143's σ envelope reproduce on LoCoMo with the same judge? | ~$16 / ~9h (2 reruns × $8). **Recommended next** — cheapest way to get the variance vocabulary F2 reads need. |
+| **F4** | Where does Chimera's dialectic shine vs the model-strength ceiling observed in T2.1d? | cross-benchmark localisation; downstream of F2/F3. |
 
-F1 is the recommended next chip — it's the cheapest invalidation of
-the single-conversation-bias concern in the spike note and unlocks
-F2/F3/F4 by providing their no-flag reference.
+**Recommended next chip**: F3. With sample sizes per LoCoMo category
+(96–841 vs LongMemEval SPP's 30), the per-category σ should be tighter
+than the 5.09pp T2.1c saw, but only F3 confirms that. F2 without F3's
+σ risks repeating the T2.1b mistake of rejecting a no-op path on
+single-sweep noise.
 
 ### Non-consequences (explicit)
 
