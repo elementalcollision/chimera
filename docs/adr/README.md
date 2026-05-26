@@ -1,6 +1,6 @@
 # ADR index
 
-142 architecture decision records. Listed in numeric order. "Status" is the
+143 architecture decision records. Listed in numeric order. "Status" is the
 last column; "Accepted" means in force, "Deferred" means decided not to do
 this yet (with rationale), "Superseded by N" means later ADR replaces.
 
@@ -147,3 +147,4 @@ this yet (with rationale), "Superseded by N" means later ADR replaces.
 | [0140-stratified-spike-protocol.md](./0140-stratified-spike-protocol.md) | ADR 0140 — Stratified Spike Protocol: refines ADR 0138's n=30 category-localized spike with stratified sampling across all six LongMemEval categories, per-category gates, and a corpus-promotion criterion; motivated by PR #77's $2-corpus surprise | Proposed (2026-05-25) |
 | [0141-chip-branch-jump-layers-2-3.md](./0141-chip-branch-jump-layers-2-3.md) | ADR 0141 — Chip-branch-jump prevention Layers 2+3: proactive `chimera run` refusal (exit 2, BEFORE provider spend) + evidence-only `pre-commit` hook auto-logging to `mind/CHRONICLE.md`; composes with PR #46's Layer 1 doctor check to complete the 3-layer stack chartered by ADR 0114 | Proposed (2026-05-25) |
 | [0142-hybrid-retrieval-for-long-horizon.md](./0142-hybrid-retrieval-for-long-horizon.md) | ADR 0142 — Hybrid retrieval (BM25 + dense via RRF) for LongMemEval `_s` long-horizon: per-item top-k=8 session selection in the adapter's self-card builder; oracle no-op when `len(history) <= top_k`; bge-m3 via local Ollama for dense, SQLite FTS5 for BM25; T2.1a ships helper + adapter wiring; T2.1b oracle gate did not clear under o4-mini single-sweep noise (89.20% vs 90.80% floor) but failure-mode diagnosed as answerer stochasticity, not retrieval defect (byte-identical no-op path); accepted for `_s` ship surface only | Accepted (`_s`-only) (2026-05-25) |
+| [0143-longmemeval-oracle-noise-envelope.md](./0143-longmemeval-oracle-noise-envelope.md) | ADR 0143 — LongMemEval oracle noise envelope: future "no regression" gates use `mean − 2σ` over byte-identical-input reruns instead of single-sample point estimate; T2.1c third sweep (90.40%) confirmed T2.1b's 89.20% as in-envelope noise (n=3 mean 90.13% ± 0.83pp); per-category gates published; SPP σ=5.09pp on n=30 quantitatively justifies ADR 0140's stratified spike protocol; T2.1d (deterministic answerer) recommended as next chip; ADR 0142's status not modified by this ADR | Accepted (2026-05-25) |
