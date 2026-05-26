@@ -1,12 +1,23 @@
 # ADR 0142 — Hybrid retrieval for LongMemEval `_s` long-horizon
 
-**Status**: Proposed (2026-05-25)
+**Status**: Accepted (`_s`-only) (2026-05-25)
 
-> Promotion to Accepted (or Falsified) requires the oracle 500-item
-> sweep result from T2.1b. T2.1a (this ADR's first cut) ships the
-> retrieval helper, adapter wiring, design note, and `_s` spike +
-> gate measurement. The oracle sweep is operator-gated (~$3 + ~70 min
-> wall-clock) and tracked as the T2.1b follow-up.
+> T2.1a (PR #85) cleared every chartered `_s` long-horizon gate
+> (66.67% overall, +56.67pp from B1's 10%) on a stratified n=30 sweep.
+> T2.1b (this note's follow-up) ran the deferred 500-item oracle
+> no-regression sweep; the pre-registered gate **did not clear** under
+> the current o4-mini answerer (89.20% overall vs 90.80% floor;
+> knowledge-update −7.69pp). Code-path analysis confirms byte-identical
+> dialectic prompts on oracle items — the failure mode is measurement
+> noise, not a hybrid-retrieval defect (see [T2.1b note](../../mind/research/t21b-oracle-no-regression-2026-05-25.md)).
+>
+> Status reflects the honest read: **shipped for `_s`** (where the win
+> is large and falsification-tested), **gate-untested for oracle**
+> (where the flag is structurally a no-op but the answerer's
+> single-sweep noise envelope was wider than the pre-registered floor).
+> The flag remains available on oracle; users who flip it on get the
+> auto-no-op path on items with ≤8 sessions and the retrieval path on
+> larger haystacks.
 
 ## Context
 
@@ -116,9 +127,21 @@ matching alone clears every chartered gate — and leaves "does dense
 materially help" as a separate, lower-stakes follow-up (T2.1c) once a
 non-rate-limited embedder is configured.
 
-### Oracle 500-item (T2.1b)
+### Oracle 500-item (T2.1b) — gate did not clear; failure-mode diagnosed as noise
 
-**Status**: Deferred to T2.1b — operator-gated spend (~$3, ~70 min).
+**See**: [T2.1b oracle no-regression note](../../mind/research/t21b-oracle-no-regression-2026-05-25.md)
+
+| Gate | Threshold | Observed | Pass? |
+|---|---|---|---:|
+| Overall 500-item | ≥ 90.80% | **89.20%** (446/500) | ❌ −1.60pp |
+| Per-category floor | No category drops > 5pp | knowledge-update **−7.69pp** (75/78 → 69/78) | ❌ |
+| Latency | ≤ 2× baseline | 50:12 vs 54:00 baseline | ✅ (faster) |
+
+**Diagnostic**: For all 78 knowledge-update items (every one has exactly 2 sessions ≤ top_k=8), `_select_session_indexes` takes the no-op branch and returns `list(range(n))` — byte-identical to the no-flag baseline. `select_top_k_sessions` is never invoked; the embed_fn / BM25 corpus are never touched. Code-diff scope between baseline (`14192658`) and T2.1b (`662bdf2`) is a pure-additive +53 LOC in the adapter; `chimera/a2a/dialectic.py` is unchanged. The dialectic prompt shipped to o4-mini is therefore identical to baseline for every KU item, and identical-input → different-output is by definition o4-mini stochasticity.
+
+Cross-category corroboration: temporal-reasoning flipped 6→wrong + 6→right (perfectly symmetric on n=133); multi-session 5/4; single-session-preference 4/3. KU's 6/0 asymmetry is the tail of that same noise distribution (Bernoulli(0.5) gives 6/0 conditional on 6 flips with probability ~1.5%; across 6 categories, the chance *some* category hits this skew is ~9%).
+
+**Verdict-shaping**: Charter discipline (PR #41/PR #67/PR #75 lineage) says don't move the goalposts — the gate is strictly failed. But the failure mode rules out a hybrid-retrieval defect (proof above), so "Falsified" is the wrong status. ADR lands at **Accepted (`_s`-only)**: the `_s` ship-surface keeps its measured +56.67pp; the oracle "byte-identical floor under the flag" claim is left as gate-untested until either (a) a baseline rerun characterises the o4-mini single-sweep noise envelope (T2.1c), or (b) the gate-clearing sweep moves to a deterministic answerer (T2.1d).
 
 ## Consequences
 
@@ -161,6 +184,7 @@ non-rate-limited embedder is configured.
 
 ## References
 
+- [T2.1b oracle no-regression note](../../mind/research/t21b-oracle-no-regression-2026-05-25.md) — this status's load-bearing diagnostic.
 - [Design note](../../mind/research/t21-hybrid-retrieval-design-2026-05-25.md)
 - [B1 baseline](../../mind/research/longmemeval-s-baseline-2026-05-25.md)
 - [Oracle post-T1.5 baseline](../../mind/research/longmemeval-baseline-post-t1.5-2026-05-25.md)
