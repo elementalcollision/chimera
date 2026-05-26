@@ -672,6 +672,18 @@ def _build_parser() -> argparse.ArgumentParser:
              "want N items per category for an even spread).",
     )
     longmemeval.add_argument(
+        "--hybrid-retrieval", action="store_true",
+        help="Insert BM25 + dense retrieval between ingest and answer; "
+             "ship only top-k matched sessions into the self-card. "
+             "Auto no-op when len(history) <= top-k (oracle path). "
+             "Dense uses OpenAI text-embedding-3-small (needs OPENAI_API_KEY); "
+             "falls back to BM25-only with a warning if unset. ADR 0142.",
+    )
+    longmemeval.add_argument(
+        "--retrieval-top-k", type=int, default=8,
+        help="Top-k sessions to retain when --hybrid-retrieval is on. Default 8.",
+    )
+    longmemeval.add_argument(
         "--answer-max-tokens", type=int, default=2048,
         help="max_tokens budget for the --answer LLM call. Default 2048 "
              "(raised from 512 to recover reasoning-token-exhaustion "
@@ -950,7 +962,22 @@ def _cmd_evals_longmemeval(args) -> int:
             print(f"error: no items loaded from {args.items}")
             return 1
 
-    adapter = LongMemEvalAdapter(mind_dir=cfg.mind_dir)
+    embed_fn = None
+    if args.hybrid_retrieval:
+        from .evals.hybrid_retrieval import build_default_embed_fn
+        embed_fn = build_default_embed_fn()
+        if embed_fn is None:
+            print(
+                "warning: --hybrid-retrieval enabled but OPENAI_API_KEY unset; "
+                "falling back to BM25-only retrieval (ADR 0142 design note "
+                "§Failure-mode register)."
+            )
+    adapter = LongMemEvalAdapter(
+        mind_dir=cfg.mind_dir,
+        hybrid_retrieval=args.hybrid_retrieval,
+        retrieval_top_k=args.retrieval_top_k,
+        embed_fn=embed_fn,
+    )
     answer_fn = (
         _build_openrouter_answer_fn(args.answer_model, max_tokens=args.answer_max_tokens)
         if args.answer else None
