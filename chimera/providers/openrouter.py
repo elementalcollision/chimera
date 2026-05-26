@@ -183,6 +183,7 @@ class OpenRouterProvider(Provider):
         tools: list[dict[str, Any]],
         max_tokens: int = 4096,
         system: str | None = None,
+        temperature: float | None = None,
     ) -> ChatResponse:
         body: dict[str, Any] = {
             "model": model_id,
@@ -192,6 +193,8 @@ class OpenRouterProvider(Provider):
         }
         if tools:
             body["tools"] = tools
+        if temperature is not None:
+            body["temperature"] = temperature
 
         from .retry import retry_call
 

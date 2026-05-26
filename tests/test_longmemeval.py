@@ -675,3 +675,79 @@ def test_cli_answer_max_tokens_flag_present_with_default_2048():
         ["evals", "longmemeval", "--smoke", "--answer-max-tokens", "1024"]
     )
     assert ns_explicit.answer_max_tokens == 1024
+
+
+# ── Chip T2.1d — --answer-temperature deterministic-answerer plumbing ─
+
+
+def test_cli_answer_temperature_flag_default_none_explicit_zero():
+    """Chip T2.1d: --answer-temperature is registered, default None
+    (preserves prior behaviour — temperature omitted from request),
+    and an explicit ``0`` parses as float 0.0."""
+    from chimera import cli as _cli
+
+    parser = _cli._build_parser()
+    ns_default = parser.parse_args(["evals", "longmemeval", "--smoke"])
+    assert ns_default.answer_temperature is None
+
+    ns_explicit = parser.parse_args(
+        ["evals", "longmemeval", "--smoke", "--answer-temperature", "0"]
+    )
+    assert ns_explicit.answer_temperature == 0.0
+
+
+def test_openrouter_answer_fn_temperature_default_not_passed(monkeypatch):
+    """Chip T2.1d: when ``temperature`` is omitted (default None) the
+    builder must NOT pass it to ``complete_with_tools`` — provider/model
+    default applies. Guards against silently forcing T=0 on reasoning
+    models that reject the parameter."""
+    from chimera import cli as _cli
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        text = "ok"
+
+    class _FakeProvider:
+        async def complete_with_tools(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "chimera.providers.OpenRouterProvider",
+        lambda: _FakeProvider(),
+    )
+
+    fn = _cli._build_openrouter_answer_fn("openai/test-model")
+    fn("hello")
+    assert "temperature" not in captured, (
+        f"temperature must be omitted when unset, got {captured.get('temperature')!r}"
+    )
+
+
+def test_openrouter_answer_fn_temperature_zero_passes_through(monkeypatch):
+    """Chip T2.1d: an explicit ``temperature=0`` flows through the
+    builder into ``complete_with_tools`` verbatim. Required for the
+    deterministic-answerer envelope characterisation (ADR 0144)."""
+    from chimera import cli as _cli
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        text = "ok"
+
+    class _FakeProvider:
+        async def complete_with_tools(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeResponse()
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "chimera.providers.OpenRouterProvider",
+        lambda: _FakeProvider(),
+    )
+
+    fn = _cli._build_openrouter_answer_fn("openai/test-model", temperature=0.0)
+    fn("hello")
+    assert captured.get("temperature") == 0.0
