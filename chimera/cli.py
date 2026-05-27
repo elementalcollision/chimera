@@ -1235,6 +1235,7 @@ def _build_openrouter_answer_fn(
     teardown only happens at process exit. See
     ``mind/research/f2-blocked-by-hybrid-retrieval-deadlock-2026-05-27.md``.
     """
+    import asyncio as _asyncio
     import os as _os
 
     from .providers import Message, OpenRouterProvider
@@ -1247,6 +1248,17 @@ def _build_openrouter_answer_fn(
         )
     provider = OpenRouterProvider()
 
+    # Per-call wall-clock bound. httpx already enforces its own timeout
+    # but is not the only thing that can hang the coroutine — the F2
+    # full-corpus sweep occasionally wedges on a future that the loop
+    # never schedules (canonical idle 3-thread stack). ``wait_for``
+    # raises ``asyncio.TimeoutError`` after the bound, cancels the
+    # underlying coroutine, and unblocks the persistent loop so the
+    # sweep continues with one missed item rather than a 3 h hang. The
+    # bound is chosen at ~3× retry_call's worst case (3 attempts × 60 s
+    # timeout × 1.5 s ceiling backoff) plus headroom.
+    _CALL_TIMEOUT_S = float(_os.environ.get("CHIMERA_ANSWER_TIMEOUT_S", "240"))
+
     async def _call(prompt: str) -> str:
         kwargs: dict = {
             "messages": [Message.user(prompt)],
@@ -1256,7 +1268,10 @@ def _build_openrouter_answer_fn(
         }
         if temperature is not None:
             kwargs["temperature"] = temperature
-        response = await provider.complete_with_tools(**kwargs)
+        response = await _asyncio.wait_for(
+            provider.complete_with_tools(**kwargs),
+            timeout=_CALL_TIMEOUT_S,
+        )
         return (response.text or "").strip()
 
     def answer_fn(prompt: str) -> str:

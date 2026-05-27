@@ -7,6 +7,7 @@ keeping the dependency surface small.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -117,6 +118,54 @@ class OpenRouterProvider(Provider):
         if title:
             self._headers["X-Title"] = title
         self._timeout = timeout
+        # Long-lived AsyncClient — created lazily on the loop that
+        # first invokes us, then reused for every subsequent call.
+        # Rationale: with per-call ``async with httpx.AsyncClient`` the
+        # context manager teardown accumulates anyio-backend state on
+        # Python 3.14. Even when the calling event loop is the
+        # persistent loop (PRs #93/#94), enough repeated teardown
+        # cycles wedge the executor and lock the next-future-result
+        # mutex chain — the F2 LoCoMo full-corpus sweep reproduces at
+        # the conv-26 → conv-30 boundary (~5th conversation, hundreds
+        # of completed calls), with the canonical 3-thread idle stack
+        # signature. One client per provider instance keeps connection
+        # pool + transport lifetime bound to the process, which is
+        # what the textbook httpx async pattern recommends anyway.
+        # See mind/research/f2-cross-conv-deadlock-2026-05-27.md.
+        self._client: httpx.AsyncClient | None = None
+        self._client_loop: asyncio.AbstractEventLoop | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Return a long-lived AsyncClient bound to the current loop.
+
+        If the current running loop is different from the one that
+        owns the cached client (rare — happens in tests that build
+        providers ad-hoc on different loops), drop the old client and
+        create a new one. The closed httpx client is GC'd; the
+        replacement lives on the new loop. Never called outside a
+        coroutine, so ``asyncio.get_running_loop`` is always defined.
+        """
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client_loop is not loop:
+            if self._client is not None:
+                try:
+                    await self._client.aclose()
+                except Exception:  # noqa: BLE001 — best-effort close
+                    pass
+            self._client = httpx.AsyncClient(
+                timeout=self._timeout, headers=self._headers,
+            )
+            self._client_loop = loop
+        return self._client
+
+    async def aclose(self) -> None:
+        """Close the underlying AsyncClient, if any. Idempotent."""
+        if self._client is not None:
+            try:
+                await self._client.aclose()
+            finally:
+                self._client = None
+                self._client_loop = None
 
     async def stream(
         self,
@@ -139,41 +188,41 @@ class OpenRouterProvider(Provider):
             "stream": True,
         }
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream(
-                "POST", _OPENROUTER_URL, headers=self._headers, json=body
-            ) as resp:
-                if resp.status_code >= 400:
-                    body_bytes = await resp.aread()
-                    snippet = body_bytes.decode(errors="replace")[:500]
-                    raise httpx.HTTPStatusError(
-                        f"OpenRouter {resp.status_code}: {snippet}",
-                        request=resp.request,
-                        response=resp,
-                    )
-                async for raw_line in resp.aiter_lines():
-                    if not raw_line or not raw_line.startswith("data: "):
-                        continue
-                    payload = raw_line[len("data: "):]
-                    if payload.strip() == "[DONE]":
-                        yield ChatChunk(text="", finish_reason="stop")
-                        return
-                    try:
-                        event = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-                    choices = event.get("choices") or []
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta") or {}
-                    text = delta.get("content") or ""
-                    finish = choice.get("finish_reason")
-                    if text:
-                        yield ChatChunk(text=text)
-                    if finish:
-                        yield ChatChunk(text="", finish_reason=finish)
-                        return
+        client = await self._get_client()
+        async with client.stream(
+            "POST", _OPENROUTER_URL, json=body
+        ) as resp:
+            if resp.status_code >= 400:
+                body_bytes = await resp.aread()
+                snippet = body_bytes.decode(errors="replace")[:500]
+                raise httpx.HTTPStatusError(
+                    f"OpenRouter {resp.status_code}: {snippet}",
+                    request=resp.request,
+                    response=resp,
+                )
+            async for raw_line in resp.aiter_lines():
+                if not raw_line or not raw_line.startswith("data: "):
+                    continue
+                payload = raw_line[len("data: "):]
+                if payload.strip() == "[DONE]":
+                    yield ChatChunk(text="", finish_reason="stop")
+                    return
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                choices = event.get("choices") or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = choice.get("delta") or {}
+                text = delta.get("content") or ""
+                finish = choice.get("finish_reason")
+                if text:
+                    yield ChatChunk(text=text)
+                if finish:
+                    yield ChatChunk(text="", finish_reason=finish)
+                    return
 
     async def complete_with_tools(
         self,
@@ -199,18 +248,16 @@ class OpenRouterProvider(Provider):
         from .retry import retry_call
 
         async def _once() -> dict[str, Any]:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    _OPENROUTER_URL, headers=self._headers, json=body
+            client = await self._get_client()
+            resp = await client.post(_OPENROUTER_URL, json=body)
+            if resp.status_code >= 400:
+                snippet = resp.text[:500]
+                raise httpx.HTTPStatusError(
+                    f"OpenRouter {resp.status_code}: {snippet}",
+                    request=resp.request,
+                    response=resp,
                 )
-                if resp.status_code >= 400:
-                    snippet = resp.text[:500]
-                    raise httpx.HTTPStatusError(
-                        f"OpenRouter {resp.status_code}: {snippet}",
-                        request=resp.request,
-                        response=resp,
-                    )
-                return resp.json()
+            return resp.json()
 
         t0 = time.monotonic()
         payload = await retry_call(_once)
