@@ -169,7 +169,7 @@ Deltas inside `[F1 − 2σ, F1 + 2σ]` are envelope noise.
 1. **Grader and answerer dependency surfaced.** The envelope is
    substrate-conditional on `openai/gpt-4o-mini` answerer at T=0
    max_tokens=2048 and `openai/gpt-4o-mini` judge at max_tokens=16,
-   per [PR #88](https://github.com/dave-evolution/uberagent/pull/88)
+   per [PR #88](https://github.com/elementalcollision/chimera/pull/88)
    and the F1 substrate. Any future change must invalidate-and-rerun.
 2. **Run wall-clock time drifts; results do not.** F1 took 4h35m,
    rerun-1 2h50m, rerun-2 3h51m on byte-identical input. Provider-side
