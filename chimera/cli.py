@@ -1225,11 +1225,19 @@ def _build_openrouter_answer_fn(
 
     Imported lazily so the test path that passes a deterministic stub
     never hits provider imports.
+
+    Loop hygiene: per-call ``asyncio.run`` deadlocks after N successive
+    invocations during loop-teardown on Python 3.14 — the
+    ``shutdown_default_executor`` step blocks on a worker that holds
+    state from the httpx AsyncClient's anyio backend. We route every
+    call through one persistent loop on a daemon thread instead, so
+    teardown only happens at process exit. See
+    ``mind/research/f2-blocked-by-hybrid-retrieval-deadlock-2026-05-27.md``.
     """
-    import asyncio
     import os as _os
 
     from .providers import Message, OpenRouterProvider
+    from ._async_loop import run_on_persistent_loop
 
     if not _os.environ.get("OPENROUTER_API_KEY"):
         raise RuntimeError(
@@ -1251,7 +1259,7 @@ def _build_openrouter_answer_fn(
         return (response.text or "").strip()
 
     def answer_fn(prompt: str) -> str:
-        return asyncio.run(_call(prompt))
+        return run_on_persistent_loop(_call(prompt))
 
     return answer_fn
 
