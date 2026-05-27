@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import sys
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -564,6 +567,23 @@ def run_batch(
     per_cat_counts: dict[str, int] = {}
     n = 0
     last_logged_sample: str | None = None
+    # ``CHIMERA_LOCOMO_TRACE=1`` writes one stderr line per phase per
+    # item — "conv start" / "ingest done in Xs (k files)" / "answer
+    # done in Xs (error?)". This is the line the F2 cross-conv
+    # deadlock investigation needed: prior runs had INFO logging
+    # silently dropped because the CLI does not configure the root
+    # logger, so the per-conv ``logger.info`` from PR #94 produced
+    # nothing in operator-side sweep logs. stderr always writes,
+    # regardless of logger config.
+    _trace_on = os.environ.get("CHIMERA_LOCOMO_TRACE", "").strip() not in (
+        "", "0", "false", "FALSE",
+    )
+
+    def _trace(msg: str) -> None:
+        if _trace_on:
+            ts = datetime.now(timezone.utc).strftime("%H:%M:%SZ")
+            print(f"[locomo {ts}] {msg}", file=sys.stderr, flush=True)
+
     for item in items:
         if sub is not None and sub not in item.category.lower():
             continue
@@ -581,10 +601,21 @@ def run_batch(
         # f2-blocked-by-hybrid-retrieval-deadlock-2026-05-27.md).
         if item.sample_id != last_logged_sample:
             logger.info("locomo: starting conversation %s (item #%d)", item.sample_id, n)
+            _trace(f"conv start sample={item.sample_id} item={n}")
             last_logged_sample = item.sample_id
         # ingest_history is idempotent per sample_id — sibling QAs are cheap.
-        adapter.ingest_history(item)
-        results.append(adapter.answer(item, answer_fn=answer_fn))
+        t_ingest = time.monotonic()
+        ingest_count = adapter.ingest_history(item)
+        ingest_dt = time.monotonic() - t_ingest
+        _trace(f"  ingest item={n} files={ingest_count} t={ingest_dt:.2f}s")
+        t_answer = time.monotonic()
+        result = adapter.answer(item, answer_fn=answer_fn)
+        answer_dt = time.monotonic() - t_answer
+        _trace(
+            f"  answer item={n} t={answer_dt:.2f}s "
+            f"err={'1' if result.error else '0'}"
+        )
+        results.append(result)
         n += 1
     adapter.reset(force=True)
     return results

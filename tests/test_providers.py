@@ -94,6 +94,122 @@ def test_openrouter_provider_requires_key(monkeypatch):
         OpenRouterProvider()
 
 
+# ── Shared AsyncClient lifecycle (offline) ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_openrouter_provider_reuses_single_asyncclient(monkeypatch):
+    """Provider must reuse one ``httpx.AsyncClient`` across calls.
+
+    Per-call ``async with httpx.AsyncClient`` accumulates anyio-backend
+    teardown state on Python 3.14 and wedges the persistent loop after
+    enough cycles. This was the F2 LoCoMo full-corpus deadlock at the
+    conv-26 → conv-30 boundary (~5th conversation, hundreds of calls
+    in). See mind/research/f2-cross-conv-deadlock-2026-05-27.md.
+    """
+    import httpx
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    provider = OpenRouterProvider()
+    client_a = await provider._get_client()
+    client_b = await provider._get_client()
+    assert client_a is client_b
+    assert isinstance(client_a, httpx.AsyncClient)
+    await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_openrouter_complete_with_tools_does_not_open_per_call_clients(monkeypatch):
+    """N successive ``complete_with_tools`` calls must share one
+    underlying ``httpx.AsyncClient`` instance.
+
+    A regression where someone reintroduces ``async with
+    httpx.AsyncClient(...) as client`` inside the request method
+    reopens the F2 cross-conv deadlock — this test fails that change
+    by asserting the constructor fires exactly once.
+    """
+    import httpx
+
+    from chimera.providers import Message
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+
+    construct_count = 0
+    real_async_client = httpx.AsyncClient
+
+    def _counting_async_client(*args, **kwargs):
+        nonlocal construct_count
+        construct_count += 1
+        return real_async_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _counting_async_client)
+
+    async def _fake_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": "ok"}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    provider = OpenRouterProvider()
+    # Pre-seed the client with a MockTransport so no real network fires.
+    provider._client = real_async_client(
+        timeout=provider._timeout,
+        headers=provider._headers,
+        transport=httpx.MockTransport(_fake_handler),
+    )
+    provider._client_loop = __import__("asyncio").get_running_loop()
+    construct_count = 0  # reset after our pre-seed
+
+    for _ in range(5):
+        resp = await provider.complete_with_tools(
+            messages=[Message.user("hi")],
+            model_id="x",
+            tools=[],
+            max_tokens=8,
+        )
+        assert resp.text == "ok"
+    assert construct_count == 0, (
+        f"AsyncClient was reconstructed {construct_count}× across 5 calls — "
+        "regression: per-call AsyncClient pattern reintroduced."
+    )
+    await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_openrouter_provider_rebinds_client_on_loop_change(monkeypatch):
+    """If a provider instance is reused across distinct loops (tests do
+    this), ``_get_client`` must drop and recreate so the client is
+    bound to the current running loop. Production has one persistent
+    loop, so this branch is exercised primarily by tests; the contract
+    keeps us safe if a future caller spins up its own loop.
+    """
+    import asyncio
+    import httpx
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    provider = OpenRouterProvider()
+    c1 = await provider._get_client()
+    loop1 = provider._client_loop
+
+    # Simulate a different loop by mutating the stored reference.
+    fake_other = asyncio.new_event_loop()
+    try:
+        provider._client_loop = fake_other
+        c2 = await provider._get_client()
+        assert c2 is not c1
+        assert provider._client_loop is asyncio.get_running_loop()
+        assert provider._client_loop is not fake_other
+        assert isinstance(c2, httpx.AsyncClient)
+    finally:
+        fake_other.close()
+        await provider.aclose()
+
+
 # ── Live ping (gated on env) ─────────────────────────────────
 
 
