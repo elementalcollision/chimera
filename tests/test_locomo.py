@@ -179,6 +179,48 @@ def test_reset_force_clears_scratch_and_cache(adapter, tmp_path, sample_dict):
     assert adapter.ingest_history(items[0]) == 2
 
 
+def test_cleanup_race_file_vanishes_between_iterdir_and_unlink(
+    adapter, tmp_path, sample_dict, monkeypatch,
+):
+    """Regression for the F2 conv-41-s029.md crash.
+
+    iterdir() yields a path, then the file disappears (concurrent
+    cleanup, filesystem quirk, etc.) before unlink() reaches it. The
+    adapter must not crash with FileNotFoundError — `missing_ok=True`
+    on the unlink is the contract.
+    """
+    items = items_from_sample(sample_dict)
+    adapter.ingest_history(items[0])
+    scratch = tmp_path / "mind" / "wiki" / "locomo"
+    assert len(list(scratch.glob("*.md"))) == 2
+
+    # Simulate: iterdir → is_file is True → file vanishes → unlink races.
+    # Achieved by intercepting unlink so the first call vaporises the file
+    # and the second call (the one inside the cleanup loop, since we
+    # double up to model the race) hits FileNotFoundError unless
+    # missing_ok=True is honoured.
+    import os
+
+    real_unlink = Path.unlink
+
+    def racy_unlink(self, *, missing_ok=False):
+        # Remove the underlying file out-of-band, then call the real
+        # unlink — emulates a concurrent removal between is_file() and
+        # unlink(). Without missing_ok=True this raises FileNotFoundError.
+        try:
+            os.unlink(self)
+        except FileNotFoundError:
+            pass
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", racy_unlink)
+
+    # Force a fresh ingest path (new sample_id → cleanup runs).
+    other_items = items_from_sample(dict(sample_dict, sample_id="conv-next"))
+    # Pre-fix this raised FileNotFoundError; post-fix it returns cleanly.
+    assert adapter.ingest_history(other_items[0]) == 2
+
+
 def test_answer_returns_grounded_prompt(adapter, sample_dict):
     items = items_from_sample(sample_dict)
     adapter.ingest_history(items[0])
