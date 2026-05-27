@@ -556,6 +556,7 @@ def run_batch(
     samp = sample_id.lower() if sample_id else None
     per_cat_counts: dict[str, int] = {}
     n = 0
+    last_logged_sample: str | None = None
     for item in items:
         if sub is not None and sub not in item.category.lower():
             continue
@@ -568,6 +569,12 @@ def run_batch(
             per_cat_counts[cat] = per_cat_counts.get(cat, 0) + 1
         if limit is not None and n >= int(limit):
             break
+        # Per-conversation log line — makes the precise boundary visible
+        # in sweep logs when a deadlock or hang occurs (see PR following
+        # f2-blocked-by-hybrid-retrieval-deadlock-2026-05-27.md).
+        if item.sample_id != last_logged_sample:
+            logger.info("locomo: starting conversation %s (item #%d)", item.sample_id, n)
+            last_logged_sample = item.sample_id
         # ingest_history is idempotent per sample_id — sibling QAs are cheap.
         adapter.ingest_history(item)
         results.append(adapter.answer(item, answer_fn=answer_fn))
