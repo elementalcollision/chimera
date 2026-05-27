@@ -330,9 +330,13 @@ class LoCoMoAdapter:
         if self._scratch_dir.exists():
             for child in self._scratch_dir.iterdir():
                 if child.is_file():
-                    child.unlink()
+                    # missing_ok=True closes the iterdir-vs-unlink race —
+                    # a dirent yielded by iterdir() can be unlinked by a
+                    # concurrent code path before we reach it. See the
+                    # f2-locomo cleanup race postmortem.
+                    child.unlink(missing_ok=True)
         if self._self_card_path.exists():
-            self._self_card_path.unlink()
+            self._self_card_path.unlink(missing_ok=True)
         self._last_ingest_key = None
 
     def _ingest_key_for(self, item: LoCoMoItem) -> tuple[str, str]:
@@ -361,9 +365,12 @@ class LoCoMoAdapter:
         if self._scratch_dir.exists():
             for child in self._scratch_dir.iterdir():
                 if child.is_file():
-                    child.unlink()
+                    # See note in reset(): missing_ok closes the
+                    # iterdir/unlink race that crashed F2 attempt #2 at
+                    # conv-41-s029.md.
+                    child.unlink(missing_ok=True)
         if self._self_card_path.exists():
-            self._self_card_path.unlink()
+            self._self_card_path.unlink(missing_ok=True)
 
         # Synthetic self card — load-bearing surface for the dialectic API.
         self._self_card_path.parent.mkdir(parents=True, exist_ok=True)
