@@ -1043,10 +1043,12 @@ class ChimeraLoop:
             )
             return response.text or ""
 
+        from .._async_loop import run_on_persistent_loop
+
         for card in cards:
             try:
                 prompt = build_narrative_prompt(card)
-                text = asyncio.run(_call(prompt))
+                text = run_on_persistent_loop(_call(prompt))
                 apply_narrative(card, text)
             except Exception as exc:  # noqa: BLE001 — per-card isolation
                 logger.warning(
@@ -1067,8 +1069,7 @@ class ChimeraLoop:
         ):
             return
         try:
-            import asyncio
-
+            from .._async_loop import run_on_persistent_loop
             from ..a2a.peer_beliefs import belief_from_kfm, record_belief
             from ..a2a.peers import fetch_peer_kfm, list_peer_chimeras
 
@@ -1080,7 +1081,7 @@ class ChimeraLoop:
             recorded = 0
             for name in peer_names:
                 try:
-                    kfm = asyncio.run(
+                    kfm = run_on_persistent_loop(
                         fetch_peer_kfm(name, registry=self._registry),
                     )
                     belief = belief_from_kfm(name, kfm)

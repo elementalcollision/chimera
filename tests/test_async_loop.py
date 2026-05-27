@@ -71,6 +71,63 @@ def test_exception_propagates() -> None:
         _async_loop.run_on_persistent_loop(_boom())
 
 
+def test_cli_call_sites_use_persistent_loop() -> None:
+    """No surviving ``asyncio.run`` / ``_asyncio.run`` in eval-path
+    CLI sites — only the legitimate long-running server entries
+    (``serve_http`` / ``serve_stdio``) and docstring references
+    are permitted.
+
+    Guards against a sibling deadlock on the LoCoMo ingestion path
+    (and any other in-loop CLI subcommand) introduced by repeated
+    per-call ``asyncio.run`` invocations against httpx-backed
+    coroutines (anyio backend, Python 3.14).
+    """
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    for rel in ("chimera/cli.py", "chimera/core/loop.py"):
+        lines = (repo / rel).read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("#") or stripped.startswith('"') or stripped.startswith("'"):
+                continue
+            if "asyncio.run(" not in line and "_asyncio.run(" not in line:
+                continue
+            # Allowed: the two server entries that own the process loop
+            # for their entire lifetime (no risk of repeated teardown).
+            # Look at this line plus the next one to catch multi-line calls.
+            window = line + "\n" + (lines[lineno] if lineno < len(lines) else "")
+            if "serve_http" in window or "serve_stdio" in window:
+                continue
+            raise AssertionError(
+                f"{rel}:{lineno} still uses asyncio.run — wrap with "
+                f"run_on_persistent_loop instead.\n  {line.rstrip()}"
+            )
+
+
+def test_repeated_httpx_like_coroutines_do_not_wedge() -> None:
+    """Sibling-defect repro: many successive submissions of a
+    coroutine that uses asyncio's default executor (the surface
+    that wedged on httpx+anyio at conv-42 and again at conv-26).
+
+    Without the persistent loop, the shutdown_default_executor
+    teardown step parks the main thread on a mutex after a handful
+    of iterations. With the persistent loop, all N iterations
+    complete promptly.
+    """
+
+    async def _exec_bound() -> int:
+        loop = asyncio.get_running_loop()
+        # run_in_executor with default executor — mirrors the anyio
+        # backend's worker-thread offload pattern.
+        return await loop.run_in_executor(None, lambda: 1)
+
+    total = 0
+    for _ in range(200):
+        total += _async_loop.run_on_persistent_loop(_exec_bound())
+    assert total == 200
+
+
 def test_survives_concurrent_submissions() -> None:
     """Two threads submitting overlapping coroutines must both
     finish; the loop is shared and must not serialize on a flag.

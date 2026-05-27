@@ -960,7 +960,8 @@ def _cmd_peers_ask(args) -> int:
                     )
                     return response.text or ""
 
-                answer = trim_answer(asyncio.run(_call()))
+                from ._async_loop import run_on_persistent_loop
+                answer = trim_answer(run_on_persistent_loop(_call()))
     finally:
         loop.close()
 
@@ -1433,8 +1434,8 @@ def main(argv: list[str] | None = None) -> int:
                     else rung.config.openrouter_model_id
                 )
                 provider_used = model_id
-                import asyncio as _asyncio
-                subtasks = _asyncio.run(_split_task(
+                from ._async_loop import run_on_persistent_loop
+                subtasks = run_on_persistent_loop(_split_task(
                     args.task, provider=provider, model_id=model_id,
                 ))
 
@@ -1949,7 +1950,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"chimera run: enqueued task to {inbox}")
         _loop = ChimeraLoop()
         try:
-            report = asyncio.run(_loop.run_one_cycle())
+            from ._async_loop import run_on_persistent_loop
+            report = run_on_persistent_loop(_loop.run_one_cycle())
         finally:
             # v4.75: ensure WAL is checkpointed at the end of every cycle.
             _loop.close()
@@ -1969,8 +1971,9 @@ def main(argv: list[str] | None = None) -> int:
         targets = ["anthropic", "openrouter"] if args.provider == "both" else [args.provider]
         print("chimera ping:")
         rc = 0
+        from ._async_loop import run_on_persistent_loop
         for t in targets:
-            rc |= asyncio.run(_ping_provider(t))
+            rc |= run_on_persistent_loop(_ping_provider(t))
         return rc
     if args.command == "serve":
         from .server import serve_http, serve_stdio
@@ -2033,7 +2036,8 @@ def main(argv: list[str] | None = None) -> int:
             from .tools import register_mcp_servers_from_env
 
             loop = ChimeraLoop()
-            asyncio.run(register_mcp_servers_from_env(loop._registry))  # type: ignore[attr-defined]
+            from ._async_loop import run_on_persistent_loop
+            run_on_persistent_loop(register_mcp_servers_from_env(loop._registry))  # type: ignore[attr-defined]
             targets: list[str]
             if args.name:
                 targets = [args.name]
@@ -2047,7 +2051,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"chimera peers kfm: querying {len(targets)} peer(s)...")
             for t in targets:
                 try:
-                    snap = asyncio.run(fetch_peer_kfm(t, registry=loop._registry))  # type: ignore[attr-defined]
+                    snap = run_on_persistent_loop(fetch_peer_kfm(t, registry=loop._registry))  # type: ignore[attr-defined]
                     print(f"  {t}:")
                     for k, v in sorted(snap.items()):
                         print(f"    {k}: {v}")
@@ -2074,7 +2078,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if sub_cmd == "peers":
             loop = ChimeraLoop()
-            asyncio.run(register_mcp_servers_from_env(loop._registry))  # type: ignore[attr-defined]
+            from ._async_loop import run_on_persistent_loop
+            run_on_persistent_loop(register_mcp_servers_from_env(loop._registry))  # type: ignore[attr-defined]
             tools = list_xenocomm_tools(loop._registry)  # type: ignore[attr-defined]
             loop.close()
             if not tools:
@@ -2517,7 +2522,8 @@ def main(argv: list[str] | None = None) -> int:
             from .skills import assemble_with_escalation, record_assembly
 
             print(f"assembling skill {spec.name!r} (with tier escalation)...")
-            ladder = asyncio.run(
+            from ._async_loop import run_on_persistent_loop
+            ladder = run_on_persistent_loop(
                 assemble_with_escalation(
                     spec,
                     providers=ax.providers,
@@ -2584,7 +2590,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.engines_command != "run":
             parser.error("engines: expected 'run <name>'")
         loop = ChimeraLoop()
-        result = asyncio.run(loop.force_run_engine(args.name))
+        from ._async_loop import run_on_persistent_loop
+        result = run_on_persistent_loop(loop.force_run_engine(args.name))
         loop.close()
         print(f"chimera engines run {args.name}:")
         print(f"  skipped: {result.skipped}")
