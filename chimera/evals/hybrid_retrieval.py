@@ -42,6 +42,7 @@ import math
 import os
 import re
 import sqlite3
+import time
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
@@ -300,6 +301,34 @@ _DEFAULT_EMBED_MODEL = "bge-m3:latest"
 _VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings"
 _VOYAGE_DEFAULT_MODEL = "voyage-3-lite"
 
+# Default per-call timeout for the embedder HTTP request. The prior
+# 300 s default meant a single hung Ollama embed wedged a whole sweep
+# slot for five minutes; over 1,986 LoCoMo items that pushed F2 into
+# many-hour stalls that the operator killed early and misdiagnosed as
+# an asyncio deadlock (see PRs #93/#94 — those addressed real but
+# unrelated issues on the LoCoMo answer path). 45 s is long enough
+# for a healthy 32-session batch on a warm bge-m3 (~30 s observed)
+# and short enough that a stuck call surfaces an exception within a
+# minute, letting :func:`select_top_k_sessions` fall back to
+# BM25-only and the sweep continue.
+_DEFAULT_EMBED_TIMEOUT_S = 45.0
+
+
+def _resolve_embed_timeout(explicit: float | None) -> float:
+    """``CHIMERA_EMBED_TIMEOUT_S`` env override → explicit arg → default."""
+    if explicit is not None:
+        return float(explicit)
+    env = os.environ.get("CHIMERA_EMBED_TIMEOUT_S")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            logger.warning(
+                "hybrid_retrieval: CHIMERA_EMBED_TIMEOUT_S=%r is not a "
+                "float; using default %.1f s", env, _DEFAULT_EMBED_TIMEOUT_S,
+            )
+    return _DEFAULT_EMBED_TIMEOUT_S
+
 
 class VoyageEmbedder:
     """Thin httpx wrapper around the Voyage AI embeddings endpoint.
@@ -319,7 +348,7 @@ class VoyageEmbedder:
         *,
         model: str = _VOYAGE_DEFAULT_MODEL,
         api_key: str | None = None,
-        timeout: float = 60.0,
+        timeout: float | None = None,
     ) -> None:
         key = api_key or os.environ.get("VOYAGE_API_KEY")
         if not key:
@@ -329,7 +358,7 @@ class VoyageEmbedder:
             "Content-Type": "application/json",
         }
         self._model = model
-        self._timeout = timeout
+        self._timeout = _resolve_embed_timeout(timeout)
 
     def __call__(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
@@ -365,7 +394,7 @@ class OllamaEmbedder:
         *,
         url: str | None = None,
         model: str | None = None,
-        timeout: float = 300.0,
+        timeout: float | None = None,
     ) -> None:
         self._url = (
             url or os.environ.get("CHIMERA_OLLAMA_URL") or _DEFAULT_OLLAMA_URL
@@ -373,7 +402,7 @@ class OllamaEmbedder:
         self._model = (
             model or os.environ.get("CHIMERA_EMBED_MODEL") or _DEFAULT_EMBED_MODEL
         )
-        self._timeout = timeout
+        self._timeout = _resolve_embed_timeout(timeout)
 
     def __call__(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
@@ -386,20 +415,50 @@ class OllamaEmbedder:
         clipped = [t[:8_000] for t in texts]
         body = {"model": self._model, "input": clipped}
         endpoint = f"{self._url}/api/embed"
-        with httpx.Client(timeout=self._timeout) as client:
-            resp = client.post(endpoint, json=body)
-            if resp.status_code >= 400:
-                raise RuntimeError(
-                    f"Ollama embeddings HTTP {resp.status_code}: {resp.text[:300]}"
+        # One retry on connect/read timeout. Empirically the bge-m3
+        # bge-m3 instance hangs intermittently on large batches when
+        # KV cache evicts under cumulative load — a second attempt
+        # almost always succeeds on a warm model. Two attempts × the
+        # bounded timeout means a stuck embed surfaces in ~2× timeout
+        # at most, after which the dense-path fallback in
+        # :func:`select_top_k_sessions` kicks in and the sweep proceeds.
+        attempts = 2
+        last_exc: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            t0 = time.monotonic()
+            try:
+                with httpx.Client(timeout=self._timeout) as client:
+                    resp = client.post(endpoint, json=body)
+                    if resp.status_code >= 400:
+                        raise RuntimeError(
+                            f"Ollama embeddings HTTP {resp.status_code}: "
+                            f"{resp.text[:300]}"
+                        )
+                    data = resp.json()
+                embeds = data.get("embeddings")
+                if not isinstance(embeds, list) or len(embeds) != len(clipped):
+                    raise RuntimeError(
+                        f"Ollama embeddings: unexpected payload shape "
+                        f"(got {len(embeds) if isinstance(embeds, list) else type(embeds)} "
+                        f"for {len(clipped)} inputs)"
+                    )
+                elapsed = time.monotonic() - t0
+                if elapsed > 15.0:
+                    logger.warning(
+                        "hybrid_retrieval: slow Ollama embed (%d inputs, %.1f s) — "
+                        "model may be degraded", len(clipped), elapsed,
+                    )
+                return embeds
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+                elapsed = time.monotonic() - t0
+                last_exc = exc
+                logger.warning(
+                    "hybrid_retrieval: Ollama embed timeout on attempt %d/%d "
+                    "(%d inputs, %.1f s, %s)",
+                    attempt, attempts, len(clipped), elapsed, type(exc).__name__,
                 )
-            data = resp.json()
-        embeds = data.get("embeddings")
-        if not isinstance(embeds, list) or len(embeds) != len(clipped):
-            raise RuntimeError(
-                f"Ollama embeddings: unexpected payload shape "
-                f"(got {len(embeds) if isinstance(embeds, list) else type(embeds)} for {len(clipped)} inputs)"
-            )
-        return embeds
+        assert last_exc is not None  # the loop either returned or set last_exc
+        raise last_exc
 
 
 def build_default_embed_fn() -> EmbedFn | None:

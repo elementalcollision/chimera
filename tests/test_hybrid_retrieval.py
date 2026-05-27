@@ -151,6 +151,110 @@ def test_select_pads_with_unranked_when_bm25_sparse():
     assert len(out) == 4
 
 
+def test_select_recovers_when_embed_fn_raises_timeout():
+    """An embed_fn timeout must NOT propagate — fall back to BM25-only.
+
+    Regression for the F2 LoCoMo blocker: a hung Ollama embed call
+    used to leave the sweep stuck on a synchronous ``sock_recv`` for
+    the full per-call timeout (previously 300 s). The dense-path
+    ``except Exception`` already falls back to BM25, but a test
+    pins the contract so any future refactor (e.g. moving the
+    embedder onto an async path) cannot regress it.
+    """
+    import httpx
+
+    sessions = [f"user: greeting {i}" for i in range(12)]
+    sessions[6] = "user: my cat is named Mochi."
+
+    def raising_embed(texts):
+        raise httpx.ReadTimeout("simulated Ollama hang")
+
+    out = select_top_k_sessions(
+        sessions, "what is the cat's name?", top_k=4, embed_fn=raising_embed,
+    )
+    # BM25 still selects the matching session; the timeout did not crash.
+    assert 6 in out
+    assert len(out) == 4
+    assert out == sorted(out)
+
+
+def test_ollama_embedder_retries_once_on_read_timeout(monkeypatch):
+    """OllamaEmbedder retries one time on ReadTimeout before raising.
+
+    Two attempts × bounded timeout is the contract that lets the
+    LoCoMo sweep survive intermittent bge-m3 hangs without spending
+    the full pre-fix 300 s per stuck call.
+    """
+    import httpx
+
+    from chimera.evals import hybrid_retrieval as hr
+
+    calls = {"n": 0}
+
+    class _FakeResp:
+        status_code = 200
+        def json(self):
+            return {"embeddings": [[0.1] * 4]}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def post(self, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise httpx.ReadTimeout("first attempt hangs")
+            return _FakeResp()
+
+    monkeypatch.setattr(hr.httpx, "Client", _FakeClient)
+    emb = hr.OllamaEmbedder(timeout=1.0)
+    out = emb(["one"])
+    assert out == [[0.1] * 4]
+    assert calls["n"] == 2
+
+
+def test_ollama_embedder_surfaces_after_both_attempts_fail(monkeypatch):
+    import httpx
+
+    from chimera.evals import hybrid_retrieval as hr
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def post(self, *a, **kw):
+            raise httpx.ReadTimeout("always hangs")
+
+    monkeypatch.setattr(hr.httpx, "Client", _FakeClient)
+    emb = hr.OllamaEmbedder(timeout=1.0)
+    with pytest.raises(httpx.ReadTimeout):
+        emb(["one"])
+
+
+def test_resolve_embed_timeout_honours_env(monkeypatch):
+    from chimera.evals.hybrid_retrieval import (
+        _DEFAULT_EMBED_TIMEOUT_S,
+        _resolve_embed_timeout,
+    )
+
+    monkeypatch.delenv("CHIMERA_EMBED_TIMEOUT_S", raising=False)
+    assert _resolve_embed_timeout(None) == _DEFAULT_EMBED_TIMEOUT_S
+    assert _resolve_embed_timeout(12.5) == 12.5
+    monkeypatch.setenv("CHIMERA_EMBED_TIMEOUT_S", "90")
+    assert _resolve_embed_timeout(None) == 90.0
+    # Explicit arg still wins over env.
+    assert _resolve_embed_timeout(5.0) == 5.0
+    # Garbage env: falls back to default with a warning, no raise.
+    monkeypatch.setenv("CHIMERA_EMBED_TIMEOUT_S", "not-a-float")
+    assert _resolve_embed_timeout(None) == _DEFAULT_EMBED_TIMEOUT_S
+
+
 def test_embed_cache_avoids_re_embedding_identical_text():
     sessions = ["dup text", "dup text", "diff text"] * 4  # 12 sessions
     call_count = {"n": 0}
