@@ -25,6 +25,25 @@ replace the INBOX block.
 | v32     | 453   | Chip T1.1: `max_tokens` 512→2048 + `--answer-max-tokens` CLI flag                         |
 | v33     | 488   | Chip T1.2: extend `_DIALECTIC_PROMPT` with cross-session instructions (ADR 0136)          |
 
+## Known false claim in archived INBOX prose
+
+Every archived runner here (v25–v33) — and v34/v35 prior to the
+ladder-#5 fix — contains this Phase-2 INBOX line:
+
+> The wiring_coordinator handles push + PR + merge on a
+> successful soft-sentinel exit.
+
+**This claim is false.** None of these runners invoke
+`scripts/wiring_coordinator.sh`; after a soft-sentinel deliverable
+lands, the runner simply breaks out of `phase_loop` and exits,
+leaving the branch in the worktree for manual operator review. The
+archived files are preserved as-is for git-history accuracy per the
+v25–v34 consolidation policy, but **do not copy this prose forward
+when templating a new runner** — use the corrected wording in
+`scripts/long_cycle_soak_v34.sh` / `long_cycle_soak_v35.sh`
+("NO auto-push, NO auto-PR, NO auto-merge") instead. See PR closing
+v35-postmortem ladder #5 for the full diagnosis.
+
 ## Scaffolding milestones
 
 - **v25** introduced the focused-remediation runner shape (long-form

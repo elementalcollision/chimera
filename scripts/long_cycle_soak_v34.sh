@@ -448,8 +448,11 @@ CHARTER (v4.112 charter extraction will pass this to the witness panel):
   `## Test results`.
 
 You are on the soak branch; push is scoped-out via per-worktree
-config. The wiring_coordinator handles push + PR + merge on a
-successful soft-sentinel exit.
+config. After a successful soft-sentinel exit the runner stops
+with the branch left in the worktree for manual operator review —
+the operator inspects the diff (`git log main..HEAD`),
+cherry-picks or discards as appropriate, and opens any resulting
+PR by hand. There is NO auto-push, NO auto-PR, NO auto-merge.
 
 OVERSHOOT TRAPS the panel should reject:
 
