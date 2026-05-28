@@ -235,6 +235,99 @@ A re-charter of v35 with a canary-`chimera run` preflight and a
 forward-progress watchdog remains recommended (see the F2 note
 [§Recommended follow-up](../../mind/research/locomo-f2-retrieval-ablation-2026-05-27.md)).
 
+### Temporal-reasoning regression diagnosis closure (v37+v38+v39, 2026-05-28)
+
+The chartered investigation surfaced in the preceding "Temporal-reasoning
+regression diagnosis (v35 soak)" subsection was completed across four
+autonomous-loop soaks: v36 (N=1, [PR #117](https://github.com/elementalcollision/chimera/pull/117)),
+v37 (N=5, [PR #121](https://github.com/elementalcollision/chimera/pull/121)),
+v38 (N=10 cumulative, [PR #124](https://github.com/elementalcollision/chimera/pull/124)),
+v39 (N=19 cumulative, [PR #127](https://github.com/elementalcollision/chimera/pull/127)).
+The classification deliverables ([v37 items #1–#5](../../mind/research/v37-locomo-temporal-5-item-classification.md),
+[v38 items #6–#10](../../mind/research/v38-locomo-temporal-10-item-classification.md),
+v39 items #11–#19 — full table reproduced in the [v39 postmortem](../../mind/research/v39-soak-postmortem-2026-05-28.md))
+together cover every one of the 19 LoCoMo F2 temporal-reasoning items
+that decreased under hybrid retrieval.
+
+**Cumulative 19-item label distribution**:
+
+| Hypothesis | Count | % |
+|---|---:|---:|
+| H2 (context-budget dilution under top-k=8 truncation) | 14 | **74%** |
+| H1 (retrieval miss — relevant session displaced from top-8) | 4 | 21% |
+| H4 (F1/F2 spec drift / judging artifact) | 1 | 5% |
+| H3 (answerer-model failure) | **0** | **0%** |
+
+**Headline finding**: H2 (context-budget dilution under top-k=8
+truncation) dominates at 74%. **H3 (answerer-model failure) is absent
+across all 19 items.** H1 (retrieval miss) is a meaningful minority at
+21%. H4 (F1/F2 spec drift) is a singleton at 5%.
+
+**Mechanism**: under top-k=8 retrieval truncation the right session is
+typically retrieved, but its temporal anchors get compressed within the
+answerer's context window. The failure modes observed across the H2
+paragraphs are a small set — polarity inversion on yes/no questions,
+temporal-window collapse on when/where questions, literal-match hedging
+that refuses commonsense bridge inference, and self-contradiction within
+a single answer. Per-item evidence sampled in the v39 postmortem
+confirms each H2 case carries independent reasoning and distinct
+character pairs rather than template-spam.
+
+**Verdict implication**: this ADR's existing `Accepted (`_s`-only)`
+status remains correct, and is now grounded in mechanism. The same
+top-k=8 truncation that helps `_s` long-horizon (where no
+temporal-reasoning category surfaces) hurts LoCoMo temporal-reasoning
+through 74%-of-19-items context-budget dilution. The MIXED
+cross-benchmark verdict in the preceding §Results subsection is
+explained, not overturned: hybrid retrieval is a net positive on `_s`
+and LoCoMo overall, and the LoCoMo temporal-reasoning regression has a
+diagnosed root cause on the retrieval/context-budget axis rather than
+the answerer-model axis. The verdict is unchanged; the diagnosis closes
+the chartered question.
+
+**Remediation direction**: the H3 = 0/19 result rules out
+answerer-model intervention as the remediation lever. Future
+investigation should target the retrieval/context-budget axis. Three
+candidate directions, **named here but not chartered**:
+
+- **Adaptive top-k for temporal queries**: detect temporal-reasoning
+  question shape at retrieval time; increase top-k or disable retrieval
+  for those queries. Falsified if temporal-reasoning accuracy stays
+  ≤ current under k=full / k-adaptive.
+- **Temporal-anchor preservation under truncation**: when top-k
+  truncates a session, preserve session-date headers and timestamped
+  anchors preferentially. Falsified if anchor-preserved truncation
+  shows no temporal-reasoning accuracy lift vs. plain truncation.
+- **Mid-conversation summary injection**: pre-compute temporal-arc
+  summaries per conversation; inject the summary alongside top-k
+  retrieval. Falsified if summary-augmented retrieval is no better
+  than baseline retrieval on temporal-reasoning.
+
+Each direction would need its own chip with a pre-registered
+falsification gate. None are chartered in this amendment.
+
+**Honest disclosures**:
+
+- All 19 classifications were the agent's call, not independently
+  ground-truthed. The v39 postmortem explicitly flags this: "the
+  substantive label distribution is the agent's call, not independently
+  validated."
+- The H2 dominance is consistent and well-reasoned per-item (see the
+  v39 postmortem's independent-label check), but the cumulative finding
+  rests on agent classification, not a separate ground-truth set.
+- An operator wanting to validate the H2 dominance should spot-check a
+  sample. The v39 postmortem identifies items #13 (`conv-44::qa20`) and
+  #17 (`conv-48::qa28`) as the cleanest H1 paragraphs for verification.
+
+**References**:
+[v37 items #1–#5 classification](../../mind/research/v37-locomo-temporal-5-item-classification.md),
+[v38 items #6–#10 classification](../../mind/research/v38-locomo-temporal-10-item-classification.md),
+[v36 postmortem](../../mind/research/v36-soak-postmortem-2026-05-28.md),
+[v37 postmortem](../../mind/research/v37-soak-postmortem-2026-05-28.md),
+[v38 postmortem](../../mind/research/v38-soak-postmortem-2026-05-28.md),
+[v39 postmortem](../../mind/research/v39-soak-postmortem-2026-05-28.md),
+[F2 LoCoMo baseline](../../mind/research/locomo-f2-retrieval-ablation-2026-05-27.md).
+
 ## Alternatives considered
 
 - **BM25-only.** Simpler, no embedder dep. Rejected at design time
