@@ -29,6 +29,21 @@ built-in per-run consistency check. Adds a fourth locked outcome
 band (PARTIAL) for the fan-out-specific failure mode where the loop
 classifies some but not all five items. Inherits PR #118's phase-1
 soft-sentinel and PR #119's branch-prefix design-note selection.
+v37 CONVERGED (PR #120 runner / PR #121 postmortem): $0.14 spend,
+~10 min wall, $0.028/item amortized, items #1–#5 labelled
+H2,H2,H2,H1,H1; item #1 independently re-confirmed H2 vs v36.
+
+`scripts/long_cycle_soak_v38.sh` is the N=10 fan-out follow-up to
+v37's CONVERGES result. Same R1 research-note-and-commit shape,
+same H1/H2/H3/H4 hypothesis space, same sort-first rule, but classifies
+items #6–#10 — picking up where v37 left off. v38 is the next rung
+in the conservative N=1 (v36) → N=5 (v37) → N=10 (v38) → N=19 (v39)
+ladder, testing 2× v37's validated scale before closing out the full
+19-item temporal-regression set. Substrate-discipline check: the
+agent must correctly SKIP items #1–#5 (already on main as v37's
+committed file) and pick up at item #6 — failing this check lands
+in the CONFABULATES band. Same four locked outcomes as v37 with
+N=10-specific interpretations.
 
 ## Inventory
 
