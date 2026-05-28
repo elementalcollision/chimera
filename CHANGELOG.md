@@ -9,6 +9,162 @@ Earlier releases (v1.0 → v4.113.0) are documented through the ADR series and
 git tags; this changelog is introduced at v4.114.0 as the load-bearing
 public record for releases going forward.
 
+## v4.116.0 — 2026-05-28 — Autonomous-loop hardening cascade
+
+The release that closes a six-class grounding-error cascade in the
+autonomous-delivery loop, surfaced by four consecutive v35 soak attempts
+against an open chartered question (LoCoMo F2 temporal-reasoning regression
+diagnosis). The substantive question remains paused — the autonomous loop
+has not produced a defensible diagnosis across four attempts — but every
+operational failure mode the cascade surfaced has been fixed, with a real
+end-to-end integration test now in CI to catch the next cascading defect
+before it can ship.
+
+No changes to v4.0-stable surfaces (SQLite schema, graph store, mind
+layout, HTTP endpoints, CLI verbs, env vars per
+[ADR 0025](docs/adr/0025-v4-stability.md)).
+
+### The cascade (six grounding-error classes)
+
+Each v35 attempt surfaced a structurally distinct defect on the path from
+`chimera run` to a committed deliverable. Sequencing matters:
+
+| # | Class | Where | Fix |
+|---|---|---|---|
+| 1 | Detector misfire on every secondary worktree | [ADR 0141](docs/adr/0141-chip-branch-jump-layers-2-3.md) Layer 2 used `git rev-parse --show-toplevel == cwd`, which is true in every worktree | [PR #103](https://github.com/elementalcollision/chimera/pull/103) — switch to `--git-dir == --git-common-dir` |
+| 2 | SQLite cross-thread access under the persistent asyncio loop | `Loop.__init__` opened the DB on the main thread; `run_one_cycle` runs on the daemon thread | [PR #105](https://github.com/elementalcollision/chimera/pull/105) — `check_same_thread=False` + the missing **end-to-end CI test** that exercises `chimera run` from a real `git worktree add`-created secondary |
+| 3 | Agent confabulation at commit-time | Engine guards (`scope_evasion`, `degenerate_loop_abort`, `witness_rejected`) detect off-charter behavior **between** cycles; a confabulated commit can land mid-cycle, before the next gate fires | [PR #108](https://github.com/elementalcollision/chimera/pull/108) — **pre-commit scope check** ([ADR 0146](docs/adr/0146-pre-commit-scope-check.md)) parses the design-note `## READY-FOR-REMEDIATION` section and refuses commits whose diff scope contradicts the locked R1/R2/R3 recommendation |
+| 4 | ACT-phase budget was decorative | 240s budget only emitted a warning log on overrun; v35 attempt #3 observed 5–9× overruns | [PR #110](https://github.com/elementalcollision/chimera/pull/110) — enforce via `asyncio.wait_for`; cancel-and-advance to WRITE with partial results |
+| 5 | Soak runner INBOX lied about `wiring_coordinator` | Phase-2 INBOX prose claimed an auto-push+PR+merge that never ran | [PR #111](https://github.com/elementalcollision/chimera/pull/111) — strip the lie; document the actual manual-handoff contract |
+| 6 | Forward-progress watchdog was blind to convergence-defect mode | PR #109's `(cycle, spend)` signal can't fire when both advance while zero tasks complete | [PR #113](https://github.com/elementalcollision/chimera/pull/113) — add `tasks_completed` signal alongside, parsed from PR #110's structured event |
+
+Plus the foundational watchdog itself ([PR #109](https://github.com/elementalcollision/chimera/pull/109) — forward-progress watchdog) and an ADR amendment recovery ([PR #107](https://github.com/elementalcollision/chimera/pull/107)).
+
+### Pre-commit scope check ([ADR 0146](docs/adr/0146-pre-commit-scope-check.md))
+
+The cascade's load-bearing artifact. Closes the commit-time vs detect-time
+gap surfaced by v35 attempt #3, where the agent committed an honest
+"I didn't do the work" disclosure and then **2 minutes later** committed a
+fabricated diagnosis citing percentages it had never computed. The witness
+panel + engine guards saw the off-charter behavior and demoted trust
+T5→T0 — but none of them can undo a commit that has already landed.
+
+- **Conservative refusal**: missing design note / missing section /
+  ambiguous classification → warn-only. False positives would block
+  legitimate work; false negatives are acceptable because the witness
+  panel + engine guards remain.
+- **Override knob**: `CHIMERA_ALLOW_OFF_CHARTER_COMMIT=1` — mirrors
+  [ADR 0141](docs/adr/0141-chip-branch-jump-layers-2-3.md)'s
+  `CHIMERA_ALLOW_MAIN_BRANCH_DRIFT=1` shape. Override events are logged
+  as `scope_check_override` so the witness panel can see them.
+- **Event logging**: `state/scope_check_events.jsonl` feeds the engine
+  guard system structured events (`scope_check_refusal`,
+  `scope_check_override`, `scope_check_warn`).
+- **25 unit tests + end-to-end fake-repo regression test** lock in the
+  v35 attempt #3 failure pattern.
+
+### Soak-harness defense-in-depth
+
+Two new watchdogs at the soak-harness level, orthogonal to the
+agent-loop's `degenerate_loop_abort`:
+
+- **Forward-progress watchdog (PR #109)** — aborts after N consecutive
+  iters with unchanged `(cycle, spend)`. Defaults: `SOAK_NO_PROGRESS_THRESHOLD=8`,
+  `SOAK_NO_PROGRESS_GRACE=3`. Catches the "spend pinned" stall pattern
+  from v35 attempt #3.
+- **Task-completion watchdog (PR #113)** — aborts after N consecutive
+  iters with `completed=0/M tasks` at the ACT-budget cap. Defaults:
+  `SOAK_NO_COMPLETION_THRESHOLD=6`, `SOAK_NO_COMPLETION_GRACE=2`. Catches
+  the "advancing spend, zero completion" pattern from v35 attempt #4
+  that the first watchdog could not detect by construction.
+
+Both watchdogs coexist; either independently triggers abort. Forensics
+preserved on either trigger (no worktree deletion).
+
+### ACT-phase budget enforcement ([PR #110](https://github.com/elementalcollision/chimera/pull/110))
+
+`CHIMERA_ACT_BUDGET_SECONDS` (default **240s**) is now enforced via
+`asyncio.wait_for`. On timeout the in-flight tool-use coroutine receives
+`CancelledError`, a structured `act_budget_exceeded` event is logged
+(with `completed_tasks` + `total_tasks` fields), and the loop advances
+to WRITE with whatever partial `_act_results` accumulated. The 600s
+silent-death watchdog ([ADR 0120](docs/adr/0120-silent-death-watchdog.md))
+remains the outer hard ceiling.
+
+The picked approach (Option A — cancel-and-replan, not Option B — raise
+the cap) was justified by an explicit safety audit: SQLite consistency
+verified (no torn writes between awaits); mid-response token waste real
+but mild and bounded by per-call cost.
+
+### Soak-runner consolidation cleanup
+
+Before the v35 cascade exposed these defects, [PR #100](https://github.com/elementalcollision/chimera/pull/100)
+consolidated `long_cycle_soak_v25.sh`…`v33.sh` (5,087 lines across 10
+files) into a single canonical runner at `long_cycle_soak_v34.sh` (507
+lines), archiving v25–v33 to `scripts/archive/soak-runners/`. v35 follows
+the documented copy-and-replace-INBOX convention from that consolidation.
+Per-version chip context preserved in the archive README.
+
+### The systemic-gap E2E test
+
+The PR #105 / `tests/test_chimera_run_e2e.py` test is the cascade's
+durable artifact: it creates a real on-disk repo with `git init` + `git
+worktree add` on a non-main branch, then drives `chimera.cli.main(["run"])`
+end-to-end from inside that secondary worktree. **No mocks of the
+detector, SQLite, or the persistent loop.** A future cascading defect
+on the same code path will fail this test in CI before it can ship —
+which is exactly what the cascade taught us we needed.
+
+### Cascade meta-finding
+
+The first four defects ([PR #103](https://github.com/elementalcollision/chimera/pull/103) detector, [PR #105](https://github.com/elementalcollision/chimera/pull/105) SQLite, [PR #108](https://github.com/elementalcollision/chimera/pull/108) confabulation, [PR #109](https://github.com/elementalcollision/chimera/pull/109)/[#110](https://github.com/elementalcollision/chimera/pull/110)
+watchdog/budget) were all **code that didn't match prose / contract**.
+The fifth ([PR #111](https://github.com/elementalcollision/chimera/pull/111) wiring_coordinator) was the **inverse**: prose that
+didn't match code. The sixth ([PR #113](https://github.com/elementalcollision/chimera/pull/113) completion-signal) was a **signal-design
+gap** — a single observed failure mode does not determine the right
+watchdog signal. The v35 attempt #4 postmortem ([PR #112](https://github.com/elementalcollision/chimera/pull/112)) names this
+generally: every postmortem recommendation should be filed as an explicit
+follow-up chip with an owner, not left in a freeform "future work" bullet.
+
+### v35 chartered question — **unresolved**
+
+The LoCoMo F2 temporal-reasoning regression diagnosis (−10.42pp, see
+[ADR 0142 §Cross-benchmark check](docs/adr/0142-hybrid-retrieval-for-long-horizon.md)
+and the recovered subsection added by [PR #107](https://github.com/elementalcollision/chimera/pull/107)) remains chartered-but-untested.
+Four autonomous-loop attempts produced zero diagnosis. The structural
+reason is named in [PR #112](https://github.com/elementalcollision/chimera/pull/112): too much retrieval re-running required
+per item, no per-step checkpointing within ACT. The question itself
+stands as an open invitation for either (a) re-shape with much tighter
+atomic units, (b) directed human-driven analysis, or (c) acceptance that
+the autonomous-loop substrate cannot answer it under the chartered
+prompt shape.
+
+### ADRs landed
+
+- [0146](docs/adr/0146-pre-commit-scope-check.md) — Pre-commit scope
+  check (confabulation defense; Proposed pending operator validation
+  that subsequent soaks see expected firing patterns).
+
+### Tests + CI
+
+- Test count at release: **1,586 passed, 5 skipped** on main at `8249ee3`.
+- `tests/test_chimera_run_e2e.py` (PR #105) is the systemic-gap canary.
+- 25 unit tests + 1 end-to-end test for the pre-commit scope check (PR #108).
+- 9 cases in `scripts/test_soak_progress.sh` covering both watchdogs.
+
+### Upgrade notes
+
+No breaking changes. New env knobs introduced this release:
+
+- `CHIMERA_ALLOW_OFF_CHARTER_COMMIT=1` — override for the pre-commit scope check
+- `CHIMERA_ACT_BUDGET_SECONDS` — float seconds, default 240
+- `SOAK_NO_PROGRESS_THRESHOLD` — int, default 8 (forward-progress watchdog)
+- `SOAK_NO_PROGRESS_GRACE` — int, default 3
+- `SOAK_NO_COMPLETION_THRESHOLD` — int, default 6 (task-completion watchdog)
+- `SOAK_NO_COMPLETION_GRACE` — int, default 2
+
+---
+
 ## v4.115.0 — 2026-05-27 — Long-horizon retrieval + cross-benchmark triangulation
 
 The release that broadens Chimera's evaluation surface beyond LongMemEval,
