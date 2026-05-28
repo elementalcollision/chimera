@@ -115,6 +115,65 @@ soak_sync_main_from_origin() {
     return 0
 }
 
+soak_reset_forward_progress() {
+    # Reset the per-phase forward-progress watchdog counters. Call at the
+    # top of each phase_loop so phase-1 stall state doesn't carry into
+    # phase 2 (and so the grace period applies independently per phase).
+    _SOAK_FP_ITER=0
+    _SOAK_FP_STALL_COUNT=0
+    _SOAK_FP_LAST_CYCLE=""
+    _SOAK_FP_LAST_SPEND=""
+}
+
+soak_check_forward_progress() {
+    # Forward-progress watchdog (defense-in-depth at the soak harness
+    # level, orthogonal to the agent loop's degenerate_loop_abort engine
+    # guard). Recommended by all three v35-postmortem PRs (#102, #104,
+    # #106). v35 attempt #3 spun 196 idle iterations across 1h25m before
+    # the iteration cap fired — this watchdog would have aborted after
+    # SOAK_NO_PROGRESS_THRESHOLD iterations of unchanged (cycle, spend).
+    #
+    # Args:
+    #   $1 = current cycle (integer, from last_cycle_in_db)
+    #   $2 = current phase spend (USD, from total_spend_in_db)
+    # Returns:
+    #   0 — progress OK (or still inside grace period)
+    #   1 — no-progress threshold reached; caller MUST log FATAL and break
+    #
+    # Env knobs:
+    #   SOAK_NO_PROGRESS_THRESHOLD (default 8) — consecutive stalled iters
+    #   SOAK_NO_PROGRESS_GRACE     (default 3) — leading iters to skip
+    #
+    # Uses the _SOAK_FP_* shell globals; call soak_reset_forward_progress
+    # at the top of each phase_loop to scope counters per phase.
+    local cycle="$1"
+    local spend="$2"
+    local threshold="${SOAK_NO_PROGRESS_THRESHOLD:-8}"
+    local grace="${SOAK_NO_PROGRESS_GRACE:-3}"
+
+    _SOAK_FP_ITER=$(( ${_SOAK_FP_ITER:-0} + 1 ))
+
+    if [ "$_SOAK_FP_ITER" -le "$grace" ]; then
+        _SOAK_FP_LAST_CYCLE="$cycle"
+        _SOAK_FP_LAST_SPEND="$spend"
+        _SOAK_FP_STALL_COUNT=0
+        return 0
+    fi
+
+    if [ "$cycle" = "${_SOAK_FP_LAST_CYCLE:-}" ] && [ "$spend" = "${_SOAK_FP_LAST_SPEND:-}" ]; then
+        _SOAK_FP_STALL_COUNT=$(( ${_SOAK_FP_STALL_COUNT:-0} + 1 ))
+    else
+        _SOAK_FP_STALL_COUNT=0
+    fi
+    _SOAK_FP_LAST_CYCLE="$cycle"
+    _SOAK_FP_LAST_SPEND="$spend"
+
+    if [ "${_SOAK_FP_STALL_COUNT:-0}" -ge "$threshold" ]; then
+        return 1
+    fi
+    return 0
+}
+
 soak_install_killgroup_trap() {
     # Capture the parent PID at trap-install time so the trap function
     # uses the script's PID, not a subshell's.

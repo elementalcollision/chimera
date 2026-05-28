@@ -334,6 +334,7 @@ phase_loop() {
     local exit_reason=""
     local trust_baseline
     trust_baseline="$(current_trust_tier "$WORKTREE_STATE")"
+    soak_reset_forward_progress
 
     log "── $phase_name start: cap=\$$cap_usd engines=$engines_enabled baseline=$phase_start_iso trust=T$trust_baseline ──"
 
@@ -356,6 +357,11 @@ phase_loop() {
         fi
         local cycle_pre
         cycle_pre="$(last_cycle_in_db "$WORKTREE_DB")"
+        if ! soak_check_forward_progress "$cycle_pre" "$spend"; then
+            log "FATAL: no forward progress (N=${SOAK_NO_PROGRESS_THRESHOLD:-8} iterations with cycle=$cycle_pre spend=\$$spend)"
+            exit_reason="no_forward_progress  cycle=$cycle_pre  spend=\$$spend"
+            break
+        fi
         log "$phase_name iter $iter  cycle=$cycle_pre  spend=\$$spend  cap=\$$cap_usd"
 
         soak_run_chimera_with_watchdog "$WORKTREE" "$LOG" || \
