@@ -201,3 +201,7 @@ Have the coordinator install a UNIX socket / pidfile that any external observer 
 - **Don't relaunch v31 in the same harness pattern blindly** — the failure mode is reproducible-by-construction.
 - **The agent's phase 1 design doc is preserved** — `mind/research/v31-doctor-detector-design.md` in the worktree is good work; could be used as input to a manual finish or a daemonized re-run.
 - **Coordinator log is the source of truth, NOT the harness task file** — the harness task file only captures what the coordinator's stdout produced before death.
+
+---
+
+**2026-05-27 archival note**: `scripts/long_cycle_soak_v31.sh` was moved to `scripts/archive/soak-runners/long_cycle_soak_v31.sh` as part of the v25–v34 soak-runner consolidation (see `mind/research/soak-runner-consolidation-2026-05-27.md`). The runner itself is unchanged; only its path moved. References above to "v31" the *incident* remain accurate; the script can be inspected at the archive path or via git history of the pre-consolidation commit.

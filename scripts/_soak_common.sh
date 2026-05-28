@@ -24,7 +24,7 @@ soak_refuse_concurrent() {
     # Background: the original implementation used `pgrep -fl "$script_name"`
     # to find other running instances. This was unreliable because bash's
     # `$()` command substitution forks a SUBSHELL with the SAME argv as the
-    # parent script (e.g. `bash long_cycle_soak_v31.sh`), so pgrep finds
+    # parent script (e.g. `bash long_cycle_soak_v34.sh`), so pgrep finds
     # itself, awk, AND the subshell — all matching the pattern. The awk
     # filter dropped self but couldn't distinguish parent-script subshells
     # from genuine concurrent instances. Diagnosed during v31 R1 daemonized
