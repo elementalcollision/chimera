@@ -158,14 +158,86 @@ def parse_recommendation(section_text: str) -> Recommendation:
     )
 
 
-def find_active_design_note(repo_root: Path) -> Path | None:
-    """Return the most-recently-modified ``mind/research/*-design.md``.
+def _current_branch_prefix(repo_root: Path) -> str | None:
+    """Return the chip prefix (e.g. ``v36``) extracted from the current branch.
 
-    Falls back to None when ``mind/research`` is missing or empty.
+    Implements Option A from the v36-postmortem follow-up C (PR #117):
+    branches shaped like ``chimera-soak/v36-2026-05-28-1537`` carry the
+    chip identity in the segment after the first ``/``; the leading
+    alnum token of that segment is the chip prefix used to match a
+    design note in ``mind/research/``.
+
+    Returns ``None`` on detached HEAD, non-git directories, branches
+    without ``/``, or any unparseable shape — the caller falls back to
+    the legacy mtime heuristic on ``None``. Never raises.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse",
+             "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    # Detached HEAD reports "HEAD" from --abbrev-ref.
+    if not branch or branch == "HEAD":
+        return None
+    if "/" not in branch:
+        return None
+    _, rest = branch.split("/", 1)
+    # Take the leading alnum token of the remainder as the chip prefix.
+    m = re.match(r"([A-Za-z0-9]+)", rest)
+    if m is None:
+        return None
+    prefix = m.group(1)
+    return prefix or None
+
+
+def find_active_design_note(repo_root: Path) -> Path | None:
+    """Return the active design note under ``mind/research/``.
+
+    Selection (v36-postmortem follow-up C, PR #117):
+
+    1. If the current git branch carries a chip prefix (e.g.
+       ``chimera-soak/v36-…`` → ``v36``), prefer
+       ``mind/research/<prefix>-*-design.md``, then
+       ``mind/research/<prefix>-*.md`` if no ``*-design.md`` match.
+    2. Otherwise (main, detached HEAD, branch without ``/``, or no
+       match), fall back to the legacy "latest ``*-design.md`` by
+       mtime" heuristic.
+
+    Returns ``None`` when ``mind/research`` is missing or empty.
+    Never raises.
     """
     research = repo_root / "mind" / "research"
     if not research.is_dir():
         return None
+
+    prefix = _current_branch_prefix(repo_root)
+    if prefix:
+        prefixed_designs = sorted(research.glob(f"{prefix}-*-design.md"))
+        if prefixed_designs:
+            prefixed_designs.sort(
+                key=lambda p: p.stat().st_mtime, reverse=True,
+            )
+            return prefixed_designs[0]
+        prefixed_any = [
+            p for p in research.glob(f"{prefix}-*.md")
+            if p.suffix == ".md"
+        ]
+        if prefixed_any:
+            prefixed_any.sort(
+                key=lambda p: p.stat().st_mtime, reverse=True,
+            )
+            return prefixed_any[0]
+        # Prefix detected but no match — fall through to mtime fallback.
+
     candidates = list(research.glob("*-design.md"))
     if not candidates:
         return None
