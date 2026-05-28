@@ -7,6 +7,7 @@ WAKE/ASSESS/WRITE/ROTATE carry real behaviour; the rest are stubs.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import logging
 import os
@@ -54,6 +55,29 @@ from .act import ActExecutor, ActResult
 from .strategy import Planner, PlanResult
 
 logger = logging.getLogger(__name__)
+
+
+_ACT_BUDGET_DEFAULT_SECONDS = 240.0
+
+
+def _act_budget_seconds() -> float:
+    """Hard ceiling for the ACT phase in seconds (v35 postmortem ladder #4).
+
+    Reads ``CHIMERA_ACT_BUDGET_SECONDS``; defaults to 240s. The ACT phase
+    is cancelled via ``asyncio.CancelledError`` at this threshold and the
+    loop advances to WRITE with whatever partial results landed. The 600s
+    silent-death watchdog (ADR 0120) remains the outer ceiling.
+    """
+    raw = os.environ.get("CHIMERA_ACT_BUDGET_SECONDS")
+    if raw is None:
+        return _ACT_BUDGET_DEFAULT_SECONDS
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _ACT_BUDGET_DEFAULT_SECONDS
+    if value <= 0:
+        return _ACT_BUDGET_DEFAULT_SECONDS
+    return value
 
 
 def graph_projection_enabled() -> bool:
@@ -326,7 +350,7 @@ class ChimeraLoop:
         await _run("wake", self._phase_wake, budget_ms=500)
         await _run("assess", self._phase_assess, budget_ms=1000)
         await _run("plan", self._phase_plan, budget_ms=240_000)
-        await _run("act", self._phase_act, budget_ms=240_000)
+        await self._run_act_phase_with_budget()
         await _run("write", self._phase_write, budget_ms=1000)
         await _run("flush", self._phase_flush, budget_ms=2000)
         await _run("commit", self._phase_commit, budget_ms=1000)
@@ -606,6 +630,59 @@ class ChimeraLoop:
         )
         with self._inbox_path.open("a", encoding="utf-8") as f:
             f.write(("\n" if self._inbox_path.read_text().rstrip() else "") + new_block + "\n")
+
+    async def _run_act_phase_with_budget(self) -> None:
+        """Dispatch ``_phase_act`` under a hard wall-clock budget.
+
+        v35 postmortem ladder #4: the historical 240s budget was decorative
+        — ``phase_timer`` only logged an over-budget warning, and attempt #3
+        observed ACT phases running 1.5×–8.4× over (peak 2017s on iter 4
+        phase 2). This wrapper enforces ``CHIMERA_ACT_BUDGET_SECONDS`` via
+        ``asyncio.wait_for``: on timeout the in-flight executor receives
+        ``CancelledError``, a structured ``act_budget_exceeded`` event is
+        logged, and the loop advances to WRITE with whatever results
+        accumulated. ADR 0120's 600s silent-death watchdog stays as the
+        outer hard ceiling.
+        """
+        assert self._report is not None
+        from .observability import phase_timer
+
+        budget_seconds = _act_budget_seconds()
+        budget_ms = budget_seconds * 1000.0
+        with phase_timer("loop.act", budget_ms=budget_ms) as t:
+            try:
+                await asyncio.wait_for(self._phase_act(), timeout=budget_seconds)
+            except asyncio.TimeoutError:
+                completed = sum(
+                    1 for r in (self._act_results or []) if r.completed
+                )
+                total = len(self._tasks)
+                logger.warning(
+                    "ACT phase budget exceeded: cancelled at %.0fs "
+                    "(completed=%d/%d tasks)",
+                    budget_seconds, completed, total,
+                    extra={
+                        "event": "act_budget_exceeded",
+                        "budget_seconds": budget_seconds,
+                        "completed_tasks": completed,
+                        "total_tasks": total,
+                        "cycle": self._report.cycle,
+                    },
+                )
+                self._log_phase(
+                    f"ACT: budget exceeded ({budget_seconds:.0f}s); "
+                    f"cancelled, {completed}/{total} task(s) completed"
+                )
+                self._record_phase_activity(
+                    "act",
+                    details={
+                        "budget_exceeded": True,
+                        "budget_seconds": budget_seconds,
+                        "tasks": total,
+                        "completed": completed,
+                    },
+                )
+        self._report.phase_times_ms["act"] = t["elapsed_ms"]
 
     async def _phase_act(self) -> None:
         """Execute each open inbox task via the ACT executor.

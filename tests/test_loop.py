@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import logging
 from pathlib import Path
 
 import pytest
@@ -233,3 +235,117 @@ async def test_session_log_appended_each_cycle(config: LoopConfig, mind_dir: Pat
     log = (mind_dir / "SESSION_LOG.md").read_text(encoding="utf-8")
     assert "cycle 1 @" in log
     assert "cycle 2 @" in log
+
+
+# ── ACT-phase budget enforcement (v35 postmortem ladder #4) ─────────
+
+
+class _SlowFakeAct:
+    """ACT executor double that sleeps past any reasonable budget."""
+
+    def __init__(self, sleep_seconds: float = 5.0) -> None:
+        self._sleep_seconds = sleep_seconds
+        self.providers = []
+        self._chronicle = None
+        self.invocations = 0
+
+    async def execute(self, task_text, *, cycle, context=None):
+        self.invocations += 1
+        await asyncio.sleep(self._sleep_seconds)
+        from chimera.core.act import ActResult
+        return ActResult(
+            task_text=task_text, completed=True, rounds=1,
+            finish_reason="stop",
+        )
+
+
+class _FastFakeAct:
+    """ACT executor double that returns immediately."""
+
+    def __init__(self) -> None:
+        self.providers = []
+        self._chronicle = None
+        self.invocations = 0
+
+    async def execute(self, task_text, *, cycle, context=None):
+        self.invocations += 1
+        from chimera.core.act import ActResult
+        return ActResult(
+            task_text=task_text, completed=True, rounds=1,
+            finish_reason="stop",
+        )
+
+
+def _promote_trust_for_test(loop) -> None:
+    """Lift trust out of T0 so _phase_act will actually dispatch."""
+    from chimera.trust import TrustTier
+    loop._trust._state.current_tier = int(TrustTier.T3)
+
+
+@pytest.mark.asyncio
+async def test_act_budget_cancels_at_threshold(
+    config: LoopConfig, mind_dir: Path, monkeypatch, caplog,
+):
+    """v35 postmortem ladder #4: when ACT exceeds CHIMERA_ACT_BUDGET_SECONDS
+    the in-flight executor is cancelled and the loop advances. Without
+    enforcement the v35 soak ran ACT 8.4× over the 240s budget."""
+    monkeypatch.setenv("CHIMERA_ACT_BUDGET_SECONDS", "0.05")
+    (mind_dir / "INBOX.md").write_text("- [ ] long-running task\n", encoding="utf-8")
+    loop = ChimeraLoop(config)
+    loop._act = _SlowFakeAct(sleep_seconds=5.0)
+    _promote_trust_for_test(loop)
+
+    caplog.set_level(logging.WARNING, logger="chimera.core.loop")
+    report = await asyncio.wait_for(loop.run_one_cycle(), timeout=2.0)
+
+    # Loop completed despite over-budget ACT.
+    assert report.cycle == 1
+    # ACT did not run unbounded — well under the slow fake's 5s sleep.
+    assert report.phase_times_ms["act"] < 1500
+    # Structured budget event surfaced.
+    budget_events = [
+        r for r in caplog.records
+        if getattr(r, "event", None) == "act_budget_exceeded"
+    ]
+    assert budget_events, "expected an act_budget_exceeded structured log"
+    assert budget_events[0].budget_seconds == pytest.approx(0.05)
+    # Subsequent phases still ran.
+    log_text = "\n".join(report.phase_log)
+    assert "WRITE" in log_text
+    assert "COMMIT" in log_text
+
+
+@pytest.mark.asyncio
+async def test_act_phase_in_budget_passes_through(
+    config: LoopConfig, mind_dir: Path, monkeypatch, caplog,
+):
+    """ACT calls that finish under budget run uninterrupted and emit no
+    act_budget_exceeded event."""
+    monkeypatch.setenv("CHIMERA_ACT_BUDGET_SECONDS", "10")
+    (mind_dir / "INBOX.md").write_text("- [ ] quick task\n", encoding="utf-8")
+    loop = ChimeraLoop(config)
+    fast = _FastFakeAct()
+    loop._act = fast
+    _promote_trust_for_test(loop)
+
+    caplog.set_level(logging.WARNING, logger="chimera.core.loop")
+    report = await loop.run_one_cycle()
+
+    assert fast.invocations == 1
+    assert report.phase_times_ms["act"] < 500
+    assert not [
+        r for r in caplog.records
+        if getattr(r, "event", None) == "act_budget_exceeded"
+    ]
+
+
+def test_act_budget_seconds_env_default(monkeypatch):
+    """Default budget honours the v35 postmortem's 240s baseline; explicit
+    operator override is preserved verbatim."""
+    from chimera.core.loop import _act_budget_seconds
+    monkeypatch.delenv("CHIMERA_ACT_BUDGET_SECONDS", raising=False)
+    assert _act_budget_seconds() == 240.0
+    monkeypatch.setenv("CHIMERA_ACT_BUDGET_SECONDS", "120")
+    assert _act_budget_seconds() == 120.0
+    monkeypatch.setenv("CHIMERA_ACT_BUDGET_SECONDS", "nonsense")
+    assert _act_budget_seconds() == 240.0
