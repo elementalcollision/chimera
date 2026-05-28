@@ -67,7 +67,7 @@ export default function BenchmarkHistoryWidget({ result }: Props) {
           >
             <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <a
-                href={`https://github.com/elementalcollision/uberagent/blob/main/${b.source_note}`}
+                href={`https://github.com/elementalcollision/chimera/blob/main/${b.source_note}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{ color: "inherit", textDecoration: "underline dotted" }}
