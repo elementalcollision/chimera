@@ -159,6 +159,24 @@ ADR ships the event source).
   follows the same shape — single chokepoint, conservative refusal,
   env-var override, event-log surface.
 
+### Follow-up: design-note selection (v36-postmortem, PR #117)
+
+The v36 micro-soak postmortem
+([PR #117](https://github.com/elementalcollision/chimera/pull/117))
+surfaced that the original "latest `*-design.md` by mtime" selection in
+`find_active_design_note` matched the wrong note (v34's instead of
+v36's) during the v36 soak. The guard's *outcome* was correct because
+`mind/research/*` is auto-allowed independently, but the *reasoning
+trace* matched the wrong recommendation.
+
+Resolved in `fix/scope-check-design-note-prefix` (Option A — match the
+chip prefix extracted from the git branch name against the design-note
+filename, with mtime fallback preserved as defense-in-depth). See
+`mind/research/scope-check-design-note-matching-2026-05-28.md` for the
+options analysis and test matrix. **Status unchanged** — the fix is a
+local hardening of `find_active_design_note`; the ADR's surface and
+conservative-default posture are preserved.
+
 ## Test coverage
 
 - `tests/test_scope_check.py` — 25 tests covering parser, classifier,

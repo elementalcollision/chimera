@@ -244,6 +244,107 @@ def test_find_active_design_note_none_when_dir_missing(tmp_path):
     assert find_active_design_note(repo) is None
 
 
+# ---------------------------------------------------------------------------
+# Branch-prefix matching (v36-postmortem follow-up C, PR #117)
+# ---------------------------------------------------------------------------
+
+
+def test_find_active_design_note_matches_branch_prefix(tmp_path):
+    """When HEAD is on a chip branch like ``chimera-soak/v36-...``, prefer the
+    ``v36-*-design.md`` note even if a ``v34-*-design.md`` has a newer mtime.
+
+    Regression test for the v36 micro-soak postmortem (PR #117): the
+    previous "latest by mtime" heuristic selected v34's note during the
+    v36 soak. The reasoning trace looked correct only because
+    ``mind/research/*`` is auto-allowed independently.
+    """
+    repo = _init_repo(tmp_path)
+    v34 = _write_design_note(
+        repo,
+        "## READY-FOR-REMEDIATION\nR1 — no code change.\n",
+        "v34-preference-dialectic-design.md",
+    )
+    v36 = _write_design_note(
+        repo,
+        "## READY-FOR-REMEDIATION\nR1 — no code change.\n",
+        "v36-temporal-regression-design.md",
+    )
+    # v34 is newer by mtime so the legacy heuristic would pick it.
+    os.utime(v36, (1, 1))
+    os.utime(v34, (2, 2))
+    _git(repo, "checkout", "-q", "-b", "chimera-soak/v36-2026-05-28-1537")
+
+    found = find_active_design_note(repo)
+    assert found is not None
+    assert found.name == "v36-temporal-regression-design.md"
+    assert found.resolve() == v36.resolve()
+
+
+def test_find_active_design_note_falls_back_to_mtime_when_no_prefix_match(
+    tmp_path,
+):
+    """On ``main`` (no chip prefix) the mtime fallback must be preserved."""
+    repo = _init_repo(tmp_path)
+    a = _write_design_note(
+        repo, "## READY-FOR-REMEDIATION\nR1\n", "a-design.md"
+    )
+    b = _write_design_note(
+        repo, "## READY-FOR-REMEDIATION\nR2\n", "b-design.md"
+    )
+    os.utime(a, (1, 1))
+    os.utime(b, (2, 2))
+    # _init_repo already left us on ``main``.
+    found = find_active_design_note(repo)
+    assert found is not None
+    assert found.name == "b-design.md"
+
+
+def test_find_active_design_note_detached_head_falls_back(tmp_path):
+    """Detached HEAD must not raise; falls back to mtime ordering."""
+    repo = _init_repo(tmp_path)
+    a = _write_design_note(
+        repo, "## READY-FOR-REMEDIATION\nR1\n", "a-design.md"
+    )
+    b = _write_design_note(
+        repo, "## READY-FOR-REMEDIATION\nR2\n", "b-design.md"
+    )
+    os.utime(a, (1, 1))
+    os.utime(b, (2, 2))
+    # Detach HEAD at the seed commit.
+    head_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    _git(repo, "checkout", "-q", "--detach", head_sha)
+
+    found = find_active_design_note(repo)
+    assert found is not None
+    assert found.name == "b-design.md"
+
+
+def test_find_active_design_note_branch_without_slash_falls_back(tmp_path):
+    """A branch name with no ``/`` separator falls back cleanly."""
+    repo = _init_repo(tmp_path)
+    a = _write_design_note(
+        repo, "## READY-FOR-REMEDIATION\nR1\n", "a-design.md"
+    )
+    b = _write_design_note(
+        repo, "## READY-FOR-REMEDIATION\nR2\n", "b-design.md"
+    )
+    os.utime(a, (1, 1))
+    os.utime(b, (2, 2))
+    _git(repo, "checkout", "-q", "-b", "feature-foo")
+
+    found = find_active_design_note(repo)
+    assert found is not None
+    assert found.name == "b-design.md"
+
+
+def test_find_active_design_note_no_design_notes_returns_none(tmp_path):
+    """Empty ``mind/research/`` returns None regardless of branch."""
+    repo = _init_repo(tmp_path)
+    (repo / "mind" / "research").mkdir(parents=True, exist_ok=True)
+    _git(repo, "checkout", "-q", "-b", "chimera-soak/v99-2026-05-28-0000")
+    assert find_active_design_note(repo) is None
+
+
 def test_evaluate_warns_when_no_design_note(tmp_path):
     repo = _init_repo(tmp_path)
     result = evaluate_commit_scope(repo)
