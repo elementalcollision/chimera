@@ -256,6 +256,34 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
             "Operator must promote the agent before further commits."
         )
 
+    # ADR 0146: pre-commit scope check (confabulation defense). Closes
+    # the gap surfaced by v35 attempt #3 (PR #106): the agent committed
+    # a fabricated diagnosis ~2 minutes after honestly committing
+    # "I didn't do the work". Engine guards (scope_evasion,
+    # degenerate_loop_abort, witness_rejected) detected it but could
+    # not undo a commit that already landed. This is commit-time
+    # enforcement — at the same chokepoint as the T0 gate above, so
+    # both fire before subprocess.exec.
+    #
+    # Conservative refusal: missing design note / missing section /
+    # ambiguous classification → warn-only. Override knob:
+    # CHIMERA_ALLOW_OFF_CHARTER_COMMIT=1.
+    if program == "git" and len(argv) >= 2 and argv[1] == "commit":
+        from chimera.core.scope_check import (
+            ScopeCheckRefusal,
+            check_commit_scope,
+            resolve_repo_root,
+        )
+        try:
+            check_commit_scope(resolve_repo_root(_resolve_cwd(args.get("cwd"))))
+        except ScopeCheckRefusal as exc:
+            raise PermissionError(
+                f"git commit blocked by pre-commit scope check "
+                f"(ADR 0146): {exc.result.reason}\n\n"
+                "Override (operator-aware, single-use): "
+                "export CHIMERA_ALLOW_OFF_CHARTER_COMMIT=1"
+            ) from exc
+
     # Resolve the program to a real path; reject if not found.
     resolved = shutil.which(program)
     if resolved is None:
