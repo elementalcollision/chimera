@@ -201,6 +201,40 @@ published BM25+dense result for this intervention.
   Existing sweeps, smoke tests, and the B1 baseline reproduction
   command all behave identically without that flag.
 
+### Temporal-reasoning regression diagnosis (v35 soak)
+
+The F2 LoCoMo hybrid-retrieval ablation found a −10.42pp regression on
+temporal-reasoning (45.83% → 35.42%, n=96, clearing the ADR 0145 harms
+gate by 8.52pp).  Three competing hypotheses were chartered for
+investigation under the v35 soak; both soak attempts (2026-05-28)
+failed operationally before producing substantive output.  The
+regression remains undiagnosed.
+
+| ID | Hypothesis | Predicted observable | Status |
+|:---|:-----------|:---------------------|:-------|
+| H1 | **Retrieval-distractor**: BM25 pulls timestamp-irrelevant sessions, crowding the evidence session out of top-8 | Evidence session absent from retrieved top-8 | Untested — soak failed before classification |
+| H2 | **Context-budget dilution**: the evidence session is retrieved but its temporal anchor is diluted by 7 co-retrieved sessions | Evidence session in top-8 but model still answers wrong; accuracy improves monotonically as k increases toward full | Untested — soak failed before per-k sweep |
+| H3 | **Category-fundamentals**: temporal reasoning requires chronological structure that retrieval inherently destroys — accuracy stays below F1 at all k < full | Per-k accuracy curve flat below full-context baseline | Untested — soak failed before per-k sweep |
+
+The v35 soak failed in two distinct pre-substantive infrastructure gates:
+attempt #1 was blocked by an ADR 0141 layer-2 guard that misidentified
+the soak's secondary worktree as the primary ([postmortem](../../mind/research/v35-soak-postmortem-2026-05-28.md));
+attempt #2 failed because the persistent asyncio loop (PR #93/#94) ran
+coroutines on a daemon thread that the main-thread-opened SQLite
+connection rejected ([postmortem](../../mind/research/v35-soak-postmortem-2026-05-28-relaunch.md)).
+Both infrastructure defects have since been fixed (PR #103 and a
+subsequent SQLite thread-affinity patch), but the v35 diagnostic
+chip has not been re-launched.  The temporal-reasoning regression
+therefore stands as an open, chartered-but-untested finding against
+hybrid retrieval on LoCoMo, consistent with ADR 0142's existing
+`Accepted (_s`-only)` scope — hybrid retrieval is shipped for
+LongMemEval `_s` (where it helps uniformly) and remains opt-in for
+LoCoMo (where the cross-benchmark verdict is MIXED).
+
+A re-charter of v35 with a canary-`chimera run` preflight and a
+forward-progress watchdog remains recommended (see the F2 note
+[§Recommended follow-up](../../mind/research/locomo-f2-retrieval-ablation-2026-05-27.md)).
+
 ## Alternatives considered
 
 - **BM25-only.** Simpler, no embedder dep. Rejected at design time
