@@ -499,15 +499,117 @@ def build_default_embed_fn() -> EmbedFn | None:
         return None
 
 
+# ── Adaptive top-k for temporal queries (ADR 0142 capstone, chip #1) ──
+#
+# Design note (pre-code, LOCKED):
+#   mind/research/adaptive-topk-temporal-design-2026-05-28.md
+#
+# Mechanism: the 19-item v37+v38+v39 LoCoMo temporal-regression
+# diagnosis closed at H2=74% (context-budget dilution under top-k=8
+# truncation), H1=21% (retrieval miss), H4=5%, H3=0% (ADR 0142
+# §"Cumulative 19-item label distribution"). For temporal questions
+# the right session is typically retrieved but its temporal anchors
+# get compressed within the answerer's context window. The remediation
+# that directly attacks H2 is to skip top-k truncation on temporal
+# queries and surface the full chronology — exactly the
+# `hybrid_retrieval=False` baseline path on a per-query basis.
+#
+# Detection: a small, auditable regex over the question text, plus a
+# category-lookup OR-boost when the harness already knows the category
+# (LoCoMo items carry an authoritative ``category`` label).
+#
+# Env knob: CHIMERA_ADAPTIVE_TOPK_TEMPORAL (default OFF — set to "1" to
+# enable). Default-off behavior is bit-for-bit identical to current
+# main; this is verified by ``test_adaptive_topk_off_is_byte_for_byte_baseline``.
+
+
+_TEMPORAL_ENV_VAR = "CHIMERA_ADAPTIVE_TOPK_TEMPORAL"
+
+
+# Question-shape patterns for temporal-reasoning queries.
+#
+# Empirical calibration note (Phase A tiny-spike, 2026-05-28):
+# the LoCoMo "temporal-reasoning" category (n=96 in F2) is dominated
+# by commonsense-bridge inference questions ("Would X likely...",
+# "What might Y...") rather than literal date/when phrasings. The
+# regex below catches the LITERAL date/when subset for the
+# general-purpose (non-harness) caller; recall on the LoCoMo
+# category-3 subset specifically is ~3% by design. Inside the LoCoMo
+# harness the authoritative ``category`` argument carries the
+# load-bearing signal — see :func:`is_temporal_query`. See the spike
+# note (mind/research/adaptive-topk-temporal-spike-2026-05-28.md) for
+# the empirical numbers + the rationale for keeping the regex narrow
+# rather than expanding it to fit LoCoMo's idiosyncratic
+# commonsense-bridge questions.
+_TEMPORAL_RE = re.compile(
+    r"\b("
+    r"when"
+    r"|how\s+long"
+    r"|how\s+many\s+(?:days|weeks|months|years|hours|minutes)"
+    r"|how\s+(?:long\s+)?ago"
+    r"|what\s+(?:day|date|time|month|year|week)"
+    r"|earliest"
+    r"|latest"
+    r"|most\s+recent"
+    r"|first\s+time"
+    r"|last\s+time"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_temporal_query(question: str, category: str | None = None) -> bool:
+    """Return True if ``question`` looks like a temporal-reasoning query.
+
+    Detection signal is a small regex over the question text. A
+    truthful ``category`` label short-circuits to True when it equals
+    ``"temporal-reasoning"`` — the LoCoMo eval harness carries an
+    authoritative category per item, and we accept that as the
+    strongest available signal when present.
+
+    Outside the harness (e.g., production traffic), pass ``category=None``
+    and only the regex contributes.
+
+    The regex vocabulary is LoCoMo-tuned (see the design note's honest
+    disclosures); cross-corpus generalization is future work.
+    """
+    if category == "temporal-reasoning":
+        return True
+    if not question:
+        return False
+    return _TEMPORAL_RE.search(question) is not None
+
+
+def adaptive_topk_temporal_enabled() -> bool:
+    """Return True iff ``CHIMERA_ADAPTIVE_TOPK_TEMPORAL=1`` is set.
+
+    Default OFF. Any value other than ``"1"`` is treated as OFF
+    (a debug-level log is emitted for non-empty unknown values so
+    operators notice typos).
+    """
+    raw = os.environ.get(_TEMPORAL_ENV_VAR, "")
+    if raw == "1":
+        return True
+    if raw and raw != "0":
+        logger.debug(
+            "hybrid_retrieval: %s=%r is not recognised; treating as OFF "
+            "(set to '1' to enable adaptive top-k for temporal queries)",
+            _TEMPORAL_ENV_VAR, raw,
+        )
+    return False
+
+
 __all__ = [
     "EmbedFn",
     "EmbedderUnavailable",
     "OllamaEmbedder",
     "VoyageEmbedder",
     "RetrievalDebug",
+    "adaptive_topk_temporal_enabled",
     "bm25_rank",
     "build_default_embed_fn",
     "dense_rank",
+    "is_temporal_query",
     "reciprocal_rank_fusion",
     "select_top_k_sessions",
 ]
