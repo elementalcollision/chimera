@@ -11,6 +11,14 @@ scaffolding is preserved live in `scripts/long_cycle_soak_v34.sh` — when
 a new soak is needed, copy that file to the next version number and
 replace the INBOX block.
 
+`scripts/long_cycle_soak_v36.sh` is the post-cascade clean restart:
+the first micro-soak after the v4.116 hardening cascade, charter
+shape "research-note + commit" (single-file deliverable, R1), used
+to test whether the autonomous loop can converge on a single atomic
+classification task. v35's chartered question is paused per
+[PR #112](https://github.com/elementalcollision/uberagent/pull/112);
+v36 is upstream of it.
+
 ## Inventory
 
 | Version | Lines | Chip / charter                                                                            |
