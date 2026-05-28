@@ -30,8 +30,10 @@ import {
 } from "@/lib/graph";
 import { readFragmentation } from "@/lib/fragmentation";
 import { readHeartbeat, readMindFile, readTrustState } from "@/lib/mind";
+import { getBenchmarks } from "@/lib/benchmarks";
 
 import CanvasShell, { ViewPreset, WidgetDef } from "@/components/CanvasShell";
+import BenchmarkHistoryWidget from "@/components/widgets/BenchmarkHistoryWidget";
 import CostAlarmWidget from "@/components/widgets/CostAlarmWidget";
 import HotSignaturesWidget from "@/components/widgets/HotSignaturesWidget";
 import CostOverTimeWidget from "@/components/widgets/CostOverTimeWidget";
@@ -97,6 +99,7 @@ export default async function HomePage() {
   const fanoutCost = costByFanout(fanoutCostRows());
   const modelUtil = modelUtilization({ series_cycles: 24, limit: 5 });
   const boundary = roundBoundaryStats();
+  const benchmarks = getBenchmarks();
 
   const widgets: WidgetDef[] = [
     {
@@ -258,6 +261,12 @@ export default async function HomePage() {
       group: "federation", layout: { x: 0, y: 36, w: 12, h: 5 },
       minW: 6, minH: 4,
       body: <EmergenceWidget counts={emergence} />,
+    },
+    {
+      id: "benchmarks", title: "Benchmark history", eyebrow: "outputs", icon: "list",
+      group: "agent", layout: { x: 0, y: 47, w: 12, h: 6 },
+      minW: 6, minH: 4,
+      body: <BenchmarkHistoryWidget result={benchmarks} />,
     },
     {
       id: "inbox", title: "Inbox", eyebrow: "tasks", icon: "inbox",

@@ -1,0 +1,74 @@
+{
+  "$schema_comment": "Curated benchmark headline numbers surfaced by control-plane/components/widgets/BenchmarkHistoryWidget.tsx. Single source of truth for the dashboard widget; research notes under mind/research/ remain the canonical narrative for each entry. To add a row: append an object to `entries` with id (kebab-case, stable), benchmark (display name), config (model+retrieval summary), n (sample size), headline_pct (number 0-100), optional envelope { mean_pct, sigma_pp, gate_pct }, date (ISO YYYY-MM-DD), source_note (repo-relative path), and optional notes. The widget renders headline + benchmark + config + n + date + link to source_note. Keep this file small; per-category breakdowns belong in the source note.",
+  "entries": [
+    {
+      "id": "lme-oracle-post-t1.5",
+      "benchmark": "LongMemEval oracle",
+      "config": "o4-mini, no retrieval",
+      "n": 500,
+      "headline_pct": 90.80,
+      "envelope": { "mean_pct": 90.13, "sigma_pp": 0.83, "gate_pct": 88.47 },
+      "date": "2026-05-25",
+      "source_note": "mind/research/longmemeval-baseline-post-t1.5-2026-05-25.md"
+    },
+    {
+      "id": "lme-s-baseline",
+      "benchmark": "LongMemEval _s (long-horizon)",
+      "config": "o4-mini, no retrieval",
+      "n": 30,
+      "headline_pct": 10.00,
+      "date": "2026-05-25",
+      "source_note": "mind/research/longmemeval-s-baseline-2026-05-25.md",
+      "notes": "stratified subset; baseline before hybrid retrieval"
+    },
+    {
+      "id": "lme-s-hybrid",
+      "benchmark": "LongMemEval _s + hybrid retrieval",
+      "config": "o4-mini, top_k=8",
+      "n": 30,
+      "headline_pct": 66.67,
+      "date": "2026-05-25",
+      "source_note": "mind/research/t21-hybrid-retrieval-gate-2026-05-25.md",
+      "notes": "+56.67pp vs lme-s-baseline"
+    },
+    {
+      "id": "lme-oracle-noise",
+      "benchmark": "LongMemEval oracle envelope",
+      "config": "o4-mini, no retrieval, n=3 reruns",
+      "n": 500,
+      "headline_pct": 90.13,
+      "envelope": { "mean_pct": 90.13, "sigma_pp": 0.83, "gate_pct": 88.47 },
+      "date": "2026-05-25",
+      "source_note": "mind/research/t21c-oracle-noise-envelope-2026-05-25.md"
+    },
+    {
+      "id": "locomo-f1",
+      "benchmark": "LoCoMo full corpus",
+      "config": "gpt-4o-mini, no retrieval",
+      "n": 1986,
+      "headline_pct": 49.35,
+      "date": "2026-05-26",
+      "source_note": "mind/research/locomo-baseline-full-2026-05-26.md"
+    },
+    {
+      "id": "locomo-f3-envelope",
+      "benchmark": "LoCoMo noise envelope",
+      "config": "gpt-4o-mini, no retrieval, n=3 reruns",
+      "n": 1986,
+      "headline_pct": 48.86,
+      "envelope": { "mean_pct": 48.86, "sigma_pp": 0.46, "gate_pct": 47.94 },
+      "date": "2026-05-27",
+      "source_note": "mind/research/locomo-noise-envelope-2026-05-27.md"
+    },
+    {
+      "id": "locomo-f2-hybrid",
+      "benchmark": "LoCoMo + hybrid retrieval",
+      "config": "gpt-4o-mini, top_k=8",
+      "n": 1986,
+      "headline_pct": 59.37,
+      "date": "2026-05-27",
+      "source_note": "mind/research/locomo-f2-retrieval-ablation-2026-05-27.md",
+      "notes": "+10.02pp vs locomo-f1 (MIXED verdict — per-category asymmetry)"
+    }
+  ]
+}

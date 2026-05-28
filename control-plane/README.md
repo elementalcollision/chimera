@@ -44,6 +44,41 @@ npm run start
 
 Production output is in `.next/`.
 
+## Benchmark history
+
+The **Benchmark history** widget surfaces headline numbers (LongMemEval
+oracle / `_s`, LoCoMo full / envelope / hybrid retrieval, etc.) from a
+curated JSON file at `mind/benchmarks.json`. Each row links to the
+research note under `mind/research/` that documents methodology and
+per-category breakdowns.
+
+To add a new benchmark:
+
+1. Land the research note under `mind/research/` first — it remains the
+   canonical narrative for the number.
+2. Append an entry to `mind/benchmarks.json` under `entries[]`:
+
+   ```json
+   {
+     "id": "kebab-case-stable-id",
+     "benchmark": "Display name",
+     "config": "model, retrieval summary",
+     "n": 500,
+     "headline_pct": 90.80,
+     "envelope": { "mean_pct": 90.13, "sigma_pp": 0.83, "gate_pct": 88.47 },
+     "date": "YYYY-MM-DD",
+     "source_note": "mind/research/your-note.md",
+     "notes": "optional one-line context (shown in tooltip)"
+   }
+   ```
+
+   `envelope` and `notes` are optional. Keep the file scoped to headline
+   numbers; per-category tables belong in the source note.
+3. The widget renders on next page load — no rebuild needed in dev.
+
+If `mind/benchmarks.json` is missing or malformed the widget renders a
+fail-soft placeholder pointing back at this section.
+
 ## Notes
 
 - `better-sqlite3` is a native module compiled at install time.
