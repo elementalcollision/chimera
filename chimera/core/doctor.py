@@ -497,14 +497,25 @@ def detect_main_worktree_branch_drift(repo_root: Path) -> DriftSignal:
     """Return whether ``repo_root`` is the main worktree on a non-main
     branch — the chip-branch-jump papercut.
 
+    Discriminator: ``git rev-parse --git-dir`` returns each worktree's
+    own ``.git`` (resolved); ``--git-common-dir`` always returns the
+    *primary* worktree's ``.git``. They are equal iff we're inside the
+    primary worktree. The previous implementation used
+    ``--show-toplevel`` and compared it to ``cwd``, which is true in
+    every worktree (each worktree reports its own toplevel) — that
+    misfired on `git worktree add`-ed secondaries and refused every
+    `chimera run` from inside them (v35 soak postmortem, 2026-05-28).
+
     Conservative: any git/filesystem error returns ``drifted=False`` with
     a diagnostic ``reason``. False positives would block legitimate
     ``chimera run`` invocations, so we err toward not detecting.
     """
     import subprocess  # noqa: SIM117
 
+    # Resolve toplevel for diagnostic reporting; not used as the
+    # primary-vs-secondary discriminator.
     try:
-        result = subprocess.run(  # noqa: S603
+        result_top = subprocess.run(  # noqa: S603
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True, text=True,
             cwd=str(repo_root), timeout=5.0,
@@ -512,18 +523,52 @@ def detect_main_worktree_branch_drift(repo_root: Path) -> DriftSignal:
     except (subprocess.SubprocessError, OSError):
         return DriftSignal(False, None, None, "cannot run git rev-parse")
 
-    if result.returncode != 0:
+    if result_top.returncode != 0:
         return DriftSignal(False, None, None, "git rev-parse failed (not a repo?)")
 
-    toplevel = Path(result.stdout.strip()).resolve()
-    cwd = repo_root.resolve()
+    toplevel = Path(result_top.stdout.strip()).resolve()
 
-    if cwd != toplevel:
+    # Real discriminator: --git-dir vs --git-common-dir.
+    try:
+        result_gd = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True, text=True,
+            cwd=str(repo_root), timeout=5.0,
+        )
+        result_gcd = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True,
+            cwd=str(repo_root), timeout=5.0,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return DriftSignal(False, None, toplevel, "cannot read git-dir / git-common-dir")
+
+    if result_gd.returncode != 0 or result_gcd.returncode != 0:
         return DriftSignal(
             False, None, toplevel,
-            f"cwd {cwd} ≠ git toplevel {toplevel}; not the main worktree",
+            "git rev-parse --git-dir / --git-common-dir failed",
         )
 
+    # Resolve to absolute paths — git can emit relative paths (e.g. ".git")
+    # for the primary worktree, and absolute paths for secondaries.
+    git_dir = Path(result_gd.stdout.strip())
+    git_common_dir = Path(result_gcd.stdout.strip())
+    if not git_dir.is_absolute():
+        git_dir = (repo_root / git_dir).resolve()
+    else:
+        git_dir = git_dir.resolve()
+    if not git_common_dir.is_absolute():
+        git_common_dir = (repo_root / git_common_dir).resolve()
+    else:
+        git_common_dir = git_common_dir.resolve()
+
+    if git_dir != git_common_dir:
+        return DriftSignal(
+            False, None, toplevel,
+            f"git-dir {git_dir} ≠ git-common-dir {git_common_dir}; secondary worktree",
+        )
+
+    # We are in the primary worktree. Now check the branch.
     try:
         result2 = subprocess.run(  # noqa: S603
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
