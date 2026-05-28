@@ -19,6 +19,17 @@ classification task. v35's chartered question is paused per
 [PR #112](https://github.com/elementalcollision/uberagent/pull/112);
 v36 is upstream of it.
 
+`scripts/long_cycle_soak_v37.sh` is the N=5 fan-out follow-up to
+v36's CONVERGES result (PR #115 / postmortem PR #117). Same R1
+research-note-and-commit shape, same H1/H2/H3/H4 hypothesis space,
+same sort-first item-selection rule — but classifies the first FIVE
+LoCoMo F2 temporal-reasoning regression items instead of one.
+Item #1 (`conv-26::qa14`) is the same item v36 hit, giving a
+built-in per-run consistency check. Adds a fourth locked outcome
+band (PARTIAL) for the fan-out-specific failure mode where the loop
+classifies some but not all five items. Inherits PR #118's phase-1
+soft-sentinel and PR #119's branch-prefix design-note selection.
+
 ## Inventory
 
 | Version | Lines | Chip / charter                                                                            |
