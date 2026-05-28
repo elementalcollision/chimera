@@ -157,6 +157,123 @@ k="$(soak_extract_tasks_completed_from_log "$TMPLOG")"
 assert_eq "${k:-empty}" "empty" "no log lines → empty K"
 soak_check_task_completion "$k"; assert_eq "$?" "0" "task-completion stays quiet on empty log"
 
+# ===============================================================
+# PR #117 follow-up: phase-1 soft-sentinel (v36-postmortem defect B)
+# ===============================================================
+#
+# soak_phase1_deliverable_landed gives phase 1 (engines OFF, no commits)
+# a documented file-presence exit path symmetric with phase 2's
+# commit-based mechanism. Cases 10–13 cover:
+#   10 — fires when deliverable exists AND contains READY marker
+#   11 — does NOT fire when file missing or marker absent
+#   12 — backward compat: empty allowed_files returns error (caller
+#        gates on the env vars being set, like phase_loop does)
+#   13 — phase-2 sentinel preserved (smoke against soak_lib.sh)
+
+TMPDIR_P1="$(mktemp -d -t soak_phase1_test.XXXXXX)"
+trap 'rm -rf "$TMPDIR_P1" "$TMPLOG"' EXIT
+mkdir -p "$TMPDIR_P1/mind/research"
+
+# ── Case 10: fires when deliverable present + marker present ───
+echo "Case 10: phase-1 sentinel fires when deliverable + READY marker present"
+cat > "$TMPDIR_P1/mind/research/v36-locomo-temporal-one-item-classification.md" <<'NOTE_EOF'
+# v36 classification
+
+Classified conv-26::qa14 as H1.
+
+## READY-FOR-REMEDIATION
+
+R1 — no code change.
+NOTE_EOF
+soak_phase1_deliverable_landed \
+    "$TMPDIR_P1" \
+    "mind/research/v36-locomo-temporal-one-item-classification.md" \
+    "true"
+assert_eq "$?" "0" "sentinel fires on file + marker + test=true"
+
+# ── Case 11: does NOT fire on missing file or missing marker ───
+echo "Case 11: phase-1 sentinel does not false-positive"
+
+# 11a: file missing entirely
+soak_phase1_deliverable_landed \
+    "$TMPDIR_P1" \
+    "mind/research/does-not-exist.md" \
+    "true"
+assert_eq "$?" "1" "sentinel quiet when file missing"
+
+# 11b: file exists but lacks marker
+cat > "$TMPDIR_P1/mind/research/v34-no-marker.md" <<'NOTE_EOF'
+# in-progress design note
+
+Still drafting. Not ready yet.
+NOTE_EOF
+soak_phase1_deliverable_landed \
+    "$TMPDIR_P1" \
+    "mind/research/v34-no-marker.md" \
+    "true"
+assert_eq "$?" "1" "sentinel quiet when marker absent"
+
+# 11c: test_cmd fails
+soak_phase1_deliverable_landed \
+    "$TMPDIR_P1" \
+    "mind/research/v36-locomo-temporal-one-item-classification.md" \
+    "false"
+assert_eq "$?" "1" "sentinel quiet when test_cmd fails"
+
+# 11d: custom marker still recognised
+cat > "$TMPDIR_P1/mind/research/v34-preference-dialectic-design.md" <<'NOTE_EOF'
+# v34 design
+
+## READY-FOR-REMEDIATION
+
+Locked design table follows.
+NOTE_EOF
+soak_phase1_deliverable_landed \
+    "$TMPDIR_P1" \
+    "mind/research/v34-preference-dialectic-design.md" \
+    "true" \
+    "## READY-FOR-REMEDIATION"
+assert_eq "$?" "0" "sentinel fires under explicit marker arg (v34 shape)"
+
+# ── Case 12: backward compat — bad args return 2 ───────────────
+echo "Case 12: backward compat — bad args return 2 (callers gate on env vars)"
+soak_phase1_deliverable_landed "$TMPDIR_P1" "" "true" 2>/dev/null
+assert_eq "$?" "2" "empty allowed_files → error 2"
+soak_phase1_deliverable_landed "" "x.md" "true" 2>/dev/null
+assert_eq "$?" "2" "empty worktree → error 2"
+soak_phase1_deliverable_landed "$TMPDIR_P1" "x.md" "" 2>/dev/null
+assert_eq "$?" "2" "empty test_cmd → error 2"
+# The runner's phase_loop only invokes the sentinel when BOTH
+# SOFT_SENTINEL_ALLOWED_FILES and SOFT_SENTINEL_TEST_CMD are non-empty,
+# so existing soaks that leave these unset get the unchanged legacy
+# behaviour (INVESTIGATION_DOC ready_marker_found path only).
+
+# ── Case 13: phase-2 sentinel mechanism preserved ──────────────
+echo "Case 13: phase-2 sentinel still works (soak_lib.sh untouched)"
+# shellcheck disable=SC1091
+. "$HERE/soak_lib.sh"
+# Initialise a tiny git worktree-like dir; soak_phase2_deliverable_landed
+# only inspects .git existence + git log + git diff. Use a real git init
+# so the smoke covers the real codepath.
+PHASE2_REPO="$(mktemp -d -t soak_phase2_test.XXXXXX)"
+trap 'rm -rf "$TMPDIR_P1" "$TMPLOG" "$PHASE2_REPO"' EXIT
+(
+    cd "$PHASE2_REPO" \
+        && git init -q -b main \
+        && git config user.email t@t && git config user.name t \
+        && echo seed > seed.txt && git add seed.txt \
+        && git commit -q -m "seed" \
+        && git checkout -q -b soak/phase2-smoke \
+        && mkdir -p chimera/a2a && echo "x" > chimera/a2a/dialectic.py \
+        && git add chimera/a2a/dialectic.py \
+        && git commit -q -m "[agent] preference-aware dialectic"
+) >/dev/null 2>&1
+soak_phase2_deliverable_landed \
+    "$PHASE2_REPO" \
+    "chimera/a2a/dialectic.py" \
+    "true"
+assert_eq "$?" "0" "phase-2 sentinel still fires on [agent] commit + scoped diff + test=true"
+
 if [ "$fail" -eq 0 ]; then
     echo "ALL PASS"
     exit 0

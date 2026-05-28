@@ -380,12 +380,27 @@ phase_loop() {
         soak_check_trust_degradation "$trust_baseline" "$phase_name"
 
         if [ -n "$SOFT_SENTINEL_ALLOWED_FILES" ] && [ -n "$SOFT_SENTINEL_TEST_CMD" ]; then
-            if soak_phase2_deliverable_landed \
-                  "$WORKTREE" \
-                  "$SOFT_SENTINEL_ALLOWED_FILES" \
-                  "$SOFT_SENTINEL_TEST_CMD"; then
-                exit_reason="soft_sentinel_deliverable_landed"
-                break
+            # Dispatch by engines flag: phase 1 (engines OFF, no commits)
+            # uses file-presence + READY marker; phase 2 uses commit + diff
+            # scope + test. Closes the v36-postmortem (PR #117) defect
+            # where phase 1 had no real exit-on-deliverable path.
+            if [ "$engines_enabled" = "0" ]; then
+                if soak_phase1_deliverable_landed \
+                      "$WORKTREE" \
+                      "$SOFT_SENTINEL_ALLOWED_FILES" \
+                      "$SOFT_SENTINEL_TEST_CMD" \
+                      "$READY_MARKER"; then
+                    exit_reason="soft_sentinel_deliverable_landed"
+                    break
+                fi
+            else
+                if soak_phase2_deliverable_landed \
+                      "$WORKTREE" \
+                      "$SOFT_SENTINEL_ALLOWED_FILES" \
+                      "$SOFT_SENTINEL_TEST_CMD"; then
+                    exit_reason="soft_sentinel_deliverable_landed"
+                    break
+                fi
             fi
         fi
 
@@ -405,7 +420,22 @@ fi
 log "phase-1 sentinel target: $INVESTIGATION_DOC"
 mkdir -p "$WORKTREE/mind/research"
 
+# Phase-1 soft-sentinel: file-presence gate on the OUTPUT deliverable.
+# For v34's INBOX the legacy soak_extract_sentinel_path happens to return
+# the correct output path (only one backticked `mind/research/*.md` in
+# the INBOX), so the legacy mechanism didn't bite — but the v36-shape
+# defect (PR #117) showed the extractor is unreliable when an INBOX
+# cites input reference docs before the output deliverable. Arming the
+# explicit file-presence sentinel makes phase-1 exit deterministic
+# regardless of INBOX ordering.
+SOFT_SENTINEL_ALLOWED_FILES="mind/research/v34-preference-dialectic-design.md"
+SOFT_SENTINEL_TEST_CMD="true"
+log "phase-1 soft-sentinel armed: files=[$SOFT_SENTINEL_ALLOWED_FILES] test=[$SOFT_SENTINEL_TEST_CMD]"
+
 phase_loop "phase1" "$PHASE1_CAP_USD" "$START_ISO" "$INVESTIGATION_DOC" "0"
+
+SOFT_SENTINEL_ALLOWED_FILES=""
+SOFT_SENTINEL_TEST_CMD=""
 
 # ── phase 2 INBOX ──────────────────────────────────────────────
 PHASE2_START_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"

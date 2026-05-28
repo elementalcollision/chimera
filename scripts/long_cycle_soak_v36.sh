@@ -322,12 +322,27 @@ phase_loop() {
         soak_check_trust_degradation "$trust_baseline" "$phase_name"
 
         if [ -n "$SOFT_SENTINEL_ALLOWED_FILES" ] && [ -n "$SOFT_SENTINEL_TEST_CMD" ]; then
-            if soak_phase2_deliverable_landed \
-                  "$WORKTREE" \
-                  "$SOFT_SENTINEL_ALLOWED_FILES" \
-                  "$SOFT_SENTINEL_TEST_CMD"; then
-                exit_reason="soft_sentinel_deliverable_landed"
-                break
+            # Dispatch by engines flag: phase 1 (engines OFF, no commits)
+            # uses file-presence + READY marker; phase 2 uses commit + diff
+            # scope + test. Closes the v36-postmortem (PR #117) defect
+            # where phase 1 had no real exit-on-deliverable path.
+            if [ "$engines_enabled" = "0" ]; then
+                if soak_phase1_deliverable_landed \
+                      "$WORKTREE" \
+                      "$SOFT_SENTINEL_ALLOWED_FILES" \
+                      "$SOFT_SENTINEL_TEST_CMD" \
+                      "$READY_MARKER"; then
+                    exit_reason="soft_sentinel_deliverable_landed"
+                    break
+                fi
+            else
+                if soak_phase2_deliverable_landed \
+                      "$WORKTREE" \
+                      "$SOFT_SENTINEL_ALLOWED_FILES" \
+                      "$SOFT_SENTINEL_TEST_CMD"; then
+                    exit_reason="soft_sentinel_deliverable_landed"
+                    break
+                fi
             fi
         fi
 
@@ -347,7 +362,21 @@ fi
 log "phase-1 sentinel target: $INVESTIGATION_DOC"
 mkdir -p "$WORKTREE/mind/research"
 
+# Phase-1 soft-sentinel: file-presence gate on the OUTPUT deliverable.
+# This closes the defect surfaced by PR #117 — INVESTIGATION_DOC above
+# points at the F2 INPUT reference doc (first backticked path in INBOX),
+# not the output classification the agent writes. The legacy
+# `ready_marker_found` exit on INVESTIGATION_DOC is preserved for
+# backward compat, but the soft-sentinel below is the real exit path
+# for v36-shape soaks.
+SOFT_SENTINEL_ALLOWED_FILES="mind/research/v36-locomo-temporal-one-item-classification.md"
+SOFT_SENTINEL_TEST_CMD="true"
+log "phase-1 soft-sentinel armed: files=[$SOFT_SENTINEL_ALLOWED_FILES] test=[$SOFT_SENTINEL_TEST_CMD]"
+
 phase_loop "phase1" "$PHASE1_CAP_USD" "$START_ISO" "$INVESTIGATION_DOC" "0"
+
+SOFT_SENTINEL_ALLOWED_FILES=""
+SOFT_SENTINEL_TEST_CMD=""
 
 # ── phase 2 INBOX ──────────────────────────────────────────────
 PHASE2_START_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
