@@ -423,14 +423,44 @@ def test_orphan_worktrees_malformed_metadata_returns_ok(tmp_path, monkeypatch):
 # ── v4.??: uv_installed check ──────────────────────────────────────
 
 # ── v31: main worktree branch drift ─────────────────────────────────
+#
+# The detector at chimera.core.doctor.detect_main_worktree_branch_drift
+# uses `git rev-parse --git-dir` vs `--git-common-dir` to distinguish
+# the primary worktree from `git worktree add`-ed secondaries; they
+# are equal only in the primary. Earlier the discriminator was
+# `--show-toplevel` vs cwd, which is equal in every worktree (each
+# worktree reports its own toplevel) — that bug shipped to main and
+# was caught by the v35 soak postmortem (2026-05-28). The mock helper
+# below therefore takes both git-dir and git-common-dir stdout values;
+# defaults reflect "primary worktree" (.git == .git). Tests later in
+# this file create real `git worktree add`-ed secondaries as
+# integration coverage so a future mock-only regression cannot mask
+# the bug again.
 
 def _drift_check(monkeypatch, rev_parse_stdout, head_stdout,
-                 rev_parse_rc=0, head_rc=0, repo_root=None):
-    """Call _check_main_worktree_branch_drift with mocked git subprocess."""
+                 rev_parse_rc=0, head_rc=0, repo_root=None,
+                 git_dir_stdout=".git\n", git_common_dir_stdout=".git\n",
+                 git_dir_rc=0, git_common_dir_rc=0):
+    """Call _check_main_worktree_branch_drift with mocked git subprocess.
+
+    Defaults represent a primary worktree where git-dir == git-common-dir
+    (both ".git"). Pass differing stdouts to simulate a secondary worktree.
+    """
     import subprocess as _subprocess
 
     def fake_run(*args, **kwargs):
-        if "--show-toplevel" in (args[0] if args else []):
+        argv = args[0] if args else []
+        if "--git-dir" in argv:
+            return _subprocess.CompletedProcess(
+                args=args, returncode=git_dir_rc,
+                stdout=git_dir_stdout, stderr="",
+            )
+        elif "--git-common-dir" in argv:
+            return _subprocess.CompletedProcess(
+                args=args, returncode=git_common_dir_rc,
+                stdout=git_common_dir_stdout, stderr="",
+            )
+        elif "--show-toplevel" in argv:
             return _subprocess.CompletedProcess(
                 args=args, returncode=rev_parse_rc,
                 stdout=rev_parse_stdout, stderr="",
@@ -465,13 +495,17 @@ def test_worktree_branch_drift_warns_when_on_feature_branch(tmp_path, monkeypatc
     assert "git checkout main" in r.message
 
 
-def test_worktree_branch_drift_ok_when_in_worktree_not_toplevel(tmp_path, monkeypatch):
+def test_worktree_branch_drift_ok_when_in_secondary_worktree(tmp_path, monkeypatch):
+    """A secondary worktree has git-dir != git-common-dir. The detector
+    must return ok regardless of the branch checked out there."""
     r = _drift_check(monkeypatch,
-        rev_parse_stdout="/some/other/worktree/path\n",
+        rev_parse_stdout=str(tmp_path) + "\n",
         head_stdout="chimera-soak/v31-xyz\n",
-        repo_root=tmp_path)
+        repo_root=tmp_path,
+        git_dir_stdout=str(tmp_path / ".git" / "worktrees" / "secondary") + "\n",
+        git_common_dir_stdout=str(tmp_path / ".git") + "\n")
     assert r.status == "ok"
-    assert "≠ git toplevel" in r.message
+    assert "secondary worktree" in r.message
 
 
 def test_worktree_branch_drift_ok_when_git_fails(tmp_path, monkeypatch):
@@ -482,12 +516,94 @@ def test_worktree_branch_drift_ok_when_git_fails(tmp_path, monkeypatch):
     assert r.status == "ok"
 
 
+def test_worktree_branch_drift_ok_when_git_dir_fails(tmp_path, monkeypatch):
+    """If git-dir / git-common-dir queries fail, fall back to ok (conservative)."""
+    r = _drift_check(monkeypatch,
+        rev_parse_stdout=str(tmp_path) + "\n",
+        head_stdout="chip/whatever\n",
+        repo_root=tmp_path,
+        git_dir_stdout="", git_dir_rc=128)
+    assert r.status == "ok"
+
+
 def test_worktree_branch_drift_ok_when_detached_head(tmp_path, monkeypatch):
     r = _drift_check(monkeypatch,
         rev_parse_stdout=str(tmp_path) + "\n",
         head_stdout="HEAD\n")
     assert r.status == "ok"
     assert "detached" in r.message
+
+
+# ── integration: real `git worktree add` (v35 postmortem regression) ──
+#
+# These tests create actual git repositories on disk and exercise
+# `git worktree add` to validate that detect_main_worktree_branch_drift
+# correctly identifies primary vs secondary worktrees. They are the
+# regression coverage for the v35 soak postmortem (2026-05-28) where
+# a mock-only test suite masked a real-world detector bug.
+
+def _git(cwd, *args):
+    """Run a git command at cwd, return stdout stripped. Fail loudly."""
+    import subprocess as _subprocess
+    result = _subprocess.run(
+        ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_real_repo(repo_path):
+    """Create an isolated git repo at repo_path with one commit on main."""
+    repo_path.mkdir(parents=True, exist_ok=True)
+    _git(repo_path, "init", "-q", "-b", "main")
+    _git(repo_path, "config", "user.email", "test@example.com")
+    _git(repo_path, "config", "user.name", "Test")
+    _git(repo_path, "config", "commit.gpgsign", "false")
+    (repo_path / "README.md").write_text("test\n")
+    _git(repo_path, "add", "README.md")
+    _git(repo_path, "commit", "-q", "-m", "initial")
+
+
+def test_real_primary_worktree_on_main_is_not_drifted(tmp_path):
+    """Primary worktree on main → drifted=False."""
+    from chimera.core.doctor import detect_main_worktree_branch_drift
+    repo = tmp_path / "primary"
+    _init_real_repo(repo)
+    signal = detect_main_worktree_branch_drift(repo)
+    assert signal.drifted is False
+    assert signal.branch == "main"
+
+
+def test_real_primary_worktree_on_feature_branch_is_drifted(tmp_path):
+    """Primary worktree on a non-main branch → drifted=True (the papercut)."""
+    from chimera.core.doctor import detect_main_worktree_branch_drift
+    repo = tmp_path / "primary"
+    _init_real_repo(repo)
+    _git(repo, "checkout", "-q", "-b", "chip/example")
+    signal = detect_main_worktree_branch_drift(repo)
+    assert signal.drifted is True
+    assert signal.branch == "chip/example"
+    assert "not main" in signal.reason
+
+
+def test_real_secondary_worktree_on_branch_is_not_drifted(tmp_path):
+    """Secondary `git worktree add`-ed branch must NOT be flagged as drifted.
+
+    Regression test for the v35 soak postmortem (2026-05-28): the previous
+    detector used `--show-toplevel == cwd` which is true in every worktree,
+    so it falsely identified every secondary as the primary and refused
+    every `chimera run` from inside chip worktrees.
+    """
+    from chimera.core.doctor import detect_main_worktree_branch_drift
+    repo = tmp_path / "primary"
+    _init_real_repo(repo)
+    secondary = tmp_path / "secondary"
+    _git(repo, "worktree", "add", "-b", "chimera-soak/v35-test", str(secondary), "main")
+    signal = detect_main_worktree_branch_drift(secondary)
+    assert signal.drifted is False, (
+        f"secondary worktree on a non-main branch must not be flagged as drifted; "
+        f"got reason={signal.reason!r}"
+    )
+    assert "secondary worktree" in signal.reason
 
 
 def test_worktree_branch_drift_in_registry(monkeypatch):
@@ -673,11 +789,15 @@ def test_worktree_branch_drift_ok_and_warn(tmp_path, monkeypatch, branch, expect
     import subprocess as _subprocess
 
     def fake_run(*args, **kwargs):
-        return _subprocess.CompletedProcess(
-            args=args, returncode=0,
-            stdout=str(tmp_path) + "\n" if "--show-toplevel" in (args[0] if args else []) else branch + "\n",
-            stderr="",
-        )
+        argv = args[0] if args else []
+        if "--show-toplevel" in argv:
+            stdout = str(tmp_path) + "\n"
+        elif "--git-dir" in argv or "--git-common-dir" in argv:
+            # Primary worktree: git-dir == git-common-dir.
+            stdout = ".git\n"
+        else:
+            stdout = branch + "\n"
+        return _subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr="")
     monkeypatch.setattr("subprocess.run", fake_run)
     from chimera.core.doctor import _check_main_worktree_branch_drift
     from pathlib import Path
