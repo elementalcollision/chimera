@@ -198,10 +198,26 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """Open (or create) the Chimera DB. WAL mode, foreign keys on."""
     db_path = Path(path) if path is not None else default_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    # ``check_same_thread=False`` is load-bearing for the v4.115
+    # persistent-loop architecture (``chimera/_async_loop.py``):
+    # ``ChimeraLoop.__init__`` opens this connection on the calling
+    # thread (the main thread, when invoked from ``chimera run``)
+    # but ``run_on_persistent_loop(loop.run_one_cycle())`` then
+    # executes every query on the loop's daemon background thread.
+    # Python's default ``check_same_thread=True`` makes that combo
+    # raise ``sqlite3.ProgrammingError`` on the first cross-thread
+    # ``conn.execute`` (see PR #104 v35-soak postmortem, 2026-05-28).
+    # Concurrency safety relies on the persistent loop serializing
+    # all coroutines onto a single thread — there is no second
+    # concurrent writer to race against. The only main-thread touch
+    # after init is ``Loop.close()``, which runs strictly after the
+    # cycle future has resolved (``cli.py``'s ``finally``), so it
+    # cannot race with the loop thread either.
     conn = sqlite3.connect(
         db_path,
         detect_types=sqlite3.PARSE_DECLTYPES,
         isolation_level=None,  # autocommit; we use explicit transactions
+        check_same_thread=False,
     )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
