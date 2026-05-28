@@ -123,6 +123,103 @@ soak_reset_forward_progress() {
     _SOAK_FP_STALL_COUNT=0
     _SOAK_FP_LAST_CYCLE=""
     _SOAK_FP_LAST_SPEND=""
+    # Per-phase counters for the task-completion stall signal (ladder #6,
+    # v35-postmortem attempt #4). Independent grace + threshold from the
+    # (cycle, spend) signal above so they evolve separately.
+    _SOAK_NC_ITER=0
+    _SOAK_NC_STALL_COUNT=0
+    _SOAK_NC_LOG_OFFSET=0
+}
+
+soak_extract_tasks_completed_from_log() {
+    # Parse only the NEW tail of a chimera-run log (since the last call)
+    # for the PR #110 ACT-budget-exceeded warning and print the most
+    # recent `completed=K` integer found. The warning format is:
+    #
+    #   ACT phase budget exceeded: cancelled at 240s (completed=0/3 tasks)
+    #
+    # Defined in chimera/core/loop.py::_run_act_phase_with_budget.
+    #
+    # Output: integer K on stdout (most recent K in the new tail), or
+    # nothing if no new ACT-budget-exceeded line appeared since last
+    # call. Callers MUST treat empty as "unknown / conservative-positive"
+    # (i.e. don't count as a stall). This is intentional: a missing log
+    # line is ambiguous (iter still running, alternate phase, etc.) and
+    # the prior call already accounted for any earlier matches.
+    #
+    # Uses the _SOAK_NC_LOG_OFFSET shell global (reset by
+    # soak_reset_forward_progress) to remember the byte position of the
+    # last scan. Safe across log rotation: if the file shrinks, the
+    # offset is reset to 0.
+    local log_file="$1"
+    if [ ! -f "$log_file" ]; then
+        return 0
+    fi
+    local size
+    size=$(wc -c < "$log_file" 2>/dev/null | tr -d '[:space:]')
+    size=${size:-0}
+    local off="${_SOAK_NC_LOG_OFFSET:-0}"
+    if [ "$size" -lt "$off" ]; then
+        off=0
+    fi
+    local new_bytes=$(( size - off ))
+    _SOAK_NC_LOG_OFFSET="$size"
+    if [ "$new_bytes" -le 0 ]; then
+        return 0
+    fi
+    tail -c "$new_bytes" "$log_file" 2>/dev/null \
+        | grep -oE 'ACT phase budget exceeded[^(]*\(completed=[0-9]+/[0-9]+ tasks\)' \
+        | awk 'END { print }' \
+        | grep -oE 'completed=[0-9]+' \
+        | grep -oE '[0-9]+' \
+        | tail -n 1
+}
+
+soak_check_task_completion() {
+    # Task-completion stall watchdog (ladder #6, v35-postmortem attempt
+    # #4). Additive to soak_check_forward_progress — both signals coexist
+    # and either independently triggers abort. Detects the degenerate
+    # mode where every ACT phase consumes the full budget and is
+    # cancelled (advancing cycle and spend) while completing ZERO tasks.
+    #
+    # Args:
+    #   $1 = tasks-completed integer (output of
+    #        soak_extract_tasks_completed_from_log); empty string means
+    #        "unknown" → conservative-positive (resets stall counter).
+    # Returns:
+    #   0 — OK (still inside grace, K>0, or counter below threshold)
+    #   1 — N consecutive K=0 iters after grace; caller MUST log FATAL
+    #
+    # Env knobs:
+    #   SOAK_NO_COMPLETION_THRESHOLD (default 6)
+    #   SOAK_NO_COMPLETION_GRACE     (default 2) — Ollama warmup buffer
+    local k="$1"
+    local threshold="${SOAK_NO_COMPLETION_THRESHOLD:-6}"
+    local grace="${SOAK_NO_COMPLETION_GRACE:-2}"
+
+    _SOAK_NC_ITER=$(( ${_SOAK_NC_ITER:-0} + 1 ))
+
+    if [ "$_SOAK_NC_ITER" -le "$grace" ]; then
+        _SOAK_NC_STALL_COUNT=0
+        return 0
+    fi
+
+    # Empty K → conservative-positive: don't increment, don't reset.
+    # Treats "unknown" as neutral rather than stall evidence.
+    if [ -z "$k" ]; then
+        return 0
+    fi
+
+    if [ "$k" -eq 0 ] 2>/dev/null; then
+        _SOAK_NC_STALL_COUNT=$(( ${_SOAK_NC_STALL_COUNT:-0} + 1 ))
+    else
+        _SOAK_NC_STALL_COUNT=0
+    fi
+
+    if [ "${_SOAK_NC_STALL_COUNT:-0}" -ge "$threshold" ]; then
+        return 1
+    fi
+    return 0
 }
 
 soak_check_forward_progress() {

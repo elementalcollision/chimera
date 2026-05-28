@@ -390,6 +390,17 @@ phase_loop() {
             exit_reason="no_forward_progress  cycle=$cycle_pre  spend=\$$spend"
             break
         fi
+        # Ladder #6 (v35-postmortem attempt #4): additive task-completion
+        # signal. Catches the degenerate mode where cycle/spend advance
+        # every iter but every ACT phase hits the 240s budget cap with
+        # completed=0/N tasks.
+        local tasks_completed_k
+        tasks_completed_k="$(soak_extract_tasks_completed_from_log "$LOG")"
+        if ! soak_check_task_completion "$tasks_completed_k"; then
+            log "FATAL: no task completion (${SOAK_NO_COMPLETION_THRESHOLD:-6} iterations with completed=0/M tasks at budget cap)"
+            exit_reason="no_task_completion  last_k=${tasks_completed_k:-unknown}"
+            break
+        fi
         log "$phase_name iter $iter  cycle=$cycle_pre  spend=\$$spend  cap=\$$cap_usd"
 
         soak_run_chimera_with_watchdog "$WORKTREE" "$LOG" || \
