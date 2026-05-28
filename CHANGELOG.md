@@ -9,6 +9,130 @@ Earlier releases (v1.0 → v4.113.0) are documented through the ADR series and
 git tags; this changelog is introduced at v4.114.0 as the load-bearing
 public record for releases going forward.
 
+## v4.117.0 — 2026-05-28 — LoCoMo temporal-regression investigation closure
+
+The release that formally closes the LoCoMo F2 hybrid-retrieval temporal-reasoning
+regression investigation chartered by [PR #98](https://github.com/elementalcollision/chimera/pull/98).
+Across four autonomous-loop soaks (v36 → v39), Chimera-the-agent produced a
+defensible 19-item diagnosis: **74% H2 (context-budget dilution under top-k=8
+truncation), 21% H1 (retrieval miss), 5% H4 (F1/F2 spec drift), 0% H3
+(answerer-model failure).** The H3 absence rules out the answerer-model axis
+as the remediation lever and grounds ADR 0142's `Accepted (`_s`-only)` verdict
+in mechanism.
+
+This release crystallizes the substantive endpoint of weeks of substrate work
+that started with the v35 cascade hardening in v4.116.0. No changes to v4.0-stable
+surfaces (SQLite schema, graph store, mind layout, HTTP endpoints, CLI verbs,
+env vars per [ADR 0025](docs/adr/0025-v4-stability.md)).
+
+### The four-soak fan-out ladder (substantive layer)
+
+Each soak produced a per-item classification deliverable + a postmortem with
+operational + substantive verdicts. The conservative N=1 → N=5 → N=10 → N=19
+ladder existed to make any failure mode diagnosable; all four converged.
+
+| Soak | N (cumulative) | PR runner | PR postmortem | Outcome | Wall | Spend |
+|---|---:|---|---|---|---:|---:|
+| v36 | 1 | [#115](https://github.com/elementalcollision/chimera/pull/115) | [#117](https://github.com/elementalcollision/chimera/pull/117) | CONVERGES | 19 min | $0.24 |
+| v37 | 5 | [#120](https://github.com/elementalcollision/chimera/pull/120) | [#121](https://github.com/elementalcollision/chimera/pull/121) | CONVERGES | ~10 min | $0.135 |
+| v38 | 10 | [#122](https://github.com/elementalcollision/chimera/pull/122) | [#124](https://github.com/elementalcollision/chimera/pull/124) | CONVERGES | ~36 min | $0.399 |
+| v39 | 19 | [#126](https://github.com/elementalcollision/chimera/pull/126) | [#127](https://github.com/elementalcollision/chimera/pull/127) | CONVERGES | 12.5 min | $0.156 |
+
+**Cumulative spend for the full 19-item diagnosis: ~$0.93 across ~78 wall-min.**
+Each soak independently classified its items by `item_id` sort order with a
+locked no-discretion rule, then committed a research-note deliverable scoped
+to one file. Per-item cost trended **down** at the largest fan-out (v39's
+$0.017/item) — larger denominator amortized fixed phase costs.
+
+### Capstone — ADR 0142 amendment ([PR #128](https://github.com/elementalcollision/chimera/pull/128))
+
+Synthesizes the 19-item distribution into ADR 0142 as a new §Consequences
+subsection. Status field unchanged (`Accepted (`_s`-only)`); the diagnosis
+*explains* the verdict by naming the mechanism: same top-k=8 truncation that
+helps `_s` long-horizon hurts LoCoMo temporal-reasoning through 74% context-
+budget dilution. The H1/H2/H3 framework from [PR #107](https://github.com/elementalcollision/chimera/pull/107)
+is preserved as the historical chartered-but-untested record.
+
+Three remediation directions are **named but not chartered** in the amendment,
+each with an explicit falsification gate:
+
+- **Adaptive top-k for temporal queries** — detect temporal-reasoning question
+  shape; increase top-k or disable retrieval for those queries
+- **Temporal-anchor preservation under truncation** — preserve session-date
+  headers and timestamped anchors preferentially
+- **Mid-conversation summary injection** — pre-compute temporal-arc summaries
+  per conversation; inject alongside top-k retrieval
+
+### Operational layer — substrate-discipline hardening landed for the soaks
+
+Several fixes landed during the fan-out arc to keep the substrate aligned with
+the discipline the soaks needed. Each is small but load-bearing for future
+fan-out work:
+
+- **Phase-1 soft-sentinel** ([PR #118](https://github.com/elementalcollision/chimera/pull/118)):
+  closes v36-postmortem follow-up B. Adds `soak_phase1_deliverable_landed` to
+  `scripts/_soak_common.sh`, symmetric with phase-2's existing mechanism but
+  adapted to phase-1 semantics (engines OFF, no commits expected). Required
+  for multi-deliverable soaks where phase 1's previous "ready_marker_found"
+  exit was accidentally checking the input reference doc rather than the
+  output deliverable.
+- **Scope-check design-note selection by branch prefix** ([PR #119](https://github.com/elementalcollision/chimera/pull/119)):
+  closes v36-postmortem follow-up C. Replaces the "latest `*-design.md` by
+  mtime" heuristic in [ADR 0146](docs/adr/0146-pre-commit-scope-check.md)'s
+  `find_active_design_note` with principled selection that matches the chip
+  prefix extracted from the current git branch name. Eliminates the "right by
+  accident" verdict the v36 soak exposed.
+- **Phase-1 sentinel-target fix** (inline in [PR #126](https://github.com/elementalcollision/chimera/pull/126)):
+  v39-specific correctness fix — `INVESTIGATION_DOC` is explicitly set to the
+  v39 OUTPUT deliverable rather than via `soak_extract_sentinel_path` (which
+  pulled the F1 INPUT JSONL in v37/v38). Validated operationally: v39 was the
+  first soak in the series with a correctly-targeted phase-1 sentinel.
+
+### Dashboard benchmark-history widget ([PR #116](https://github.com/elementalcollision/chimera/pull/116))
+
+Net-new read-only widget in `control-plane/components/widgets/BenchmarkHistoryWidget.tsx`
+surfacing all LongMemEval + LoCoMo headline numbers accumulated since v4.114.0.
+Source-of-truth is a curated `mind/benchmarks.json` (Option B per design
+note); fail-soft on missing/malformed JSON. Server component, no client JS,
+no new dependencies. 7 seed rows covering LongMemEval oracle/`_s` + LoCoMo
+full/envelope/hybrid baselines.
+
+### ADRs landed
+
+- No new ADRs in this release. ADR 0142 is amended (existing §Consequences
+  preserved; new closure subsection appended). ADR 0146 (pre-commit scope
+  check, Proposed) is amended via PR #119 with the branch-prefix design-note
+  selection fix; status remains Proposed pending more soak validation.
+
+### Tests + CI
+
+- **1,591 passed, 5 skipped** on main at `bfc87ab`. No test regressions across
+  any of the 14 PRs in this release.
+- `tests/test_scope_check.py` gained 5 tests covering branch-prefix selection
+  (PR #119); other test counts unchanged.
+
+### What this release does NOT include
+
+- **Remediation implementation**. The three named directions (adaptive top-k,
+  temporal-anchor preservation, mid-conversation summary injection) are
+  candidates for future investigation, each operator-chartered separately with
+  its own pre-registered falsification gate. None are implemented in v4.117.0.
+- **Multi-deliverable or implementation-shaped soak validation**. The arc
+  validated the autonomous-loop substrate at single-deliverable scale across
+  N=1, N=5, N=10, N=19 — all R1 (no code change). Multi-deliverable or
+  R2+ (code-change) shapes are future investigations.
+- **Status change on ADR 0142**. The diagnosis explains the existing
+  `Accepted (`_s`-only)` verdict; it does not modify it. A status change would
+  require a remediation that lands, measures, and clears its own gate.
+
+### Upgrade notes
+
+No breaking changes. No new env knobs. No new CLI flags. The benchmark widget
+adds `mind/benchmarks.json` to the repo; future operators appending baselines
+should follow the schema documented in the file's `$schema_comment` field.
+
+---
+
 ## v4.116.0 — 2026-05-28 — Autonomous-loop hardening cascade
 
 The release that closes a six-class grounding-error cascade in the
