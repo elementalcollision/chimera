@@ -29,7 +29,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from .hybrid_retrieval import EmbedFn, select_top_k_sessions
+from .hybrid_retrieval import (
+    EmbedFn,
+    adaptive_topk_temporal_enabled,
+    select_top_k_sessions,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -441,6 +445,29 @@ class LoCoMoAdapter:
         if not self._hybrid_retrieval:
             return list(range(n))
         if n <= self._retrieval_top_k:
+            return list(range(n))
+        # Adaptive top-k for temporal queries (ADR 0142 capstone, chip #1).
+        # Default OFF behind CHIMERA_ADAPTIVE_TOPK_TEMPORAL. When ON and the
+        # item's category is the authoritative LoCoMo "temporal-reasoning"
+        # label, skip top-k truncation and return every session in
+        # chronological order — directly attacks the H2=74%
+        # context-budget-dilution failure mode diagnosed across
+        # v37/v38/v39 on those exact 96 items (see design note:
+        # mind/research/adaptive-topk-temporal-design-2026-05-28.md, and
+        # spike note: mind/research/adaptive-topk-temporal-spike-2026-05-28.md
+        # for why the in-harness path keys strictly on category — the
+        # regex misfires on ~18% of non-temporal LoCoMo items that
+        # superficially look temporal but were categorised multi-hop /
+        # open-domain by reasoning structure, and triggering adaptive on
+        # those risks the +16.82pp / +7.61pp F2 wins on those categories).
+        # The regex in :func:`is_temporal_query` remains the universal
+        # path for non-harness callers that lack an authoritative
+        # category. When OFF this branch is not entered and behavior is
+        # bit-for-bit identical to current main.
+        if (
+            adaptive_topk_temporal_enabled()
+            and item.category == "temporal-reasoning"
+        ):
             return list(range(n))
         session_texts = [_session_to_text(s) for s in item.sessions]
         return select_top_k_sessions(

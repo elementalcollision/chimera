@@ -354,3 +354,181 @@ def test_adapter_preserves_session_dates_under_hybrid(tmp_path: Path):
     card = (tmp_path / "peers" / "self.md").read_text()
     # The selected sessions must each carry their original date anchor.
     assert "**Session date:** 2026-01-10" in card  # session 9 → 10th day
+
+
+# ── Adaptive top-k for temporal queries (ADR 0142 capstone, chip #1) ──
+#
+# Design contract:
+#   mind/research/adaptive-topk-temporal-design-2026-05-28.md
+#
+# Detection mechanism: regex (with category-lookup as a free OR-boost).
+# Adaptation policy: disable retrieval truncation (k = n) on temporal hit.
+# Env knob: CHIMERA_ADAPTIVE_TOPK_TEMPORAL, default OFF.
+
+
+def test_is_temporal_query_detects_common_phrasings():
+    from chimera.evals.hybrid_retrieval import is_temporal_query
+
+    # Literal date/when phrasings — the regex's primary target. The
+    # LoCoMo "temporal-reasoning" category is dominated by
+    # commonsense-bridge questions rather than these literal forms
+    # (spike note: mind/research/adaptive-topk-temporal-spike-2026-05-28.md);
+    # inside the harness the ``category`` argument carries the
+    # load-bearing signal. The regex catches the universal literal
+    # subset for general-purpose (non-harness) callers.
+    assert is_temporal_query("When did Alice meet Bob?")
+    assert is_temporal_query("How long has Carol lived there?")
+    assert is_temporal_query("What month did they meet?")
+    assert is_temporal_query("How many weeks ago was that?")
+    assert is_temporal_query("What year did Dave move to Boston?")
+    assert is_temporal_query("What date was the meeting?")
+    assert is_temporal_query("What was the most recent appointment?")
+    assert is_temporal_query("When was the first time they met?")
+
+
+def test_is_temporal_query_negative_on_non_temporal():
+    from chimera.evals.hybrid_retrieval import is_temporal_query
+
+    # Non-temporal phrasings — must not false-positive.
+    assert not is_temporal_query("Where does Alice live?")
+    assert not is_temporal_query("What is Bob's favorite food?")
+    assert not is_temporal_query("Do they like coffee?")
+    assert not is_temporal_query("Who introduced them?")
+    assert not is_temporal_query("Which team does Carol support?")
+    # "before/after/since" are deliberately NOT in the regex — too
+    # broad for LoCoMo's corpus (drove 22% false-positive on
+    # non-temporal items in the spike). The regex stays narrow on
+    # literal date/when forms; commonsense-bridge "temporal-reasoning"
+    # is picked up via the category argument inside the harness.
+    assert not is_temporal_query("What happened before the vacation?")
+    assert not is_temporal_query("After Sara's trip, what did they discuss?")
+
+
+def test_is_temporal_query_category_signal():
+    """A truthful ``category`` label short-circuits the regex.
+
+    Inside the LoCoMo adapter, the harness already knows the category;
+    we accept that as authoritative when present. The regex stays the
+    universal path; the category is a free OR-boost.
+    """
+    from chimera.evals.hybrid_retrieval import is_temporal_query
+
+    # Non-temporal-looking question, but the category authoritatively
+    # says it's temporal-reasoning → True.
+    assert is_temporal_query(
+        "Where do they live?", category="temporal-reasoning"
+    )
+    # Other categories do not force True for a non-temporal question.
+    assert not is_temporal_query(
+        "Where do they live?", category="single-hop"
+    )
+    assert not is_temporal_query(
+        "Where do they live?", category="open-domain"
+    )
+
+
+def test_adaptive_topk_on_temporal_returns_all_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """With knob ON + temporal question, retrieval truncation is disabled."""
+    from chimera.evals.locomo import LoCoMoAdapter, LoCoMoItem
+
+    monkeypatch.setenv("CHIMERA_ADAPTIVE_TOPK_TEMPORAL", "1")
+
+    adapter = LoCoMoAdapter(
+        mind_dir=tmp_path,
+        hybrid_retrieval=True,
+        retrieval_top_k=3,
+    )
+    item = LoCoMoItem(
+        item_id="t-temporal-1",
+        question="When did Alice meet Bob?",
+        answer="2024-03",
+        category="temporal-reasoning",
+        category_int=3,
+        sessions=[
+            [{"role": "user", "speaker": "Alice", "content": f"chitchat {i}"}]
+            for i in range(10)
+        ],
+        session_dates=[f"2024-0{i+1}-01" for i in range(9)] + ["2024-10-01"],
+    )
+    # The adaptive path skips retrieval entirely and returns every index.
+    indexes = adapter._select_session_indexes(item)
+    assert indexes == list(range(10))
+
+
+def test_adaptive_topk_off_is_byte_for_byte_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """Default-off behavior must be bit-for-bit identical to current main.
+
+    Backward-compat gate: knob unset → same indexes as a fresh adapter
+    that never knew about the adaptive path.
+    """
+    from chimera.evals.locomo import LoCoMoAdapter, LoCoMoItem
+
+    monkeypatch.delenv("CHIMERA_ADAPTIVE_TOPK_TEMPORAL", raising=False)
+
+    item = LoCoMoItem(
+        item_id="t-temporal-off",
+        question="When did Alice meet Bob?",  # temporal phrasing!
+        answer="x",
+        category="temporal-reasoning",
+        category_int=3,
+        sessions=[
+            # Plant a strong BM25 match at index 4 so the result is
+            # deterministic without an embedder.
+            [{"role": "user", "speaker": "Alice", "content": f"chitchat {i}"}]
+            if i != 4 else
+            [{"role": "user", "speaker": "Alice",
+              "content": "Alice met Bob at the conference"}]
+            for i in range(10)
+        ],
+        session_dates=[""] * 10,
+    )
+
+    adapter = LoCoMoAdapter(
+        mind_dir=tmp_path,
+        hybrid_retrieval=True,
+        retrieval_top_k=3,
+    )
+    indexes = adapter._select_session_indexes(item)
+    # Knob OFF: truncated to <= top_k via the existing hybrid path.
+    assert len(indexes) <= 3
+    # And not the all-sessions fallback.
+    assert indexes != list(range(10))
+
+
+def test_adaptive_topk_on_non_temporal_still_truncates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    """Adaptive logic does not hijack non-temporal queries."""
+    from chimera.evals.locomo import LoCoMoAdapter, LoCoMoItem
+
+    monkeypatch.setenv("CHIMERA_ADAPTIVE_TOPK_TEMPORAL", "1")
+
+    item = LoCoMoItem(
+        item_id="t-nontemporal",
+        question="Where does Alice live?",
+        answer="x",
+        category="single-hop",
+        category_int=1,
+        sessions=[
+            [{"role": "user", "speaker": "Alice", "content": f"chitchat {i}"}]
+            if i != 4 else
+            [{"role": "user", "speaker": "Alice",
+              "content": "Alice lives in Boston"}]
+            for i in range(10)
+        ],
+        session_dates=[""] * 10,
+    )
+
+    adapter = LoCoMoAdapter(
+        mind_dir=tmp_path,
+        hybrid_retrieval=True,
+        retrieval_top_k=3,
+    )
+    indexes = adapter._select_session_indexes(item)
+    # Non-temporal: adaptive path does NOT engage; truncation stands.
+    assert len(indexes) <= 3
+    assert indexes != list(range(10))
