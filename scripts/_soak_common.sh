@@ -271,6 +271,65 @@ soak_check_forward_progress() {
     return 0
 }
 
+soak_phase1_deliverable_landed() {
+    # Phase-1 soft-sentinel — symmetric with soak_phase2_deliverable_landed
+    # in soak_lib.sh but adapted to phase-1 semantics (engines OFF, no
+    # commits expected).
+    #
+    # Returns 0 when ALL of:
+    #   1. Every $allowed_files path exists on disk under $worktree.
+    #   2. At least one of those files contains the $ready_marker line.
+    #   3. The $test_cmd exits 0 from $worktree (usually `true` for
+    #      research-only phase 1; the marker is the real gate).
+    #
+    # Closes the defect surfaced by the v36 micro-soak postmortem (PR #117):
+    # the legacy phase-1 ready_marker_found exit checks INVESTIGATION_DOC
+    # (the INPUT reference doc extracted from INBOX's first backticked
+    # `mind/research/*.md` path) instead of the OUTPUT deliverable the
+    # agent writes. v36 only converged because PR #113's task-completion
+    # watchdog tripped 6 iters after the deliverable landed (inbox tasks
+    # exhausted → completed=0/0 → stall counter). That alignment is
+    # fragile and will not hold under v37's multi-item timing. This
+    # helper gives phase 1 a documented file-presence exit path,
+    # symmetric with phase 2's commit-based mechanism.
+    #
+    # Backward compat: callers that leave SOFT_SENTINEL_* unset for
+    # phase 1 fall through to the legacy INVESTIGATION_DOC behaviour.
+    local worktree="$1"
+    local allowed_files="$2"
+    local test_cmd="$3"
+    local ready_marker="${4:-## READY-FOR-REMEDIATION}"
+
+    if [ -z "$worktree" ] || [ -z "$allowed_files" ] || [ -z "$test_cmd" ]; then
+        echo "  phase1-sentinel: bad args (need worktree, allowed_files, test_cmd)" >&2
+        return 2
+    fi
+    if [ ! -d "$worktree" ]; then
+        echo "  phase1-sentinel: $worktree is not a directory" >&2
+        return 2
+    fi
+
+    local f
+    for f in $allowed_files; do
+        [ -f "$worktree/$f" ] || return 1
+    done
+
+    local found=0
+    for f in $allowed_files; do
+        if grep -qF "$ready_marker" "$worktree/$f" 2>/dev/null; then
+            found=1
+            break
+        fi
+    done
+    [ "$found" -eq 1 ] || return 1
+
+    if ! ( cd "$worktree" && bash -c "$test_cmd" ) >/dev/null 2>&1; then
+        return 1
+    fi
+
+    return 0
+}
+
 soak_install_killgroup_trap() {
     # Capture the parent PID at trap-install time so the trap function
     # uses the script's PID, not a subshell's.
