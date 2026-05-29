@@ -28,23 +28,17 @@ CHIMERA_V40_GATE is set (lands failing only under the gate env).
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-import pytest
+from chimera.mindcount import format_mind_counts
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CHIMERA_V40_GATE"),
-    reason="v40′ build-capability gate; run with CHIMERA_V40_GATE=1",
-)
+# v40′ gate cleared (PR #145 soak, 2026-05-29): chimera/mindcount.py is now
+# on main, so these contract tests run unconditionally in CI. The
+# CHIMERA_V40_GATE skipif that let this file land FAILING before the build
+# soak has been removed now that the implementation exists.
 
 
 def _fmt(mind_dir: Path) -> str:
-    """Import the agent's module lazily; clean-fail if absent/wrong-shape."""
-    try:
-        from chimera.mindcount import format_mind_counts
-    except ImportError as exc:  # module not created yet (pre-impl)
-        pytest.fail(f"chimera.mindcount.format_mind_counts not importable: {exc}")
     return format_mind_counts(mind_dir)
 
 
