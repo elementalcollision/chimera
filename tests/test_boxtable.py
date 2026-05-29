@@ -1,28 +1,24 @@
-"""Pre-written contract test for the v42 build-capability probe (multi-file).
+"""Contract test for the v42 build-capability probe (multi-file).
 
 Charter: mind/research/v42-boxtable-design.md. Operator-authored, committed
-to main FAILING before the soak. Chimera's task is to create TWO new files
+to main FAILING before the soak. Chimera's task was to create TWO new files
 with a working import boundary — chimera/boxtable_cells.py (helpers) and
 chimera/boxtable.py (which imports them) — so these tests pass, WITHOUT
 touching chimera/cli.py or any existing source.
 
-Strict-mode probe: these assertions ARE the spec. The test exercises BOTH
-the top-level format_table AND the helpers directly, so a build that omits
-the second file (or breaks the import) fails. Harness: lazy imports convert
-a missing module to a clean assertion failure (N failed, never a collection
-error). Gated by CHIMERA_V40_GATE.
+The build converged cleanly (v42 attempt #3, agent commit d391018; capstone
+mind/research/v42-attempt1-capstone.md). With both modules now on main the
+CHIMERA_V40_GATE skipif is removed so these 6 contract tests run in CI.
+
+These assertions ARE the spec. The test exercises BOTH the top-level
+format_table AND the helpers directly, so a build that omits the second file
+(or breaks the import) fails. Harness: lazy imports convert a missing module
+to a clean assertion failure (N failed, never a collection error).
 """
 
 from __future__ import annotations
 
-import os
-
 import pytest
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CHIMERA_V40_GATE"),
-    reason="v42 build-capability gate; run with CHIMERA_V40_GATE=1",
-)
 
 
 def _format_table(rows):
