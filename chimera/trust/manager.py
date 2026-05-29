@@ -70,6 +70,12 @@ FINISH_REASON_TRUST_DELTAS: dict[str, int] = {
     # incomplete delivery against an implicit "code must parse"
     # contract. Recoverable with a hint; soak v10 surfaced the gap.
     "syntax_invalid": 1,
+    # B2 (v40′ scope-creep sprint): import_shadowing — function-local
+    # import shadows a module-level name (os/Path UnboundLocalError class
+    # from v40 #2/#4). Same severity as syntax_invalid (one-tier demote):
+    # incomplete delivery against the implicit "code must run" contract,
+    # recoverable from a hint that names the shadowed symbol.
+    "import_shadowing": 1,
     # v4.113 (ADR 0113): test_claim_invalid — agent claimed pytest had
     # passed, but operator-side re-run fails. Same severity as
     # syntax_invalid and fix_without_test (one-tier demote):

@@ -130,6 +130,13 @@ ESCALATING_FINISH_REASONS = frozenset({
     # severity (one-tier demote) and same three-strikes path as
     # fix_without_test.
     "syntax_invalid",
+    # B2 (v40′ scope-creep sprint): import_shadowing — a function-local
+    # import shadows a module-level name (the os/Path UnboundLocalError
+    # class that bricked v40 attempts #2 and #4). py_compile passes; it
+    # fails only at runtime on a path the narrow test misses. Recoverable
+    # from a hint that names the shadowed symbol; same one-tier-demote
+    # three-strikes path as syntax_invalid.
+    "import_shadowing",
     # v4.113 (ADR 0113): test_claim_invalid — the task text claimed
     # `uv run pytest tests/X.py` succeeded but an operator-side re-run
     # exits non-zero. Soak v16 (PR #5) shipped a NameError-at-runtime

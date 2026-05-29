@@ -233,6 +233,11 @@ class ActResult:
     # and the runner spun on identical SyntaxError tracebacks for 13
     # minutes before the operator killed it.
     syntax_failures: list[tuple[str, str]] = field(default_factory=list)
+    # B2 (v40′ scope-creep sprint): ``[(path, msg), ...]`` for files where a
+    # function-local import shadows a module-level name (the os/Path
+    # UnboundLocalError class that bricked v40 attempts #2 and #4).
+    # Populated only when finish_reason == "import_shadowing".
+    import_shadow_failures: list[tuple[str, str]] = field(default_factory=list)
     # v4.113 (ADR 0113): test_claim_invalid — pytest claims the task
     # made (`uv run pytest tests/X.py`) that re-running from the
     # operator side actually fails. Soak v16 surfaced agents shipping
@@ -636,6 +641,86 @@ def check_syntax_valid(write_targets: list[str]) -> list[tuple[str, str]]:
             stderr = (result.stderr or "").strip()
             msg = stderr.split("\n")[-1] if stderr else "py_compile failed"
             failures.append((str(path), msg))
+    return failures
+
+
+def _imported_names(node) -> list[str]:
+    """Names a single Import / ImportFrom node binds into its scope.
+
+    ``import os`` -> ["os"]; ``import os.path`` -> ["os"] (binds the head);
+    ``import numpy as np`` -> ["np"]; ``from p import Path`` -> ["Path"];
+    ``from p import a as b`` -> ["b"]; ``from p import *`` -> [] (ignored).
+    """
+    import ast  # stdlib leaf; bound nowhere else in this module
+
+    names: list[str] = []
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            names.append(alias.asname or alias.name.split(".")[0])
+    elif isinstance(node, ast.ImportFrom):
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            names.append(alias.asname or alias.name)
+    return names
+
+
+def check_import_shadowing(write_targets: list[str]) -> list[tuple[str, str]]:
+    """Return ``[(path, msg), ...]`` for any .py write target where a
+    function-local import binds a name that is ALSO imported at module
+    level — i.e. a shadow that makes the name function-local across the
+    whole function and raises ``UnboundLocalError`` on any earlier read.
+
+    B2 (v40′ scope-creep sprint). v40 attempts #2 and #4 both bricked
+    ``chimera run`` this way: the agent added ``import os`` / a ``Path``
+    import inside ``main()``, shadowing the module-level binding, so the
+    branch-drift check at the top of ``main()`` hit an unbound local.
+    py_compile does NOT catch it (the file parses fine); it fails only at
+    runtime, on a code path the narrow per-feature test doesn't exercise.
+
+    Deliberately narrow to keep false positives near zero: only flags a
+    function-local import whose bound name is also a MODULE-LEVEL import.
+    The legitimate lazy-import pattern (a function-local import of a name
+    NOT imported at module level — e.g. ``from .core import LoopConfig``
+    inside one branch) is NOT flagged. Non-Python / nonexistent paths and
+    unparseable files are skipped (syntax_invalid owns parse failures).
+    """
+    import ast
+
+    failures: list[tuple[str, str]] = []
+    for path in write_targets:
+        if not path.endswith(".py"):
+            continue
+        p = Path(path)
+        if not p.exists():
+            continue
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8"))
+        except (SyntaxError, ValueError, OSError):
+            continue  # syntax_invalid handles parse failures
+        # Module-level imported names (top-level Import / ImportFrom only).
+        module_names: set[str] = set()
+        for stmt in tree.body:
+            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                module_names.update(_imported_names(stmt))
+        if not module_names:
+            continue
+        # Walk each top-level function/method; flag nested imports that
+        # rebind a module-level name.
+        for top in tree.body:
+            if not isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for inner in ast.walk(top):
+                if inner is top or not isinstance(inner, (ast.Import, ast.ImportFrom)):
+                    continue
+                shadowed = sorted(set(_imported_names(inner)) & module_names)
+                for name in shadowed:
+                    failures.append((
+                        str(path),
+                        f"function-local import of '{name}' in '{top.name}' "
+                        f"shadows the module-level import of '{name}' "
+                        f"(UnboundLocalError risk; keep the import module-level)",
+                    ))
     return failures
 
 
@@ -2010,6 +2095,16 @@ class ActExecutor:
                     if syntax_failures:
                         completed = False
                         finish_reason = "syntax_invalid"
+                # B2 (v40′): function-local import shadowing a module-level
+                # name — the os/Path UnboundLocalError class that bricked
+                # v40 #2/#4. AST parse-time gate; runs only when syntax is
+                # valid (an unparseable file is syntax_invalid's to own).
+                import_shadow_failures: list[tuple[str, str]] = []
+                if completed:
+                    import_shadow_failures = check_import_shadowing(write_targets)
+                    if import_shadow_failures:
+                        completed = False
+                        finish_reason = "import_shadowing"
                 # v4.113 (ADR 0113): runtime test-claim validity. Soak
                 # v16 shipped a NameError-at-runtime regression with
                 # the agent claiming pytest had passed — py_compile
@@ -2277,6 +2372,7 @@ class ActExecutor:
                     incomplete_artifacts=incomplete,
                     invalid_inbox_claims=invalid_inbox,
                     syntax_failures=syntax_failures,
+                    import_shadow_failures=import_shadow_failures,
                     test_claim_failures=test_claim_failures,
                     commit_message_drift_claims=commit_drift_claims,
                     charter_file_count_violations=charter_violations,
