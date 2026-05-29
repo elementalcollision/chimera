@@ -114,7 +114,13 @@ committed; do not work around that.)
 
 **Do NOT estimate these numbers — read them.** (v40′ drifted: claimed
 `spend_usd: 0.90` for an actual $0.31 run, and `act_cycles: 3` for a
-110-iteration soak.) Authoritative sources:
+110-iteration soak.) As of the post-v42 drift chip, `act_cycles` and
+`spend_usd` are now **CHECKED at write time** by the postmortem-honesty
+gate (Rules D and E), not merely guidance: `act_cycles` must match
+`summarize_run().act_cycles` within ±max(2, 25%), and `spend_usd` must
+match the run DB within a generous band (fail-soft if the DB is
+unreadable). A drifted number now trips `postmortem_dishonest` exactly
+like a dishonest `tests_passing`. Authoritative sources:
 
 - `act_cycles` = the ACT-execute record count from the ledger, via
   `summarize_run` (NOT "cycles it took to converge" — that's a separate
