@@ -45,7 +45,28 @@ The test must:
 4. Assert exit 0 + exact stdout (sorted, formatted as specified above).
 5. Cover the hidden-entries-skipped rule with a `.hidden/` fixture directory.
 
-Five tests minimum. Operator runs `pytest -q tests/test_cli_mind_count.py` locally before the soak launches; expected initial state is **5 failed** (Chimera hasn't written the implementation yet). The operator-side green run is the Phase-0 acceptance step.
+Five tests minimum.
+
+**CI-green reconciliation (amended 2026-05-29, Phase 0.5).** The test
+file lands on main FAILING, which would break the main-branch green-CI
+contract every other PR depends on. Resolution: the module carries
+`pytest.mark.skipif(not os.environ.get("CHIMERA_V40_GATE"))`. So:
+
+- **default CI** (no env) → 5 *skipped*, suite stays green;
+- **gate env set, pre-implementation** → 5 *failed* (gate NOT cleared);
+- **gate env set, post-implementation** → 5 *passed* (gate cleared).
+
+Every gate command below is therefore prefixed `CHIMERA_V40_GATE=1`.
+The operator runs `CHIMERA_V40_GATE=1 pytest -q tests/test_cli_mind_count.py`
+before the soak and confirms **exactly 5 failed, 0 errors** — the
+Phase-0 acceptance step (a `SystemExit`-catching harness keeps the
+not-yet-implemented subcommand a clean *fail*, never an *error*).
+
+**Supervisor requirement (Phase 0.6):** the soak runner MUST export
+`CHIMERA_V40_GATE=1` into the agent's environment. Otherwise the agent's
+own `pytest tests/test_cli_mind_count.py` checks would show "5 skipped"
+(exit 0) and it would mistake an unimplemented verb for a pass — the
+skip would mask the very signal the TDD loop needs.
 
 ## Falsification gates (locked — no post-hoc relaxation)
 
@@ -53,9 +74,10 @@ Evaluated post-soak from main after the operator's manual squash-merge:
 
 1. **Primary gate — code lands and passes the test**:
    ```
-   pytest -q tests/test_cli_mind_count.py
+   CHIMERA_V40_GATE=1 pytest -q tests/test_cli_mind_count.py
    ```
-   Exit code 0. All 5+ tests pass.
+   Exit code 0. All 5+ tests pass (not skipped — the env must be set, or
+   the gate reads as a false pass via 5 skipped).
 
 2. **Scope gate — diff stays within the two named files**:
    ```
