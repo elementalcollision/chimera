@@ -317,3 +317,75 @@ def record_test_run(
         return path
     except Exception:  # noqa: BLE001 - fail-soft by contract
         return None
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Best-effort: parse a JSONL file into dicts, skipping bad lines."""
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except (ValueError, TypeError):
+                continue
+    except OSError:
+        pass
+    return rows
+
+
+def summarize_run(
+    mind_dir: Path | str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Authoritative ledger-derived run metrics for a postmortem READY block.
+
+    Sub-chip 1 (v40′ scope-creep sprint): the v40′ postmortem ESTIMATED
+    its numbers — claimed ``act_cycles: 3`` (it meant build cycles, but
+    the run was 110 iterations) and ``spend_usd: 0.90`` (actual $0.31).
+    This returns the GROUND TRUTH the postmortem should cite instead of
+    guessing, computed from the run's ledgers:
+
+      - ``act_cycles``: number of ACT-execute records in act-tools.jsonl
+        (the unambiguous "how many ACT cycles ran" — one record per
+        ACT execute). This is what the READY block's act_cycles field
+        means; do not substitute a "cycles to converge" estimate.
+      - ``act_records`` / ``distinct_cycles``: same count, plus the count
+        of distinct ``cycle`` ids (a long run revisits a cycle id across
+        iterations, so these can differ — surface both).
+      - ``total_tool_calls`` / ``total_tool_errors`` / ``total_tool_ms``.
+      - ``test_runs`` / ``tests_passed_any`` (the verdict-honesty ground
+        truth, mirroring the gate's ``jq -s 'any(.[]; .passed==true)'``).
+
+    Spend is NOT included: it lives in the run DB (api_calls.cost_usd),
+    not the ledgers — cite ``chimera cost`` / the runner's printed total
+    for ``spend_usd``. Returns ``None`` if the ledger dir can't be located
+    (no run id and none in env). Fail-soft on malformed/absent files.
+    """
+    rid = run_id if run_id is not None else soak_run_id()
+    if not rid:
+        return None
+    target = default_mind_dir() if mind_dir is None else mind_dir
+    ledger_dir = soak_ledger_dir(target, rid)
+    if ledger_dir is None:
+        return None
+
+    act_rows = _read_jsonl(ledger_dir / ACT_TOOLS_FILENAME)
+    test_rows = _read_jsonl(ledger_dir / TEST_RUNS_FILENAME)
+
+    distinct_cycles = len({r.get("cycle") for r in act_rows if "cycle" in r})
+    return {
+        "run_id": rid,
+        "act_cycles": len(act_rows),
+        "act_records": len(act_rows),
+        "distinct_cycles": distinct_cycles,
+        "total_tool_calls": sum(int(r.get("tool_call_count", 0)) for r in act_rows),
+        "total_tool_errors": sum(int(r.get("tool_error_count", 0)) for r in act_rows),
+        "total_tool_ms": round(
+            sum(float(r.get("tool_total_ms", 0.0)) for r in act_rows), 3
+        ),
+        "test_runs": len(test_rows),
+        "tests_passed_any": any(r.get("passed") is True for r in test_rows),
+    }

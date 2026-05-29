@@ -269,3 +269,47 @@ def test_record_test_run_emits_only_for_test_commands(tmp_path, monkeypatch):
 def test_record_test_run_noop_without_run_id(tmp_path, monkeypatch):
     monkeypatch.delenv(_RUN_ID_ENV, raising=False)
     assert record_test_run(argv=["pytest"], exit_code=0, duration_ms=1.0) is None
+
+
+# ── Sub-chip 1: summarize_run (postmortem numeric accuracy) ──────────
+
+from chimera.core.soak_ledger import summarize_run  # noqa: E402
+
+
+def test_summarize_run_derives_ground_truth(tmp_path, monkeypatch):
+    monkeypatch.setenv(_RUN_ID_ENV, "v40p")
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path))
+    # Two ACT cycles (same cycle id 146 revisited), one passing test run.
+    record_act_tools(
+        mind_dir=tmp_path, cycle=146, task_text="build",
+        result=_result(tools=[ToolCall("shell", {"c": 1}, is_error=False, duration_ms=10.0)]),
+    )
+    record_act_tools(
+        mind_dir=tmp_path, cycle=146, task_text="iterate",
+        result=_result(tools=[
+            _call("shell", {"c": 2}, is_error=True, duration_ms=5.0),
+            _call("shell", {"c": 3}, is_error=False, duration_ms=7.0),
+        ]),
+    )
+    record_test_run(argv=["uv", "run", "pytest"], exit_code=0, duration_ms=9.0, stdout="5 passed")
+
+    s = summarize_run()
+    assert s["act_cycles"] == 2          # 2 records (NOT the cycle id 146)
+    assert s["distinct_cycles"] == 1     # both under cycle id 146
+    assert s["total_tool_calls"] == 3
+    assert s["total_tool_errors"] == 1
+    assert s["test_runs"] == 1
+    assert s["tests_passed_any"] is True
+
+
+def test_summarize_run_none_without_run_id(tmp_path, monkeypatch):
+    monkeypatch.delenv(_RUN_ID_ENV, raising=False)
+    assert summarize_run(mind_dir=tmp_path) is None
+
+
+def test_summarize_run_failsoft_on_absent_ledgers(tmp_path, monkeypatch):
+    monkeypatch.setenv(_RUN_ID_ENV, "empty-run")
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path))
+    s = summarize_run()  # ledger dir doesn't exist yet
+    assert s["act_cycles"] == 0 and s["test_runs"] == 0
+    assert s["tests_passed_any"] is False

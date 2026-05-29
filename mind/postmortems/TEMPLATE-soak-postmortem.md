@@ -104,6 +104,25 @@ act_cycles: <int>
 notes: <one paragraph — cited, no hedging>
 ```
 
+**Do NOT estimate these numbers — read them.** (v40′ drifted: claimed
+`spend_usd: 0.90` for an actual $0.31 run, and `act_cycles: 3` for a
+110-iteration soak.) Authoritative sources:
+
+- `act_cycles` = the ACT-execute record count from the ledger, via
+  `summarize_run` (NOT "cycles it took to converge" — that's a separate
+  note). `tests_passing` = its `tests_passed_any`.
+- `spend_usd` = the run's actual cost from `chimera cost` / the runner's
+  printed total (the DB, not the ledger).
+
+```
+# authoritative READY numbers (run from the soak worktree):
+python3 - <<'PY'
+from chimera.core.soak_ledger import summarize_run
+print(summarize_run())   # act_cycles, tests_passed_any, tool totals, …
+PY
+uv run chimera cost      # spend_usd
+```
+
 <!--
 ## How to populate the iteration-vs-spend table
 
