@@ -19,9 +19,13 @@ import pytest
 from chimera.core.act import ActResult
 from chimera.core.soak_ledger import (
     ACT_TOOLS_FILENAME,
+    TEST_RUNS_FILENAME,
     args_hash,
     build_act_record,
+    build_test_run_record,
+    is_test_command,
     record_act_tools,
+    record_test_run,
     soak_ledger_dir,
     soak_run_id,
 )
@@ -184,3 +188,79 @@ def test_record_failsoft_on_bad_mind_dir(monkeypatch):
         assert record_act_tools(
             mind_dir=bad, cycle=1, task_text="t", result=_result()
         ) is None
+
+
+# ── 5. Test-run ledger ───────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "argv,expected",
+    [
+        (["pytest", "-q", "tests/test_cli_mind_count.py"], True),
+        (["python", "-m", "pytest", "tests/"], True),
+        (["python3", "-m", "pytest"], True),
+        (["/usr/bin/pytest", "-x"], True),       # absolute path in argv[0]
+        (["python", "script.py"], False),        # not pytest
+        (["ls", "-la"], False),
+        (["git", "commit"], False),
+        ([], False),
+    ],
+)
+def test_is_test_command(argv, expected):
+    assert is_test_command(argv) is expected
+
+
+def test_test_run_passed_flag_and_stdout_tail():
+    rec = build_test_run_record(
+        run_id="v40",
+        argv=["pytest", "-q"],
+        exit_code=0,
+        duration_ms=1234.5,
+        stdout="\n".join(f"line{i}" for i in range(50)),
+    )
+    assert rec["passed"] is True
+    assert rec["exit_code"] == 0
+    assert rec["timed_out"] is False
+    assert rec["program"] == "pytest"
+    # Only the last 20 non-empty lines retained.
+    assert len(rec["stdout_tail"]) == 20
+    assert rec["stdout_tail"][-1] == "line49"
+
+
+def test_test_run_failure_not_passed():
+    rec = build_test_run_record(
+        run_id="v40", argv=["pytest"], exit_code=1, duration_ms=10.0,
+        stdout="5 failed",
+    )
+    assert rec["passed"] is False
+    assert rec["exit_code"] == 1
+
+
+def test_test_run_timeout_never_passed():
+    # A timeout has exit_code None and must never count as passed —
+    # the verdict-honesty gate relies on this.
+    rec = build_test_run_record(
+        run_id="v40", argv=["pytest"], exit_code=None, duration_ms=60000.0,
+        timed_out=True,
+    )
+    assert rec["passed"] is False
+    assert rec["timed_out"] is True
+
+
+def test_record_test_run_emits_only_for_test_commands(tmp_path, monkeypatch):
+    monkeypatch.setenv(_RUN_ID_ENV, "v40")
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path))
+    # Non-test command: no file.
+    assert record_test_run(argv=["ls"], exit_code=0, duration_ms=1.0) is None
+    # Test command: writes to <mind>/soak/<run>/test-runs.jsonl.
+    p = record_test_run(
+        argv=["pytest", "-q"], exit_code=0, duration_ms=5.0, stdout="1 passed"
+    )
+    assert p == tmp_path / "soak" / "v40" / TEST_RUNS_FILENAME
+    rec = json.loads(p.read_text().strip())
+    assert rec["passed"] is True
+    assert rec["argv"] == ["pytest", "-q"]
+
+
+def test_record_test_run_noop_without_run_id(tmp_path, monkeypatch):
+    monkeypatch.delenv(_RUN_ID_ENV, raising=False)
+    assert record_test_run(argv=["pytest"], exit_code=0, duration_ms=1.0) is None
