@@ -60,6 +60,30 @@ logger = logging.getLogger(__name__)
 
 _ACT_BUDGET_DEFAULT_SECONDS = 240.0
 
+_PLAN_MAX_OPEN_TASKS_DEFAULT = 12
+
+
+def _plan_max_open_tasks() -> int:
+    """Backlog ceiling above which the PLAN-phase planner is skipped.
+
+    v40′ scope-creep fix (B1): the every-Nth Opus planner emits 0..3
+    proposals per cycle with no awareness of how deep the backlog already
+    is. Over a long run those accumulate — the v40′ soak grew a locked
+    2-task charter into 58 open tasks (release-management fantasy) across
+    110 cycles. When the open-task count is already >= this cap, PLAN
+    skips proposal generation (engines still run) so the planner stops
+    piling onto an unworked backlog. Reads ``CHIMERA_PLAN_MAX_OPEN_TASKS``
+    (default 12); <=0 or unparseable falls back to the default.
+    """
+    raw = os.environ.get("CHIMERA_PLAN_MAX_OPEN_TASKS")
+    if raw is None:
+        return _PLAN_MAX_OPEN_TASKS_DEFAULT
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return _PLAN_MAX_OPEN_TASKS_DEFAULT
+    return value if value > 0 else _PLAN_MAX_OPEN_TASKS_DEFAULT
+
 
 def _act_budget_seconds() -> float:
     """Hard ceiling for the ACT phase in seconds (v35 postmortem ladder #4).
@@ -530,6 +554,26 @@ class ChimeraLoop:
             self._log_phase("PLAN (no providers; skipped)")
             return
         open_tasks = [t.text for t in self._tasks]
+        # B1 (v40′ scope-creep fix): don't let the planner pile proposals
+        # onto an already-deep backlog. When open tasks >= the cap, skip
+        # proposal generation this cycle; engines (which do research, not
+        # task-spawning) still get their off-PLAN turn.
+        max_open = _plan_max_open_tasks()
+        if len(open_tasks) >= max_open:
+            self._record_phase_activity(
+                "plan",
+                details={
+                    "skipped": "backlog_full",
+                    "open_tasks": len(open_tasks),
+                    "cap": max_open,
+                },
+            )
+            self._log_phase(
+                f"PLAN: skipped (backlog {len(open_tasks)} ≥ {max_open} cap; "
+                "planner not piling on)"
+            )
+            await self._maybe_run_engine()
+            return
         plan_result = await self._planner.maybe_plan(
             cycle=self._report.cycle,
             every_n=self.config.opus_plan_every_n_cycles,

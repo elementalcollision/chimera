@@ -349,3 +349,59 @@ def test_act_budget_seconds_env_default(monkeypatch):
     assert _act_budget_seconds() == 120.0
     monkeypatch.setenv("CHIMERA_ACT_BUDGET_SECONDS", "nonsense")
     assert _act_budget_seconds() == 240.0
+
+
+# ── B1: planner queue-depth gate (v40′ scope-creep fix) ──────────────
+
+def test_plan_max_open_tasks_env(monkeypatch):
+    """Default 12; explicit override preserved; invalid / <=0 → default."""
+    from chimera.core.loop import _plan_max_open_tasks
+    monkeypatch.delenv("CHIMERA_PLAN_MAX_OPEN_TASKS", raising=False)
+    assert _plan_max_open_tasks() == 12
+    monkeypatch.setenv("CHIMERA_PLAN_MAX_OPEN_TASKS", "5")
+    assert _plan_max_open_tasks() == 5
+    monkeypatch.setenv("CHIMERA_PLAN_MAX_OPEN_TASKS", "0")
+    assert _plan_max_open_tasks() == 12
+    monkeypatch.setenv("CHIMERA_PLAN_MAX_OPEN_TASKS", "nonsense")
+    assert _plan_max_open_tasks() == 12
+
+
+@pytest.mark.asyncio
+async def test_plan_skips_when_backlog_full(config: LoopConfig, monkeypatch):
+    """When open tasks ≥ cap, the planner is NOT invoked (no piling on);
+    engines still get their off-PLAN turn. v40′ scope-creep fix (B1)."""
+    import types
+    from chimera.core import CycleReport
+
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.setenv("CHIMERA_PLAN_MAX_OPEN_TASKS", "3")
+
+    loop = ChimeraLoop(config)
+    loop._report = CycleReport(
+        cycle=4, started_at="t0", completed_at="",
+        tasks_seen=0, tasks_completed=0, rotated=False,
+        phase_log=[], phase_times_ms={},
+    )
+    # 4 open tasks ≥ cap of 3.
+    loop._tasks = [types.SimpleNamespace(text=f"task {i}", line_index=i) for i in range(4)]
+
+    called = {"maybe_plan": 0, "engine": 0}
+
+    class _StubPlanner:
+        async def maybe_plan(self, **kwargs):
+            called["maybe_plan"] += 1
+            raise AssertionError("planner must NOT be called when backlog is full")
+
+    loop._planner = _StubPlanner()
+
+    async def _stub_engine():
+        called["engine"] += 1
+    monkeypatch.setattr(loop, "_maybe_run_engine", _stub_engine)
+
+    await loop._phase_plan()
+
+    assert called["maybe_plan"] == 0
+    assert called["engine"] == 1  # engines still run
+    log_text = "\n".join(loop._report.phase_log)
+    assert "backlog" in log_text and "cap" in log_text
+    loop.close()
