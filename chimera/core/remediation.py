@@ -298,6 +298,20 @@ def _import_shadowing_hint(task_text: str) -> str:
     )
 
 
+def _postmortem_dishonest_hint(task_text: str) -> str:
+    """Sub-chip 2 (v40′): the postmortem's READY-block tests_passing
+    claim contradicts the test-run ledger ground truth."""
+    return (
+        "Your postmortem's `## READY-FOR-REMEDIATION` block claims a "
+        "`tests_passing:` value that contradicts the test-run ledger. Do "
+        "NOT estimate or assert it — read the ground truth and match it. "
+        "Run `summarize_run()` (chimera.core.soak_ledger) and set "
+        "`tests_passing` to its `tests_passed_any`; the gate is exactly "
+        "`jq -s 'any(.[]; .passed==true)'` over test-runs.jsonl. If no "
+        "passing run is recorded, the verdict cannot be CONVERGED."
+    )
+
+
 def _test_claim_invalid_hint(
     task_text: str,
     test_claim_failures: list[tuple[str, str]] | None = None,
@@ -566,6 +580,7 @@ _HINT_BY_REASON = {
     "inbox_claim_invalid": _inbox_claim_invalid_hint,
     "syntax_invalid": _syntax_invalid_hint,
     "import_shadowing": _import_shadowing_hint,
+    "postmortem_dishonest": _postmortem_dishonest_hint,
     "test_claim_invalid": _test_claim_invalid_hint,
     "commit_message_diff_drift": _commit_message_diff_drift_hint,
     "charter_file_count": _charter_file_count_hint,
