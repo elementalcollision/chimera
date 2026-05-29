@@ -137,6 +137,13 @@ ESCALATING_FINISH_REASONS = frozenset({
     # from a hint that names the shadowed symbol; same one-tier-demote
     # three-strikes path as syntax_invalid.
     "import_shadowing",
+    # Sub-chip 2 (v40′): postmortem_dishonest — a written postmortem's
+    # READY-block tests_passing claim contradicts the test-run ledger.
+    # v40′ surfaced a sub-agent draft that under-reported, caught only by
+    # a later manual cross-check; the detector now fires at write time.
+    # Recoverable from a hint that points at the ledger ground truth;
+    # same one-tier-demote three-strikes path as syntax_invalid.
+    "postmortem_dishonest",
     # v4.113 (ADR 0113): test_claim_invalid — the task text claimed
     # `uv run pytest tests/X.py` succeeded but an operator-side re-run
     # exits non-zero. Soak v16 (PR #5) shipped a NameError-at-runtime

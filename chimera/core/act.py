@@ -238,6 +238,11 @@ class ActResult:
     # UnboundLocalError class that bricked v40 attempts #2 and #4).
     # Populated only when finish_reason == "import_shadowing".
     import_shadow_failures: list[tuple[str, str]] = field(default_factory=list)
+    # Sub-chip 2 (v40′ scope-creep sprint): ``[(path, msg), ...]`` for a
+    # written postmortem whose READY-FOR-REMEDIATION ``tests_passing``
+    # claim contradicts the test-run ledger. Populated only when
+    # finish_reason == "postmortem_dishonest".
+    postmortem_honesty_failures: list[tuple[str, str]] = field(default_factory=list)
     # v4.113 (ADR 0113): test_claim_invalid — pytest claims the task
     # made (`uv run pytest tests/X.py`) that re-running from the
     # operator side actually fails. Soak v16 surfaced agents shipping
@@ -721,6 +726,65 @@ def check_import_shadowing(write_targets: list[str]) -> list[tuple[str, str]]:
                         f"shadows the module-level import of '{name}' "
                         f"(UnboundLocalError risk; keep the import module-level)",
                     ))
+    return failures
+
+
+_READY_TESTS_PASSING_RE = re.compile(
+    r"(?im)^\s*tests_passing\s*:\s*(true|false)\b"
+)
+
+
+def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
+    """Return ``[(path, msg), ...]`` for a written postmortem whose
+    READY-FOR-REMEDIATION ``tests_passing`` claim contradicts the
+    test-run ledger ground truth.
+
+    Sub-chip 2 (v40′ scope-creep sprint). v40′ surfaced this: a haiku
+    sub-agent's postmortem DRAFT was dishonest (it under-reported), and
+    the contradiction was only caught by a LATER cycle's manual ledger
+    cross-check. This moves that cross-check INTO the ACT gate, so a
+    postmortem whose ``tests_passing`` disagrees with the ledger is
+    rejected the moment it is written — before it is accepted — not
+    retroactively.
+
+    No-op outside a soak (``CHIMERA_SOAK_RUN_ID`` unset) or when no
+    summary is available, so normal ``chimera run`` is unaffected. Only
+    inspects ``.md`` write targets that actually carry a
+    ``tests_passing:`` line (i.e. a READY block). Fail-soft.
+    """
+    from .soak_ledger import soak_run_id, summarize_run
+
+    if not soak_run_id():
+        return []
+    summary = summarize_run()
+    if summary is None:
+        return []
+    ground_truth = bool(summary.get("tests_passed_any"))
+
+    failures: list[tuple[str, str]] = []
+    for path in write_targets:
+        if not path.endswith(".md"):
+            continue
+        p = Path(path)
+        if not p.exists():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        m = _READY_TESTS_PASSING_RE.search(text)
+        if m is None:
+            continue  # not a postmortem with a READY block
+        claimed = m.group(1).lower() == "true"
+        if claimed != ground_truth:
+            failures.append((
+                str(path),
+                f"postmortem claims tests_passing: {str(claimed).lower()} but "
+                f"the test-run ledger shows {str(ground_truth).lower()} "
+                f"(no passing run recorded)" if not ground_truth else
+                f"postmortem claims tests_passing: {str(claimed).lower()} but "
+                f"the test-run ledger shows tests DID pass — cite the ledger",
+            ))
     return failures
 
 
@@ -2105,6 +2169,17 @@ class ActExecutor:
                     if import_shadow_failures:
                         completed = False
                         finish_reason = "import_shadowing"
+                # Sub-chip 2 (v40′): a written postmortem whose READY-block
+                # tests_passing contradicts the test-run ledger. Catches the
+                # sub-agent-draft-dishonesty class at WRITE time (before
+                # acceptance), not via a later manual cross-check. No-op
+                # outside a soak.
+                postmortem_honesty_failures: list[tuple[str, str]] = []
+                if completed:
+                    postmortem_honesty_failures = check_postmortem_honesty(write_targets)
+                    if postmortem_honesty_failures:
+                        completed = False
+                        finish_reason = "postmortem_dishonest"
                 # v4.113 (ADR 0113): runtime test-claim validity. Soak
                 # v16 shipped a NameError-at-runtime regression with
                 # the agent claiming pytest had passed — py_compile
@@ -2373,6 +2448,7 @@ class ActExecutor:
                     invalid_inbox_claims=invalid_inbox,
                     syntax_failures=syntax_failures,
                     import_shadow_failures=import_shadow_failures,
+                    postmortem_honesty_failures=postmortem_honesty_failures,
                     test_claim_failures=test_claim_failures,
                     commit_message_drift_claims=commit_drift_claims,
                     charter_file_count_violations=charter_violations,
