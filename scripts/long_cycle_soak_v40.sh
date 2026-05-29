@@ -92,6 +92,13 @@ export CHIMERA_ENGINE_SESSION_MODE=1
 export CHIMERA_V40_GATE=1
 export CHIMERA_SOAK_RUN_ID="v40-build-mind-count-$STAMP"
 
+# attempt-#3 (B): a TEST-DRIVEN build task bundles read+implement+run-test+
+# iterate into one ACT phase, which needs more wall-clock than the 240s
+# default (attempt #2's per-task budget exhausted at rounds=12–15 before a
+# single write→test→iterate cycle could close). Give the cohesive build
+# task room to actually loop.
+export CHIMERA_ACT_BUDGET_SECONDS="${CHIMERA_ACT_BUDGET_SECONDS:-600}"
+
 # The exact pytest gate command used by the phase-1 soft-sentinel AND
 # the post-soak primary gate. Goes through `uv run --extra dev` so it
 # uses the worktree venv with pytest provisioned from the dev extra.
@@ -246,26 +253,49 @@ Notes:
     is correct you will see 5 passed (NOT "5 skipped" — skipped means
     the gate env is missing, which it is not here).
 
-## Phase 1 tasks
+## Phase 1 tasks — exactly TWO; do them in order
 
-- [ ] Read \`tests/test_cli_mind_count.py\` in full to learn the contract
-  (exit 0; one \`<name>: <int>\` line per top-level entry under mind/;
-  subdir counts are recursive at any depth; a top-level file is 1;
-  output sorted alphabetically; hidden entries — names starting with
-  \`.\` — skipped).
-- [ ] Read \`chimera/cli.py\` to see how existing subcommands are
-  registered (argparse subparsers + the dispatch in \`main\`).
-- [ ] Implement a \`mind\` subparser with a \`count\` action in
-  \`chimera/cli.py\`. Read-only: os.walk over the mind/ directory. No
-  network, no LLM, no writes.
-- [ ] Run \`$GATE_TEST_CMD\` and iterate until all 5 tests pass.
-- [ ] When green, write the postmortem deliverable \`$DELIVERABLE_REL\`
-  using the template at \`mind/postmortems/TEMPLATE-soak-postmortem.md\`.
-  Fill the iteration-vs-spend table from your soak ledgers under
-  \`mind/soak/$CHIMERA_SOAK_RUN_ID/\` and the verdict-honesty cross-check.
-- [ ] End the postmortem with the \`## READY-FOR-REMEDIATION\` fenced
-  block: verdict (CONVERGED iff the 5 tests pass), files_changed,
-  tests_passing, spend_usd, act_cycles, notes.
+This is a TEST-DRIVEN build. The first task is NOT done until you have
+RUN the test and SEEN \`5 passed\`. Reading and implementing are steps
+WITHIN it, not separate tasks.
+
+- [ ] **Build \`chimera mind count\` and prove it green.** In ONE task:
+  (a) read \`tests/test_cli_mind_count.py\` to learn the EXACT contract;
+  (b) read \`chimera/cli.py\` for the argparse + \`main\` dispatch pattern;
+  (c) implement a \`mind\` subparser + \`count\` action in
+  \`chimera/cli.py\`; (d) run \`$GATE_TEST_CMD\` via the shell tool
+  (argv ["uv","run","--extra","dev","pytest","-q","tests/test_cli_mind_count.py"]);
+  (e) read the failures and EDIT, then RUN THE TEST AGAIN; repeat (c)–(e)
+  until the output literally contains \`5 passed\`.
+  **You are NOT done with this task until you have run that command and
+  its output shows \`5 passed\`. Do not mark it complete on the strength
+  of having written code — only on a green test run you actually executed.**
+- [ ] **Write the postmortem** \`$DELIVERABLE_REL\` (ONLY after the test
+  shows 5 passed) using \`mind/postmortems/TEMPLATE-soak-postmortem.md\`.
+  Fill the iteration-vs-spend table from your ledgers under
+  \`mind/soak/$CHIMERA_SOAK_RUN_ID/\`, do the verdict-honesty cross-check,
+  and end with the \`## READY-FOR-REMEDIATION\` fenced block (verdict
+  CONVERGED iff the 5 tests pass; files_changed; tests_passing; spend_usd;
+  act_cycles; notes).
+
+## The contract is EXACT — match it, don't summarize
+
+The test asserts EXACT stdout. Read its assertions. The verb must print
+**one line per top-level entry** under mind/, formatted \`<name>: <count>\`,
+sorted alphabetically, where a directory's count is the RECURSIVE number
+of files beneath it (any depth), a top-level file is \`1\`, and hidden
+entries (names starting with \`.\`) are skipped. It is NOT a single
+summary line like "N files, M dirs" — that will fail every test.
+
+## Two specific traps (these failed a prior attempt — avoid them)
+
+  - **Do NOT \`import os\` inside any function.** \`chimera/cli.py\` already
+    imports \`os\` at module level; a function-local \`import os\` makes
+    \`os\` a local throughout \`main()\` and breaks the \`run\` command with
+    UnboundLocalError. Use the existing module-level import.
+  - **Run the test for real every iteration.** The test-run ledger records
+    ground truth; a task that claims green without a matching passed run
+    is a falsification.
 
 SCOPE (locked): edit ONLY \`chimera/cli.py\` for code; write ONLY the
 postmortem under mind/research/. Do NOT edit the test, any other
@@ -277,6 +307,8 @@ OVERSHOOT TRAPS the panel should reject:
   - Touching any code file other than \`chimera/cli.py\`
   - Claiming the tests pass without running the gated command
     (the test-run ledger records ground truth)
+  - Printing a summary line instead of the per-entry contract
+  - A function-local \`import os\` that regresses other commands
   - Adding new tests, ADR edits, or entry-point changes
   - Emitting the READY marker with the test still red
 INBOX_EOF
