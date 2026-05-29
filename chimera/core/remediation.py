@@ -277,6 +277,27 @@ def _syntax_invalid_hint(
     )
 
 
+def _import_shadowing_hint(task_text: str) -> str:
+    """B2 (v40′): a function-local import shadows a module-level name.
+
+    The os/Path UnboundLocalError class from v40 #2/#4: an ``import`` inside
+    a function rebinds a name already imported at module level, making it
+    local across the whole function so an earlier read raises
+    UnboundLocalError. py_compile passes; it fails at runtime.
+    """
+    return (
+        "A function you wrote has an `import` INSIDE it that rebinds a name "
+        "already imported at module level (e.g. `import os` or "
+        "`from pathlib import Path` inside a function whose module already "
+        "imports os/Path). Python then treats that name as local across the "
+        "ENTIRE function, so any earlier use raises UnboundLocalError at "
+        "runtime. Fix: delete the function-local import and rely on the "
+        "existing module-level import; if a name truly isn't imported at "
+        "module level, a local import of it is fine. Keep imports at module "
+        "top-level unless you have a specific lazy-import reason."
+    )
+
+
 def _test_claim_invalid_hint(
     task_text: str,
     test_claim_failures: list[tuple[str, str]] | None = None,
@@ -544,6 +565,7 @@ _HINT_BY_REASON = {
     "artifact_incomplete": _artifact_incomplete_hint,
     "inbox_claim_invalid": _inbox_claim_invalid_hint,
     "syntax_invalid": _syntax_invalid_hint,
+    "import_shadowing": _import_shadowing_hint,
     "test_claim_invalid": _test_claim_invalid_hint,
     "commit_message_diff_drift": _commit_message_diff_drift_hint,
     "charter_file_count": _charter_file_count_hint,
