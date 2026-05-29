@@ -19,23 +19,17 @@ it lands failing only under the gate env; default CI skips it.
 
 from __future__ import annotations
 
-import os
+from chimera.sparkline import render_sparkline
 
-import pytest
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CHIMERA_V40_GATE"),
-    reason="v41 build-capability gate; run with CHIMERA_V40_GATE=1",
-)
+# v41 gate cleared (PR #151 soak, 2026-05-29): chimera/sparkline.py is now
+# on main, so these contract tests run unconditionally in CI. The
+# CHIMERA_V40_GATE skipif that let this file land FAILING before the build
+# soak has been removed now that the implementation exists.
 
 RAMP = "▁▂▃▄▅▆▇█"  # U+2581 .. U+2588
 
 
 def _render(values):
-    try:
-        from chimera.sparkline import render_sparkline
-    except ImportError as exc:  # module not created yet (pre-impl)
-        pytest.fail(f"chimera.sparkline.render_sparkline not importable: {exc}")
     return render_sparkline(values)
 
 
