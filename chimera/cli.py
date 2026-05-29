@@ -770,6 +770,15 @@ def _build_parser() -> argparse.ArgumentParser:
              "(matches LongMemEval default; deep histories need the headroom).",
     )
 
+    # v40′: `chimera mind count` — thin wrapper over chimera.mindcount
+    # (the first Chimera-authored module to land; see
+    # mind/research/v40prime-attempt1-capstone.md).
+    mind_p = sub.add_parser("mind", help="Inspect the mind/ directory (read-only).")
+    mind_sub = mind_p.add_subparsers(dest="mind_command", metavar="<mind-cmd>")
+    mind_sub.add_parser(
+        "count", help="Print recursive file counts per top-level mind/ entry.",
+    )
+
     return parser
 
 
@@ -3153,6 +3162,20 @@ def main(argv: list[str] | None = None) -> int:
                 print()
                 print(f"  ✓ PR opened: {result.pr_url}")
         return 0 if result.ok else 1
+
+    if args.command == "mind":
+        if args.mind_command == "count":
+            # Leaf import: chimera.mindcount pulls only stdlib (pathlib),
+            # and `format_mind_counts` is bound nowhere else in main(), so
+            # this local import shadows no module global (the v40 os/Path
+            # regression class this charter set out to avoid).
+            from .core import LoopConfig
+            from .mindcount import format_mind_counts
+            mind_dir = LoopConfig.from_env().mind_dir
+            print(format_mind_counts(mind_dir), end="")
+            return 0
+        parser.error("usage: chimera mind count")
+        return 2
 
     parser.error(f"unknown command: {args.command}")
     return 2
