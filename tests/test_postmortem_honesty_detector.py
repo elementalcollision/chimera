@@ -77,3 +77,40 @@ def test_wired_into_recovery_and_trust():
     assert FINISH_REASON_TRUST_DELTAS.get("postmortem_dishonest") == 1
     hint = derive_remediation_hint("write postmortem", "postmortem_dishonest")
     assert hint and "tests_passing" in hint
+
+
+# ── H2: verdict↔ledger coherence ─────────────────────────────────
+
+def _postmortem_verdict(tmp_path: Path, verdict: str, tests_passing: str) -> str:
+    p = tmp_path / "mind" / "research" / "pm.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        "# postmortem\n\n## READY-FOR-REMEDIATION\n"
+        f"verdict: {verdict}\nfiles_changed: 1\n"
+        f"tests_passing: {tests_passing}\nact_cycles: 2\n"
+    )
+    return str(p)
+
+
+def test_converged_without_passing_run_flagged(tmp_path, monkeypatch):
+    monkeypatch.setenv(_RUN, "h2a")
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path / "mind"))
+    record_test_run(argv=["uv", "run", "pytest"], exit_code=1, duration_ms=5.0, stdout="1 failed")
+    # tests_passing:false matches ledger (no Rule-A trip), but CONVERGED is unearned.
+    f = check_postmortem_honesty([_postmortem_verdict(tmp_path, "CONVERGED", "false")])
+    assert len(f) == 1 and "CONVERGED" in f[0][1]
+
+
+def test_converged_with_passing_run_ok(tmp_path, monkeypatch):
+    monkeypatch.setenv(_RUN, "h2b")
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path / "mind"))
+    record_test_run(argv=["uv", "run", "pytest"], exit_code=0, duration_ms=5.0, stdout="6 passed")
+    assert check_postmortem_honesty([_postmortem_verdict(tmp_path, "CONVERGED", "true")]) == []
+
+
+def test_failed_verdict_with_no_passing_run_ok(tmp_path, monkeypatch):
+    monkeypatch.setenv(_RUN, "h2c")
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path / "mind"))
+    record_test_run(argv=["uv", "run", "pytest"], exit_code=1, duration_ms=5.0, stdout="1 failed")
+    # FAILED + tests_passing:false + no passing run → coherent, not flagged.
+    assert check_postmortem_honesty([_postmortem_verdict(tmp_path, "FAILED", "false")]) == []
