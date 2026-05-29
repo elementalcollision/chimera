@@ -93,9 +93,23 @@ export CHIMERA_V40_GATE=1
 export CHIMERA_SOAK_RUN_ID="v40-build-mind-count-$STAMP"
 
 # The exact pytest gate command used by the phase-1 soft-sentinel AND
-# the post-soak primary gate. python3 is allow-listed; bare pytest is
-# not, so we go through `python3 -m pytest`.
-GATE_TEST_CMD="CHIMERA_V40_GATE=1 python3 -m pytest -q tests/test_cli_mind_count.py"
+# the post-soak primary gate. Goes through `uv run --extra dev` so it
+# uses the worktree venv with pytest provisioned from the dev extra.
+#
+# v40 attempt-#1 fix (two substrate defects the first soak surfaced):
+#   1. The previous form began `CHIMERA_V40_GATE=1 python3 …`. The argv-
+#      only shell tool the agent uses cannot parse an env-assignment
+#      prefix — argv[0]="CHIMERA_V40_GATE=1" is not an allow-listed
+#      program, so every agent test-run was rejected before dispatch.
+#      Fix: NO prefix. CHIMERA_V40_GATE is exported above and inherited
+#      by every subprocess (the soft-sentinel's eval, the agent's shell-
+#      tool subprocess, this script's post-run eval).
+#   2. Bare `python3` resolves to the SYSTEM interpreter (no pytest) →
+#      ModuleNotFoundError. Fix: `uv run --extra dev pytest` runs in the
+#      worktree venv with the dev extra (pytest) provisioned.
+# `uv` is allow-listed, so the agent can invoke this via the shell tool
+# as argv ["uv","run","--extra","dev","pytest","-q","tests/…"].
+GATE_TEST_CMD="uv run --extra dev pytest -q tests/test_cli_mind_count.py"
 
 READY_MARKER="## READY-FOR-REMEDIATION"
 LOG="$REPO_ROOT/state/long_cycle_v40_${STAMP}.log"
@@ -214,12 +228,23 @@ defines the exact behavior. READ it to discover the contract. You MUST
 NOT modify it — the pre-commit scope check will refuse any commit that
 touches it, and doing so falsifies the soak.
 
-Run the gated test to see the current red state and to check progress:
+Run the gated test to see the current red state and to check progress.
+Run it EXACTLY as written, via the shell tool, with argv
+["uv","run","--extra","dev","pytest","-q","tests/test_cli_mind_count.py"]:
 
     $GATE_TEST_CMD
 
-(The CHIMERA_V40_GATE=1 prefix is REQUIRED — without it the test is
-skipped, which is NOT a pass. Pre-implementation you will see 5 failed.)
+Notes:
+  - Do NOT prefix the command with \`CHIMERA_V40_GATE=1\`. That env var
+    is already set in your environment and is inherited by the test
+    subprocess; the shell tool is argv-only and will REJECT an
+    env-assignment prefix as a non-allow-listed program.
+  - Use \`uv run --extra dev\` (NOT bare \`python3 -m pytest\`): \`uv\`
+    is allow-listed and runs in the project venv with pytest installed;
+    bare \`python3\` is the system interpreter and lacks pytest.
+  - Pre-implementation you will see 5 failed. When your implementation
+    is correct you will see 5 passed (NOT "5 skipped" — skipped means
+    the gate env is missing, which it is not here).
 
 ## Phase 1 tasks
 
@@ -456,7 +481,7 @@ ls -la "$WORKTREE/mind/research/" 2>&1 | tee -a "$LOG"
 
 log ""
 log "Review: cd $WORKTREE && git log --oneline main..HEAD"
-log "        CHIMERA_V40_GATE=1 python3 -m pytest -q tests/test_cli_mind_count.py"
+log "        CHIMERA_V40_GATE=1 uv run --extra dev pytest -q tests/test_cli_mind_count.py"
 log "        git diff main..HEAD --name-only   # expect: chimera/cli.py + $DELIVERABLE_REL"
 log "        jq -s 'any(.[]; .passed==true)' mind/soak/$CHIMERA_SOAK_RUN_ID/test-runs.jsonl"
 
