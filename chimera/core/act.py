@@ -762,6 +762,45 @@ _READY_TESTS_PASSING_RE = re.compile(
 _READY_VERDICT_RE = re.compile(
     r"(?im)^\s*verdict\s*:\s*([A-Za-z_]+)\b"
 )
+# Numeric-honesty fields (drift chip): the READY block's act_cycles and
+# spend_usd MUST be READ from ground truth, not estimated. v40′/v41/v42
+# all drifted here (e.g. v42 claimed act_cycles: 3 / spend_usd: 0.02 for a
+# 15-cycle / $0.16 run). These promote the two numbers to checked fields.
+_READY_ACT_CYCLES_RE = re.compile(
+    r"(?im)^\s*act_cycles\s*:\s*(\d+)\b"
+)
+_READY_SPEND_USD_RE = re.compile(
+    r"(?im)^\s*spend_usd\s*:\s*\$?\s*([0-9]+(?:\.[0-9]+)?)\b"
+)
+
+
+def _run_spend_usd_best_effort() -> float | None:
+    """Total USD spend for the current run, read from the Chimera DB, or
+    ``None`` if it cannot be established.
+
+    Reuses :func:`chimera.core.budget.rolling_spend_usd` (token-priced SUM
+    over ``api_calls``) with an effectively-unbounded window, so it counts
+    the whole soak. A fresh read-only connection is opened and closed; WAL
+    permits concurrent readers, so this does not contend with the loop
+    thread's connection. Fail-soft: any error (missing DB, locked, pricing
+    gap) returns ``None`` and the spend rule no-ops — the postmortem is
+    never blocked on an *unverifiable* number.
+    """
+    try:
+        from ..memory.store import connect, default_db_path
+        from .budget import rolling_spend_usd
+
+        db_path = default_db_path()
+        if not Path(db_path).exists():
+            return None
+        conn = connect(db_path)
+        try:
+            # 100-year window == total run spend (the soak DB is fresh).
+            return rolling_spend_usd(conn, minutes=100 * 365 * 24 * 60)
+        finally:
+            conn.close()
+    except Exception:
+        return None
 
 
 def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
@@ -784,10 +823,24 @@ def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
     even land, so the committed diff is scope-clean by construction; this
     is the matching honesty gate on the verdict CLAIM.)
 
+    Numeric-honesty (drift chip, post-v42) adds two more checked fields —
+    the last un-closed honesty hole before the v43 parallel rung, where
+    three postmortems land at once and hand-auditing numbers is hardest:
+
+    - Rule D (``act_cycles``): must agree with the ledger's ACT-execute
+      record count (``summarize_run().act_cycles``) within a small band
+      (the count can tick by ~1 between the agent's read and this gate).
+    - Rule E (``spend_usd``): must agree with the run's actual DB spend
+      within a generous relative band. Fail-soft — skipped entirely if the
+      DB spend cannot be read or is non-positive, so an *unverifiable*
+      number never blocks a postmortem. This is the gate the v40′/v41/v42
+      caveat asked for: ground truth is now CHECKED, not merely available.
+
     No-op outside a soak (``CHIMERA_SOAK_RUN_ID`` unset) or when no
     summary is available, so normal ``chimera run`` is unaffected. Only
     inspects ``.md`` write targets that carry a ``tests_passing:`` line
-    (i.e. a READY block). Fail-soft. One reason per file (most severe).
+    (i.e. a READY block). Fail-soft. One reason per file (most severe;
+    rules are checked in A→E severity order).
     """
     from .soak_ledger import soak_run_id, summarize_run
 
@@ -837,6 +890,44 @@ def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
                 "postmortem verdict: CONVERGED contradicts its own "
                 "tests_passing: false — an unearned verdict claim"
             )
+        # Rule D (drift): act_cycles must match the ledger's ACT-execute
+        # record count within a small band. The count can tick by ~1
+        # between the agent's summarize_run read and this gate, so the
+        # band is max(2, 25% of ground truth) — tolerant of timing, but
+        # the v42 drift (claimed 3 vs ledger 15) is far outside it.
+        else:
+            cm = _READY_ACT_CYCLES_RE.search(text)
+            gt_cycles = summary.get("act_cycles")
+            if cm is not None and isinstance(gt_cycles, int) and gt_cycles > 0:
+                claimed_cycles = int(cm.group(1))
+                band = max(2, round(gt_cycles * 0.25))
+                if abs(claimed_cycles - gt_cycles) > band:
+                    reason = (
+                        f"postmortem claims act_cycles: {claimed_cycles} but the "
+                        f"ledger records {gt_cycles} ACT-execute cycles (±{band} "
+                        f"allowed) — read summarize_run().act_cycles, don't estimate"
+                    )
+            # Rule E (drift): spend_usd must match the run's actual DB
+            # spend within a generous relative band. Fail-soft — skipped
+            # if the DB spend can't be read or is non-positive, so an
+            # unverifiable number never blocks. Deadband of $0.05 avoids
+            # noise on micro-runs; the v42 drift ($0.02 vs $0.16) trips.
+            if reason is None:
+                sm = _READY_SPEND_USD_RE.search(text)
+                if sm is not None:
+                    actual_spend = _run_spend_usd_best_effort()
+                    if actual_spend is not None and actual_spend > 0:
+                        claimed_spend = float(sm.group(1))
+                        off = abs(claimed_spend - actual_spend)
+                        if off > 0.05 and (
+                            claimed_spend < actual_spend * 0.5
+                            or claimed_spend > actual_spend * 1.5
+                        ):
+                            reason = (
+                                f"postmortem claims spend_usd: {claimed_spend:.2f} "
+                                f"but the run DB shows ${actual_spend:.2f} actual "
+                                "spend — read `chimera cost`, don't estimate"
+                            )
         if reason is not None:
             failures.append((str(path), reason))
     return failures
