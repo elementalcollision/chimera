@@ -522,6 +522,29 @@ _FIX_WITHOUT_TEST_EXCLUDED_SOURCES = frozenset({
 })
 
 
+def _charter_test_satisfied() -> bool:
+    """H3 (v42): True when an active soak has a recorded PASSING test run.
+
+    Build-soak charters provide the test as READ-ONLY input — the agent is
+    forbidden from authoring a ``tests/`` file (the charter scope check, and
+    H1, refuse it). So the fix_without_test rule ("wrote chimera/ source but
+    no tests/ file in the same change") structurally false-positives on
+    every build-soak cycle, even when a charter-owned test exists and PASSES
+    (v42 attempts #1 and #2 churned to budget on this). A recorded passing
+    gated test-run means the fix IS tested — the requirement is met. Narrow:
+    only when ``CHIMERA_SOAK_RUN_ID`` is set AND the ledger shows a pass;
+    outside a soak the detector is unchanged. Fail-soft.
+    """
+    try:
+        from .soak_ledger import soak_run_id, summarize_run
+        if not soak_run_id():
+            return False
+        summary = summarize_run()
+        return bool(summary and summary.get("tests_passed_any"))
+    except Exception:  # noqa: BLE001 - fail-soft
+        return False
+
+
 def check_fix_without_test(
     tool_call_history: list[ToolCall],  # noqa: ARG001  (kept for ABI; v4.91 ignores it)
     write_targets: list[str],
@@ -561,6 +584,8 @@ def check_fix_without_test(
     if not src_paths:
         return []
     if _TEST_PATH_PATTERN.search(write_blob):
+        return []
+    if _charter_test_satisfied():  # H3: charter-provided test passed
         return []
     return src_paths
 
@@ -609,6 +634,8 @@ def check_phase_fix_without_test(changed_files: list[str]) -> list[str]:
         _TEST_PATH_PATTERN.fullmatch(p) is not None for p in changed_files
     )
     if has_test:
+        return []
+    if _charter_test_satisfied():  # H3: charter-provided test passed
         return []
     return src
 
