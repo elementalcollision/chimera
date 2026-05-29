@@ -2294,6 +2294,10 @@ class ActExecutor:
             # serially throws that latency back away. We still append each
             # call to history first (so detect_degenerate_loop sees the
             # full batch before any dispatch fires).
+            # Record the index where this batch's ToolCalls start so we
+            # can annotate them with per-call exit/duration after dispatch
+            # (v40 build-capability ledger instrumentation).
+            batch_start_index = len(history)
             batch_args: list[dict[str, Any]] = []
             for tu in response.tool_uses:
                 args = normalize_tool_input(tu.input)
@@ -2328,12 +2332,18 @@ class ActExecutor:
                     api_call_count=api_call_count,
                 )
 
-            async def _run_one(tu_id: str, name: str, args: dict[str, Any]) -> ToolResultBlock:
+            async def _run_one(
+                tu_id: str, name: str, args: dict[str, Any]
+            ) -> tuple[ToolResultBlock, float]:
+                # Time each dispatch so the soak ledger can record per-call
+                # duration. perf_counter is monotonic; ms is wall-clock the
+                # tool spent, dominated by I/O or subprocess time.
+                _t0 = _time.perf_counter()
                 try:
                     output = await self._dispatcher.dispatch(name, args, ctx)
-                    return ToolResultBlock(tool_use_id=tu_id, content=output, is_error=False)
+                    block = ToolResultBlock(tool_use_id=tu_id, content=output, is_error=False)
                 except ToolDenied as exc:
-                    return ToolResultBlock(
+                    block = ToolResultBlock(
                         tool_use_id=tu_id, content=f"tool denied: {exc}", is_error=True
                     )
                 except (ValueError, TypeError, KeyError) as exc:
@@ -2341,16 +2351,18 @@ class ActExecutor:
                     # correct shape so it can self-correct in the next
                     # round, instead of seeing only the raw exception.
                     hint = _schema_hint(self._dispatcher.registry, name, args)
-                    return ToolResultBlock(
+                    block = ToolResultBlock(
                         tool_use_id=tu_id,
                         content=f"error: {exc}\n{hint}".rstrip(),
                         is_error=True,
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("tool dispatch failed: %s", name)
-                    return ToolResultBlock(
+                    block = ToolResultBlock(
                         tool_use_id=tu_id, content=f"error: {exc}", is_error=True
                     )
+                duration_ms = (_time.perf_counter() - _t0) * 1000.0
+                return block, duration_ms
 
             if len(response.tool_uses) > 1:
                 logger.info(
@@ -2359,7 +2371,7 @@ class ActExecutor:
                     [tu.name for tu in response.tool_uses],
                 )
 
-            tool_results: list[ToolResultBlock] = list(
+            gathered: list[tuple[ToolResultBlock, float]] = list(
                 await asyncio.gather(
                     *[
                         _run_one(tu.id, tu.name, args)
@@ -2367,6 +2379,16 @@ class ActExecutor:
                     ]
                 )
             )
+            tool_results: list[ToolResultBlock] = [g[0] for g in gathered]
+            # Annotate this batch's ToolCalls (appended at batch_start_index
+            # above, in tool_uses order) with per-call exit + duration for
+            # the soak ledger. asyncio.gather preserves input order, so the
+            # i-th gathered result maps to history[batch_start_index + i].
+            for offset, (block, duration_ms) in enumerate(gathered):
+                idx = batch_start_index + offset
+                if idx < len(history):
+                    history[idx].is_error = block.is_error
+                    history[idx].duration_ms = round(duration_ms, 3)
             # v4.50: capture wall-clock at the last tool's completion so
             # the NEXT round can record the round-boundary latency.
             prior_tools_done_at = _time.perf_counter()

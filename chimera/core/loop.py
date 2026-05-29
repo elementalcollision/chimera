@@ -52,6 +52,7 @@ from ..tools import (
 )
 from . import mind
 from .act import ActExecutor, ActResult
+from .soak_ledger import record_act_tools
 from .strategy import Planner, PlanResult
 
 logger = logging.getLogger(__name__)
@@ -713,6 +714,15 @@ class ChimeraLoop:
         for task in self._tasks:
             result = await self._act.execute(task.text, cycle=self._report.cycle)
             self._act_results.append(result)
+            # v40 prereq: append this ACT cycle to the soak tool-call ledger.
+            # No-op unless CHIMERA_SOAK_RUN_ID is set; fail-soft by contract,
+            # so a ledger error can never break the ACT phase.
+            record_act_tools(
+                mind_dir=self.config.mind_dir,
+                cycle=self._report.cycle,
+                task_text=task.text,
+                result=result,
+            )
             if result.completed:
                 self._completed_line_indices.add(task.line_index)
             self._log_phase(
