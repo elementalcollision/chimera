@@ -33,6 +33,34 @@ The verb is **read-only**: no writes, no network, no LLM calls. It is a pure-`os
 
 **Anything outside these two paths trips the ADR 0146 pre-commit scope check.** No exceptions, no override knobs.
 
+## READY-FOR-REMEDIATION
+
+<!--
+This section is the ADR 0146 locked-recommendation that the pre-commit
+scope check reads (matched by branch prefix `v40` → this `v40-*-design.md`
+note). `parse_recommendation` extracts the R-tag and the backticked path
+allowlist from THIS section's body, and scans it for code-forbidding
+signals (see `_NO_CODE_RE` in chimera/core/scope_check.py). IMPORTANT:
+this prose is deliberately worded to NOT contain any code-forbidding
+signal phrase, since one stray occurrence would flip the recommendation
+to refuse-all-code and block the legitimate cli commit. Authored:
+
+  - R3 tag present (an explicit build charter).
+  - Exactly one backticked code path → the allowlist is {chimera/cli.py}.
+  - The pre-written test is intentionally NOT backticked as a path token
+    here, so it is NOT in the allowlist → committing an edit to it is
+    REFUSED at commit time (mechanical "test is read-only" enforcement,
+    stronger than the post-hoc scope gate). Docs under mind/ (the
+    postmortem deliverable) and .md files are auto-allowed by the check.
+-->
+
+R3 build. The single allowed code path for this charter is
+`chimera/cli.py` — the agent registers the `mind count` verb there. The
+pre-written test under tests/ is READ-ONLY input (already on main) and is
+deliberately excluded from this allowlist; any staged edit to it is
+refused at commit time. The postmortem deliverable and any other docs
+under mind/ are auto-allowed. Commit message uses the `[agent]` prefix.
+
 ## Pre-written test (strict-mode probe)
 
 The test file `tests/test_cli_mind_count.py` is authored by the operator and committed on `main` **before** the v40 soak launches. Chimera discovers the contract by reading the test file during ACT. The test contents are **not** embedded in this design note — the strict-mode falsification probe is whether Chimera correctly reads, interprets, and satisfies a test it did not author.
