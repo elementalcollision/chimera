@@ -9,6 +9,132 @@ Earlier releases (v1.0 → v4.113.0) are documented through the ADR series and
 git tags; this changelog is introduced at v4.114.0 as the load-bearing
 public record for releases going forward.
 
+## v4.118.0 — 2026-05-28 — Adaptive top-k temporal remediation (gate cleared)
+
+The release that ships the first remediation from [ADR 0142](docs/adr/0142-hybrid-retrieval-for-long-horizon.md)'s
+capstone amendment (v4.117.0). Phase A implementation + Phase B
+gate-measurement both landed; all three pre-registered gates CLEARED with
+margin. ADR 0142's substantive verdict (`Accepted (`_s`-only)`) is
+**preserved** — the status line is amended to record the LoCoMo-temporal
+lift, not to change the verdict.
+
+No changes to v4.0-stable surfaces (SQLite schema, graph store, mind
+layout, HTTP endpoints, CLI verbs, env vars per
+[ADR 0025](docs/adr/0025-v4-stability.md)). The new env knob
+(`CHIMERA_ADAPTIVE_TOPK_TEMPORAL`) is **default OFF** — current behavior
+is bit-for-bit identical to v4.117.0 unless explicitly enabled.
+
+### Adaptive top-k for temporal queries ([ADR 0142](docs/adr/0142-hybrid-retrieval-for-long-horizon.md) remediation #1)
+
+The 19-item LoCoMo F2 temporal-regression diagnosis (v36→v39, closed in
+v4.117.0) found H2 (context-budget dilution under top-k=8 truncation)
+dominating at 74%. Remediation #1 detects temporal queries in the LoCoMo
+adapter and skips top-k truncation for them, surfacing full chronology
+to the answerer — directly attacking H2.
+
+**Implementation** ([PR #131](https://github.com/elementalcollision/chimera/pull/131)):
+
+- New `is_temporal_query` + `adaptive_topk_temporal_enabled` helpers in
+  `chimera/evals/hybrid_retrieval.py` (~95 LOC additive)
+- `_select_session_indexes` adaptive branch in `chimera/evals/locomo.py`
+  (≤20 LOC delta) — returns `list(range(n))` (all sessions, chronological)
+  when knob is ON and item category is `"temporal-reasoning"`
+- Detection mechanism: category-lookup on LoCoMo's authoritative
+  `category` label inside the harness; regex fallback for non-harness
+  callers (deliberately narrow — Phase A spike found 3.1% recall +
+  18–22% false-positive rate on this corpus; in-harness path keys
+  strictly on category)
+- 6 new tests covering positive/negative detection, category-signal
+  short-circuit, adaptive-ON behavior, default-OFF byte-for-byte
+  backward compat
+- Default OFF behind `CHIMERA_ADAPTIVE_TOPK_TEMPORAL=1`
+
+**Gate measurement** ([PR #132](https://github.com/elementalcollision/chimera/pull/132)):
+
+All three pre-registered gates CLEARED on the full 1,986-item LoCoMo F2
+corpus with `CHIMERA_ADAPTIVE_TOPK_TEMPORAL=1`:
+
+| Gate | Floor | Measured | Margin |
+|---|---:|---:|---:|
+| Primary: temporal ≥+2pp | 37.42% | **42.71%** | **+5.29pp** (3.6× margin) |
+| Overall regression: ≥F2−1pp | 58.37% | 59.67% | +1.30pp |
+| `_s` regression: within ±3pp | ±3pp | 0.00pp (by construction) | full envelope |
+
+Per-category breakdown:
+
+| Category | n | F2 baseline | Phase B (adaptive-ON) | Δ |
+|---|---:|---:|---:|---:|
+| adversarial | 446 | 32.96% | 33.41% | +0.45pp |
+| multi-hop | 321 | 45.79% | 44.86% | −0.93pp |
+| open-domain | 841 | 85.49% | 85.49% | 0.00pp |
+| single-hop | 282 | 46.81% | 46.81% | 0.00pp |
+| **temporal-reasoning** | **96** | **35.42%** | **42.71%** | **+7.29pp** |
+| **OVERALL** | **1986** | **59.37%** | **59.67%** | **+0.30pp** |
+
+Open-domain (841 items) and single-hop (282 items) are **byte-identical**
+to F2 (same correct counts), structurally proving the adaptive branch
+fires only on `category == "temporal-reasoning"` and leaves the F2 code
+path untouched for the 1,890 non-temporal items.
+
+### ADR 0142 status amendment ([PR #133](https://github.com/elementalcollision/chimera/pull/133))
+
+Records the Phase B result on ADR 0142:
+
+- **Status-line edit**: `Accepted (`_s`-only) (2026-05-25)` →
+  `Accepted (`_s`-only) + Phase B LoCoMo-temporal lift recorded (2026-05-28)`
+  (format change, verdict preserved)
+- New §Consequences subsection "Phase B remediation gate cleared
+  (adaptive top-k for temporal queries, 2026-05-28)" appended after the
+  v4.117.0-era "Temporal-reasoning regression diagnosis closure"
+  subsection
+- README row updated for status consistency
+- Env knob default **unchanged at OFF**
+- Other two ADR 0142 remediation directions (temporal-anchor
+  preservation, mid-conversation summary injection) remain **named but
+  not chartered**
+
+### v39 deliverable on main ([PR #130](https://github.com/elementalcollision/chimera/pull/130))
+
+Closes the cherry-pick loop on the v37→v39 fan-out series. Brings the
+v39 classification deliverable from soak-branch commit `a9cc994` onto
+main, matching how v37 (PR #123) and v38 (PR #125) were handled. With
+all three deliverables on main, the full 19-item LoCoMo F2
+temporal-reasoning regression diagnosis is fully git-tracked in
+`mind/research/`, matching what ADR 0142's §Consequences subsection
+references.
+
+### Tests + CI
+
+- **1,597 passed, 5 skipped** on main at `8876d60`. +6 net tests vs
+  v4.117.0 (Phase A added 6 tests covering temporal-query detection +
+  adaptive-branch behavior; no regressions elsewhere).
+
+### What this release does NOT include
+
+- **Env knob default flip**. `CHIMERA_ADAPTIVE_TOPK_TEMPORAL` remains
+  default-OFF. The Phase B note's recommendation defers any default flip
+  to a future amendment after an independent re-sweep tightens the
+  +7.29pp point estimate. This release honors that deference.
+- **The other two ADR 0142 remediation directions**. Temporal-anchor
+  preservation and mid-conversation summary injection remain named but
+  not chartered per operator decision.
+- **Cross-corpus generalization** of adaptive-top-k. The detection
+  mechanism is LoCoMo-tuned (category-lookup on authoritative LoCoMo
+  category labels). Generalizing to `_s` or other corpora is open work.
+- **A status change on ADR 0142**. The amendment records the lift as a
+  format change; the substantive `_s`-only verdict is unchanged.
+
+### Upgrade notes
+
+No breaking changes. New env knob introduced this release:
+
+- `CHIMERA_ADAPTIVE_TOPK_TEMPORAL` — int, default 0 (off). When set to
+  `1`, LoCoMo adapter skips top-k truncation on items with
+  `category == "temporal-reasoning"`. No effect on LongMemEval `_s` or
+  any non-LoCoMo evaluation path.
+
+---
+
 ## v4.117.0 — 2026-05-28 — LoCoMo temporal-regression investigation closure
 
 The release that formally closes the LoCoMo F2 hybrid-retrieval temporal-reasoning
