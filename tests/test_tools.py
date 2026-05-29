@@ -267,6 +267,26 @@ async def test_shell_runs_safe_command(shell_env):
 
 
 @pytest.mark.asyncio
+async def test_shell_calls_test_run_ledger_with_exit_and_duration(shell_env, monkeypatch):
+    """v40 wiring: shell_handler passes argv + exit_code + duration_ms +
+    timed_out to record_test_run on a normal (non-timeout) completion.
+    (The test-command filtering itself is unit-tested in test_soak_ledger.)"""
+    captured = {}
+
+    def _spy(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr("chimera.core.soak_ledger.record_test_run", _spy)
+    out = await shell_handler({"argv": ["ls", "."], "cwd": "mind"}, DispatchContext())
+    assert "[exit=0]" in out
+    assert captured["argv"] == ["ls", "."]
+    assert captured["exit_code"] == 0
+    assert captured["timed_out"] is False
+    assert captured["duration_ms"] >= 0.0
+
+
+@pytest.mark.asyncio
 async def test_shell_rejects_unlisted_command_without_elevation(shell_env):
     with pytest.raises(PermissionError):
         await shell_handler({"argv": ["bash", "-c", "echo nope"]}, DispatchContext())

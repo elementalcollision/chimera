@@ -64,9 +64,48 @@ _RUN_ID_ENV = "CHIMERA_SOAK_RUN_ID"
 _SAFE_RUN_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 ACT_TOOLS_FILENAME = "act-tools.jsonl"
+TEST_RUNS_FILENAME = "test-runs.jsonl"
 
 # Cap the stored task text so a giant INBOX line can't bloat the ledger.
 _TASK_PREVIEW_CHARS = 200
+
+# How many trailing stdout lines a test-run record retains. Enough to
+# capture pytest's summary line ("N passed, M failed") plus a short
+# traceback tail, without storing whole logs in mind/.
+_STDOUT_TAIL_LINES = 20
+
+_MIND_DIR_ENV = "CHIMERA_MIND_DIR"
+# Interpreters that run a test module via ``-m pytest``.
+_PY_INTERPRETERS = frozenset({"python", "python3", "py"})
+
+
+def default_mind_dir() -> Path:
+    """Resolve the mind dir the same way ``ChimeraLoop`` does.
+
+    The shell handler has no ``config`` object, so test-run records
+    resolve their target from ``CHIMERA_MIND_DIR`` (default ``mind``) —
+    identical to ``LoopConfig``'s default.
+    """
+    return Path(os.environ.get(_MIND_DIR_ENV, "mind"))
+
+
+def is_test_command(argv: list[str]) -> bool:
+    """True if ``argv`` invokes pytest.
+
+    Matches a bare ``pytest`` program and ``python -m pytest`` (any
+    interpreter in :data:`_PY_INTERPRETERS`). Deliberately narrow: only
+    pytest counts as a "test run" for the verdict-honesty cross-check,
+    so a stray ``python script.py`` is not logged here (it still lands
+    in the ACT tool-call ledger).
+    """
+    if not argv:
+        return False
+    program = Path(argv[0]).name  # tolerate an absolute path in argv[0]
+    if program == "pytest":
+        return True
+    if program in _PY_INTERPRETERS and "pytest" in argv[1:]:
+        return True
+    return False
 
 
 def soak_run_id() -> str | None:
@@ -184,6 +223,83 @@ def record_act_tools(
             run_id=rid, cycle=cycle, task_text=task_text, result=result
         )
         path = ledger_dir / ACT_TOOLS_FILENAME
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+        return path
+    except Exception:  # noqa: BLE001 - fail-soft by contract
+        return None
+
+
+def _stdout_tail(stdout: str) -> list[str]:
+    """Last :data:`_STDOUT_TAIL_LINES` non-empty stdout lines."""
+    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    return lines[-_STDOUT_TAIL_LINES:]
+
+
+def build_test_run_record(
+    *,
+    run_id: str,
+    argv: list[str],
+    exit_code: int | None,
+    duration_ms: float,
+    stdout: str = "",
+    timed_out: bool = False,
+) -> dict[str, Any]:
+    """Build the JSON record for one test (pytest) subprocess. Pure."""
+    return {
+        "run_id": run_id,
+        "argv": list(argv),
+        "program": Path(argv[0]).name if argv else "",
+        "exit_code": exit_code,
+        # The load-bearing field for the v40 verdict-honesty gate: a
+        # postmortem claiming tests_passing=true must have a test-run
+        # record with passed=true. A timeout never counts as passed.
+        "passed": (exit_code == 0) and not timed_out,
+        "timed_out": bool(timed_out),
+        "duration_ms": round(duration_ms, 3),
+        "stdout_tail": _stdout_tail(stdout),
+        "ts": round(time.time(), 3),
+    }
+
+
+def record_test_run(
+    *,
+    argv: list[str],
+    exit_code: int | None,
+    duration_ms: float,
+    stdout: str = "",
+    timed_out: bool = False,
+    mind_dir: Path | str | None = None,
+) -> Path | None:
+    """Append one test-run record to the test-run ledger.
+
+    Called from the shell tool for every pytest invocation. No-op
+    (returns ``None``) when ``CHIMERA_SOAK_RUN_ID`` is unset or ``argv``
+    is not a test command. Fail-soft: any error is swallowed.
+
+    ``mind_dir`` defaults to :func:`default_mind_dir` because the shell
+    handler has no ``config`` object to thread one through.
+    """
+    rid = soak_run_id()
+    if not rid:
+        return None
+    if not is_test_command(argv):
+        return None
+    target = default_mind_dir() if mind_dir is None else mind_dir
+    ledger_dir = soak_ledger_dir(target, rid)
+    if ledger_dir is None:
+        return None
+    try:
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        record = build_test_run_record(
+            run_id=rid,
+            argv=argv,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
+            stdout=stdout,
+            timed_out=timed_out,
+        )
+        path = ledger_dir / TEST_RUNS_FILENAME
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, sort_keys=True) + "\n")
         return path

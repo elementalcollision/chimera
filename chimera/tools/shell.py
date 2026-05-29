@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -294,6 +295,10 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
     timeout_s = float(args.get("timeout_s") or 10.0)
     timeout_s = min(max(timeout_s, 0.1), 60.0)
 
+    # Local import (matches the scope_check pattern above) to keep the
+    # tools→core dependency lazy and avoid any import-order coupling.
+    from chimera.core.soak_ledger import record_test_run
+
     proc = await asyncio.create_subprocess_exec(
         resolved,
         *argv[1:],
@@ -301,15 +306,37 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    # Time the subprocess so the soak test-run ledger can record per-run
+    # duration. perf_counter is monotonic. record_test_run is opt-in
+    # (CHIMERA_SOAK_RUN_ID) and only fires for pytest invocations; it is
+    # fail-soft, so it can never break a shell call.
+    _t0 = time.perf_counter()
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+        record_test_run(
+            argv=argv,
+            exit_code=None,
+            duration_ms=(time.perf_counter() - _t0) * 1000.0,
+            stdout="",
+            timed_out=True,
+        )
         return f"$ {' '.join(argv)}\n[timeout after {timeout_s:.1f}s]"
 
+    duration_ms = (time.perf_counter() - _t0) * 1000.0
     out = stdout.decode("utf-8", errors="replace")
     err = stderr.decode("utf-8", errors="replace")
+    record_test_run(
+        argv=argv,
+        exit_code=proc.returncode,
+        duration_ms=duration_ms,
+        # pytest writes its pass/fail summary to stdout; combine stderr
+        # so a crash traceback (often on stderr) is captured in the tail.
+        stdout=out + ("\n" + err if err else ""),
+        timed_out=False,
+    )
     parts = [f"$ {' '.join(argv)}"]
     if out:
         parts.append(out.rstrip())
