@@ -199,6 +199,11 @@ def test_record_failsoft_on_bad_mind_dir(monkeypatch):
         (["python", "-m", "pytest", "tests/"], True),
         (["python3", "-m", "pytest"], True),
         (["/usr/bin/pytest", "-x"], True),       # absolute path in argv[0]
+        # Runner-wrapped (PR #141 v40 gate form): pytest is a sub-arg.
+        (["uv", "run", "--extra", "dev", "pytest", "-q", "tests/x.py"], True),
+        (["uv", "run", "pytest"], True),
+        (["uv", "run", "python", "-m", "pytest"], True),
+        (["uv", "sync"], False),                 # uv but not pytest
         (["python", "script.py"], False),        # not pytest
         (["ls", "-la"], False),
         (["git", "commit"], False),

@@ -77,6 +77,11 @@ _STDOUT_TAIL_LINES = 20
 _MIND_DIR_ENV = "CHIMERA_MIND_DIR"
 # Interpreters that run a test module via ``-m pytest``.
 _PY_INTERPRETERS = frozenset({"python", "python3", "py"})
+# Runners that invoke pytest as a sub-argument (e.g. ``uv run pytest``,
+# ``uv run --extra dev pytest``, ``uv run python -m pytest``). The v40
+# build soak runs the gate through ``uv run`` (PR #141), so the ledger
+# must recognize pytest anywhere in a runner's argv tail.
+_TEST_RUNNERS = frozenset({"uv", "uvx", "poetry", "hatch", "pdm", "rye"})
 
 
 def default_mind_dir() -> Path:
@@ -104,6 +109,13 @@ def is_test_command(argv: list[str]) -> bool:
     if program == "pytest":
         return True
     if program in _PY_INTERPRETERS and "pytest" in argv[1:]:
+        return True
+    # Runner-wrapped: ``uv run [--extra dev] pytest …`` / ``uv run python
+    # -m pytest …``. The gate command runs through `uv run`, so pytest
+    # appears as a sub-argument, not argv[0]. Match it anywhere in the
+    # tail. (`pytest` as a bare token only ever names the runner here;
+    # it would not appear as a flag value.)
+    if program in _TEST_RUNNERS and "pytest" in argv[1:]:
         return True
     return False
 
