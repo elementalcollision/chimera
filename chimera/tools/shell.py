@@ -273,8 +273,27 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
         from chimera.core.scope_check import (
             ScopeCheckRefusal,
             check_commit_scope,
+            commit_bypasses_index,
             resolve_repo_root,
         )
+        # H1 (v42 fix): the pre-commit scope check inspects the STAGED index
+        # (`git diff --cached`). A `git commit <pathspec>` / `-a` / `--amend`
+        # commits files that never enter that snapshot, evading the
+        # allowlist (v42 attempt #1 landed an off-charter tests/ file this
+        # way). Refuse index-bypassing commit forms first so the scope check
+        # below stays authoritative; force the auditable `git add` + bare
+        # `git commit` flow. Same operator override as the scope check.
+        bypass = commit_bypasses_index(argv)
+        if bypass and not os.environ.get("CHIMERA_ALLOW_OFF_CHARTER_COMMIT"):
+            raise PermissionError(
+                f"git commit blocked (ADR 0146 / H1): {bypass}. The "
+                "pre-commit scope check can only see staged files, so this "
+                "form could evade the charter allowlist. Stage the allowed "
+                "files explicitly (`git add <files>`) and run a bare "
+                "`git commit -m \"...\"` instead.\n\n"
+                "Override (operator-aware, single-use): "
+                "export CHIMERA_ALLOW_OFF_CHARTER_COMMIT=1"
+            )
         try:
             check_commit_scope(resolve_repo_root(_resolve_cwd(args.get("cwd"))))
         except ScopeCheckRefusal as exc:

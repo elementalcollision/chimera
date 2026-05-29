@@ -349,6 +349,73 @@ def staged_paths(repo_root: Path) -> tuple[str, ...]:
     )
 
 
+# Commit flags whose FOLLOWING argv token is a value (not a pathspec), so
+# the scanner must skip that token when hunting for pathspecs.
+_GIT_COMMIT_VALUE_FLAGS = frozenset({
+    "-m", "--message", "-F", "--file", "-C", "--reuse-message",
+    "-c", "--reedit-message", "--author", "--date", "-t", "--template",
+    "--cleanup",
+})
+# Commit flags that move files into the commit OUTSIDE the staged index
+# the scope check inspects (`git diff --cached`) — i.e. evasion vectors.
+_GIT_COMMIT_INDEX_BYPASS_FLAGS = {
+    "-a": "`-a`/`--all` stages tracked changes at commit time",
+    "--all": "`-a`/`--all` stages tracked changes at commit time",
+    "--amend": "`--amend` rewrites the prior commit outside the index",
+    "-i": "`-i`/`--include` adds pathspec files at commit time",
+    "--include": "`-i`/`--include` adds pathspec files at commit time",
+    "-o": "`-o`/`--only` commits only the named pathspec",
+    "--only": "`-o`/`--only` commits only the named pathspec",
+    "--no-verify": "`--no-verify` skips commit hooks",
+    "-n": "`-n`/`--no-verify` skips commit hooks",
+}
+
+
+def commit_bypasses_index(argv: list[str]) -> str | None:
+    """Return a reason if a ``git commit`` argv commits files WITHOUT going
+    through the staged index — else ``None``.
+
+    H1 (v42 fix): :func:`check_commit_scope` inspects ``git diff --cached``
+    (the staged set). A ``git commit <pathspec>`` / ``-a`` / ``--amend``
+    commits files that never enter that snapshot, so the allowlist is
+    evaded (v42 attempt #1 landed an off-charter ``tests/`` file this way).
+    Forcing the auditable staged flow — ``git add <files>`` then a bare
+    ``git commit`` — keeps the scope check authoritative. Non-commit argv
+    returns ``None``.
+    """
+    if len(argv) < 2 or argv[0] != "git" or argv[1] != "commit":
+        return None
+    rest = argv[2:]
+    i, n = 0, len(rest)
+    while i < n:
+        tok = rest[i]
+        if tok == "--":
+            return ("pathspec after `--` bypasses the staged index"
+                    if rest[i + 1:] else None)
+        if tok.startswith("--"):
+            base = tok.split("=", 1)[0]
+            if base in _GIT_COMMIT_INDEX_BYPASS_FLAGS:
+                return _GIT_COMMIT_INDEX_BYPASS_FLAGS[base]
+            if base in _GIT_COMMIT_VALUE_FLAGS and "=" not in tok:
+                i += 2
+                continue
+            i += 1
+            continue
+        if tok.startswith("-") and len(tok) > 1:
+            chars = tok[1:]
+            for c in chars:  # combined short flags, e.g. -am
+                if f"-{c}" in _GIT_COMMIT_INDEX_BYPASS_FLAGS:
+                    return _GIT_COMMIT_INDEX_BYPASS_FLAGS[f"-{c}"]
+            if f"-{chars[-1]}" in _GIT_COMMIT_VALUE_FLAGS:
+                i += 2  # trailing value flag consumes the next token
+                continue
+            i += 1
+            continue
+        # A bare, non-flag token that isn't a flag value → a pathspec.
+        return f"pathspec argument '{tok}' bypasses the staged index"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Event logging
 # ---------------------------------------------------------------------------
