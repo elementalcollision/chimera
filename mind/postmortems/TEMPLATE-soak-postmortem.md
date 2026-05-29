@@ -104,6 +104,14 @@ act_cycles: <int>
 notes: <one paragraph — cited, no hedging>
 ```
 
+**`verdict: CONVERGED` must be EARNED** (H2 gate enforces this at write
+time): it requires BOTH `tests_passing: true` backed by a passing run in
+the test-run ledger AND a scope-clean committed diff (only the charter's
+allowlisted code paths + docs under mind/). If a test-run isn't recorded
+green, or the diff carries any off-charter path, the verdict is `PARTIAL`
+or `FAILED` — not CONVERGED. (Post-H1 an off-charter file cannot even be
+committed; do not work around that.)
+
 **Do NOT estimate these numbers — read them.** (v40′ drifted: claimed
 `spend_usd: 0.90` for an actual $0.31 run, and `act_cycles: 3` for a
 110-iteration soak.) Authoritative sources:

@@ -732,25 +732,35 @@ def check_import_shadowing(write_targets: list[str]) -> list[tuple[str, str]]:
 _READY_TESTS_PASSING_RE = re.compile(
     r"(?im)^\s*tests_passing\s*:\s*(true|false)\b"
 )
+_READY_VERDICT_RE = re.compile(
+    r"(?im)^\s*verdict\s*:\s*([A-Za-z_]+)\b"
+)
 
 
 def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
     """Return ``[(path, msg), ...]`` for a written postmortem whose
-    READY-FOR-REMEDIATION ``tests_passing`` claim contradicts the
-    test-run ledger ground truth.
+    READY-FOR-REMEDIATION claims contradict the test-run ledger ground
+    truth — either the ``tests_passing`` field, or a ``verdict``
+    incoherent with it.
 
-    Sub-chip 2 (v40′ scope-creep sprint). v40′ surfaced this: a haiku
-    sub-agent's postmortem DRAFT was dishonest (it under-reported), and
-    the contradiction was only caught by a LATER cycle's manual ledger
-    cross-check. This moves that cross-check INTO the ACT gate, so a
-    postmortem whose ``tests_passing`` disagrees with the ledger is
-    rejected the moment it is written — before it is accepted — not
-    retroactively.
+    Sub-chip 2 (v40′ scope-creep sprint) moved the verdict-honesty
+    cross-check INTO the ACT gate: a postmortem whose ``tests_passing``
+    disagrees with the ledger is rejected the moment it is written, not
+    via a later manual cross-check.
+
+    H2 (v42 scope-creep sprint) adds **verdict coherence**: a
+    ``verdict: CONVERGED`` (or PARTIAL) claim must be EARNED — backed by a
+    passing test-run in the ledger and by ``tests_passing: true``. v42
+    attempt #1 wrote ``verdict: CONVERGED`` despite an off-charter file in
+    the commit; this catches the broader "claimed converged without the
+    evidence" failure at write time. (Post-H1 an off-charter file can't
+    even land, so the committed diff is scope-clean by construction; this
+    is the matching honesty gate on the verdict CLAIM.)
 
     No-op outside a soak (``CHIMERA_SOAK_RUN_ID`` unset) or when no
     summary is available, so normal ``chimera run`` is unaffected. Only
-    inspects ``.md`` write targets that actually carry a
-    ``tests_passing:`` line (i.e. a READY block). Fail-soft.
+    inspects ``.md`` write targets that carry a ``tests_passing:`` line
+    (i.e. a READY block). Fail-soft. One reason per file (most severe).
     """
     from .soak_ledger import soak_run_id, summarize_run
 
@@ -776,15 +786,32 @@ def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
         if m is None:
             continue  # not a postmortem with a READY block
         claimed = m.group(1).lower() == "true"
+        vm = _READY_VERDICT_RE.search(text)
+        verdict = vm.group(1).upper() if vm else None
+
+        reason: str | None = None
+        # Rule A (sub-chip 2): tests_passing must match the ledger.
         if claimed != ground_truth:
-            failures.append((
-                str(path),
+            reason = (
                 f"postmortem claims tests_passing: {str(claimed).lower()} but "
-                f"the test-run ledger shows {str(ground_truth).lower()} "
-                f"(no passing run recorded)" if not ground_truth else
-                f"postmortem claims tests_passing: {str(claimed).lower()} but "
-                f"the test-run ledger shows tests DID pass — cite the ledger",
-            ))
+                + (f"the test-run ledger shows no passing run recorded"
+                   if not ground_truth else
+                   "the test-run ledger shows tests DID pass — cite the ledger")
+            )
+        # Rule B (H2): a CONVERGED verdict must be earned by a passing run.
+        elif verdict == "CONVERGED" and not ground_truth:
+            reason = (
+                "postmortem verdict: CONVERGED but the test-run ledger shows "
+                "no passing run — CONVERGED requires a recorded green test run"
+            )
+        # Rule C (H2): a CONVERGED verdict contradicts tests_passing: false.
+        elif verdict == "CONVERGED" and not claimed:
+            reason = (
+                "postmortem verdict: CONVERGED contradicts its own "
+                "tests_passing: false — an unearned verdict claim"
+            )
+        if reason is not None:
+            failures.append((str(path), reason))
     return failures
 
 
