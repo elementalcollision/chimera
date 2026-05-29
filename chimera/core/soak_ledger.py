@@ -123,9 +123,26 @@ def build_act_record(
     Kept pure (no I/O) so it is trivially unit-testable.
     """
     tool_calls = [
-        {"name": call.name, "args_hash": args_hash(call.args)}
+        {
+            "name": call.name,
+            "args_hash": args_hash(call.args),
+            # Per-call outcome, populated post-dispatch by ActExecutor.
+            # ``is_error`` is None for any call in a batch that aborted
+            # before dispatch (degenerate-loop / ping-pong); ``duration_ms``
+            # is the wall-clock the dispatch spent.
+            "is_error": call.is_error,
+            "duration_ms": call.duration_ms,
+        }
         for call in result.tool_call_history
     ]
+    # Aggregate per-cycle outcome rollups so a postmortem can read
+    # "this ACT cycle made N calls, E of them errored, taking T ms"
+    # without re-parsing the per-call list.
+    error_count = sum(1 for c in tool_calls if c["is_error"] is True)
+    total_ms = round(
+        sum(c["duration_ms"] for c in tool_calls if c["duration_ms"] is not None),
+        3,
+    )
     return {
         "run_id": run_id,
         "cycle": cycle,
@@ -135,6 +152,8 @@ def build_act_record(
         "rounds": result.rounds,
         "api_call_count": result.api_call_count,
         "tool_call_count": len(tool_calls),
+        "tool_error_count": error_count,
+        "tool_total_ms": total_ms,
         "tool_calls": tool_calls,
         "ts": round(time.time(), 3),
     }

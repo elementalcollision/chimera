@@ -39,6 +39,10 @@ def _result(*, tools: list[ToolCall] | None = None, **kw) -> ActResult:
     return r
 
 
+def _call(name, args, *, is_error=None, duration_ms=None) -> ToolCall:
+    return ToolCall(name=name, args=args, is_error=is_error, duration_ms=duration_ms)
+
+
 # ── 1. Opt-in ────────────────────────────────────────────────
 
 def test_no_run_id_is_noop(tmp_path, monkeypatch):
@@ -101,6 +105,42 @@ def test_task_text_is_truncated(tmp_path, monkeypatch):
         run_id="v40", cycle=1, task_text="x" * 5000, result=_result()
     )
     assert len(rec["task"]) == 200
+
+
+# ── 2b. Per-call exit + duration (depth) ─────────────────────
+
+def test_per_call_exit_and_duration_recorded():
+    tools = [
+        _call("read_file", {"path": "a.py"}, is_error=False, duration_ms=12.5),
+        _call("shell", {"cmd": "pytest"}, is_error=True, duration_ms=240.0),
+    ]
+    rec = build_act_record(
+        run_id="v40", cycle=1, task_text="t", result=_result(tools=tools)
+    )
+    calls = rec["tool_calls"]
+    assert calls[0]["is_error"] is False
+    assert calls[0]["duration_ms"] == 12.5
+    assert calls[1]["is_error"] is True
+    assert calls[1]["duration_ms"] == 240.0
+    # Per-cycle rollups.
+    assert rec["tool_error_count"] == 1
+    assert rec["tool_total_ms"] == 252.5
+
+
+def test_undispatched_calls_have_null_outcome():
+    # A batch aborted before dispatch leaves is_error/duration_ms None.
+    tools = [
+        _call("read_file", {"path": "a.py"}, is_error=False, duration_ms=5.0),
+        _call("shell", {"cmd": "x"}),  # never dispatched
+    ]
+    rec = build_act_record(
+        run_id="v40", cycle=1, task_text="t", result=_result(tools=tools)
+    )
+    assert rec["tool_calls"][1]["is_error"] is None
+    assert rec["tool_calls"][1]["duration_ms"] is None
+    # Rollups ignore the un-dispatched call.
+    assert rec["tool_error_count"] == 0
+    assert rec["tool_total_ms"] == 5.0
 
 
 # ── 3. Safety — run-id sanitization ──────────────────────────

@@ -24,15 +24,28 @@ class LoopVerdict(str, Enum):
     ABORT = "abort"
 
 
-@dataclass(frozen=True)
+@dataclass
 class ToolCall:
-    """Minimal tool-call record for loop detection."""
+    """Minimal tool-call record for loop detection.
+
+    Loop detection only ever reads :meth:`signature` (name + args). The
+    ``is_error`` / ``duration_ms`` fields are populated *after* dispatch
+    by the ACT inner loop and consumed only by the soak tool-call ledger
+    (v40 build-capability instrumentation); they are ``None`` until a
+    call has actually run and stay ``None`` for any batch that aborted
+    before dispatch. Not frozen because ``args`` is a dict (already
+    unhashable, so frozen never bought real hashability here) and the
+    outcome fields are filled in post-construction.
+    """
 
     name: str
     args: dict[str, Any]
+    # Populated post-dispatch by ActExecutor; ledger-only.
+    is_error: bool | None = None
+    duration_ms: float | None = None
 
     def signature(self) -> tuple[str, str]:
-        """Canonical comparable form."""
+        """Canonical comparable form (outcome fields excluded by design)."""
         return (self.name, json.dumps(self.args, sort_keys=True, default=str))
 
 

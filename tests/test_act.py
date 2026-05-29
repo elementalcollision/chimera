@@ -188,6 +188,42 @@ async def test_act_runs_a_tool_then_completes(shell_env, dispatcher, db):
 
 
 @pytest.mark.asyncio
+async def test_act_annotates_toolcall_with_exit_and_duration(shell_env, dispatcher, db):
+    """v40 ledger depth: after dispatch the inner loop fills each
+    ToolCall's is_error + duration_ms (None until dispatch runs)."""
+    mind, _ = shell_env
+    (mind / "hello.txt").write_text("howdy\n")
+
+    fake = _FakeProvider(
+        [
+            ChatResponse(
+                text="checking",
+                tool_uses=[
+                    ToolUseBlock(id="tu_1", name="shell", input={"argv": ["ls", "."]})
+                ],
+                stop_reason="tool_use",
+                model_id="m",
+                provider="fake",
+            ),
+            ChatResponse(
+                text="done.", tool_uses=[], stop_reason="stop",
+                model_id="m", provider="fake",
+            ),
+        ]
+    )
+    executor = ActExecutor(
+        dispatcher=dispatcher,
+        providers={ProviderKind.OPENROUTER: fake, ProviderKind.ANTHROPIC: fake},
+        db=db,
+    )
+    result = await executor.execute("list files", cycle=1)
+    call = result.tool_call_history[0]
+    assert call.is_error is False
+    assert call.duration_ms is not None
+    assert call.duration_ms >= 0.0
+
+
+@pytest.mark.asyncio
 async def test_act_aborts_on_degenerate_loop(shell_env, dispatcher, db):
     """Five identical shell calls in a row → ABORT verdict from the guard."""
     repeated_call = ToolUseBlock(id="tu", name="shell", input={"argv": ["ls", "."]})
