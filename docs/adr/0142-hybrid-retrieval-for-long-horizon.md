@@ -1,6 +1,6 @@
 # ADR 0142 — Hybrid retrieval for LongMemEval `_s` long-horizon
 
-**Status**: Accepted (`_s`-only) (2026-05-25)
+**Status**: Accepted (`_s`-only) + Phase B LoCoMo-temporal lift recorded (2026-05-28)
 
 > T2.1a (PR #85) cleared every chartered `_s` long-horizon gate
 > (66.67% overall, +56.67pp from B1's 10%) on a stratified n=30 sweep.
@@ -327,6 +327,66 @@ falsification gate. None are chartered in this amendment.
 [v38 postmortem](../../mind/research/v38-soak-postmortem-2026-05-28.md),
 [v39 postmortem](../../mind/research/v39-soak-postmortem-2026-05-28.md),
 [F2 LoCoMo baseline](../../mind/research/locomo-f2-retrieval-ablation-2026-05-27.md).
+
+### Phase B remediation gate cleared (adaptive top-k for temporal queries, 2026-05-28)
+
+The first remediation direction named in the preceding "Temporal-reasoning
+regression diagnosis closure" subsection — adaptive top-k for temporal
+queries — was implemented in [PR #131](https://github.com/elementalcollision/chimera/pull/131)
+(Phase A: design + implementation, default-OFF env knob
+`CHIMERA_ADAPTIVE_TOPK_TEMPORAL`) and measured in [PR #132](https://github.com/elementalcollision/chimera/pull/132)
+(Phase B: full F2 LoCoMo eval, n=1,986). Full gate-measurement detail
+in [`mind/research/adaptive-topk-temporal-eval-2026-05-28.md`](../../mind/research/adaptive-topk-temporal-eval-2026-05-28.md).
+
+**All three pre-registered gates CLEARED**:
+
+| Gate | Floor | Measured | Margin |
+|---|---:|---:|---:|
+| Primary: LoCoMo temporal-reasoning ≥+2pp | 37.42% | **42.71%** | **+5.29pp** (3.6× margin) |
+| Overall regression: ≥F2−1pp | 58.37% | 59.67% | +1.30pp |
+| `_s` regression: within ±3pp | ±3pp | 0.00pp (by construction) | full envelope |
+
+Per-category breakdown: temporal-reasoning **+7.29pp** (35.42% → 42.71%
+on n=96; +7 item-flips). Open-domain and single-hop are byte-identical
+to F2 (same correct counts), confirming the adaptive branch fires only
+on `category == "temporal-reasoning"` and leaves the F2 path untouched
+for the 1,890 non-temporal items. Multi-hop (−3 items) and adversarial
+(+2 items) drift is judge non-determinism at temperature-0, well within
+F3's single-sweep ~92-flip noise floor.
+
+**Verdict preserved**: this ADR's substantive verdict — hybrid retrieval
+is Accepted opt-in on `_s` long-horizon and remains opt-in elsewhere —
+is **unchanged**. The status line is amended to record that the
+LoCoMo-temporal adaptive-top-k remediation cleared its gate; the
+default behavior of hybrid retrieval (and the `CHIMERA_ADAPTIVE_TOPK_TEMPORAL`
+knob itself) is **unchanged at default-OFF**. A future operator decision
+to flip the default to ON would be a separate amendment, conditional
+on at least one independent re-sweep tightening the +7.29pp point
+estimate (per the Phase B note's "Recommendation for ADR 0142").
+
+**Other remediation directions unchanged**: the H3 = 0/19 result from the
+19-item diagnosis still rules out the answerer-model axis as the
+remediation lever. The two other named directions —
+temporal-anchor preservation under truncation and mid-conversation
+summary injection — remain **named but not chartered**. Phase B's
+result does not bear on whether to charter them.
+
+**Honest disclosures** (preserved from the Phase B note):
+
+- Gate is conditional on the locked `openai/gpt-4o-mini` judge + the
+  `scripts/grade_locomo.py` prompt. Switching judges or prompts
+  invalidates the comparison.
+- Single-sweep result; an independent re-sweep would tighten the +7.29pp
+  point estimate but is not gate-relevant (+5.29pp over floor leaves
+  margin against per-cat noise at n=96).
+- The +7.29pp lift is consistent with H2 being the dominant mechanism
+  but does not by itself prove the 19-item classifications were
+  individually correct — only that loosening top-k truncation for
+  temporal items helps.
+- Detection mechanism is LoCoMo-tuned (category-lookup on the
+  authoritative `category` label). Cross-corpus generalization is open
+  work; the regex fallback in `is_temporal_query` was demoted in
+  Phase A due to 3.1% recall on this corpus.
 
 ## Alternatives considered
 
