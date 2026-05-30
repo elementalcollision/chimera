@@ -779,6 +779,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "count", help="Print recursive file counts per top-level mind/ entry.",
     )
 
+    # v44: `chimera soak summary <run-id>` — thin wrapper over
+    # chimera.soak_summary (the first real-feature module Chimera authored;
+    # see mind/research/v44-soaksummary-capstone.md).
+    soak_p = sub.add_parser(
+        "soak", help="Inspect a soak run's ledgers (read-only).",
+    )
+    soak_sub = soak_p.add_subparsers(dest="soak_command", metavar="<soak-cmd>")
+    soak_summary_p = soak_sub.add_parser(
+        "summary",
+        help="Print the iteration-vs-spend table for a soak run from its ledger.",
+    )
+    soak_summary_p.add_argument(
+        "run_id", help="The soak run id (the mind/soak/<run-id>/ directory name).",
+    )
+
     return parser
 
 
@@ -831,7 +846,6 @@ def _cmd_peers_cards(args) -> int:
     """
     import json as _json
     import os as _os
-    from pathlib import Path
 
     from .a2a.peer_trust_journal import list_decisions
     from .a2a.peers import list_peer_chimeras
@@ -899,10 +913,8 @@ def _cmd_peers_ask(args) -> int:
     sonnet-tier provider for an answer. With ``--prompt-only`` the
     prompt is printed and no LLM call is made (useful for debugging).
     """
-    import asyncio
     import json as _json
     import os as _os
-    from pathlib import Path
 
     from .a2a.dialectic import (
         build_dialectic_prompt,
@@ -990,7 +1002,6 @@ def _cmd_peers_ask(args) -> int:
 def _cmd_evals_longmemeval(args) -> int:
     """`chimera evals longmemeval ...` — Phase 4 #8 adapter sweep (ADR 0135)."""
     import os as _os
-    from pathlib import Path
 
     from .core import LoopConfig
     from .evals.longmemeval import (
@@ -1103,7 +1114,6 @@ def _cmd_evals_longmemeval(args) -> int:
 def _cmd_evals_locomo(args) -> int:
     """`chimera evals locomo ...` — second eval surface (ADR 0144)."""
     import os as _os
-    from pathlib import Path
 
     from .core import LoopConfig
     from .evals.locomo import (
@@ -3175,6 +3185,18 @@ def main(argv: list[str] | None = None) -> int:
             print(format_mind_counts(mind_dir), end="")
             return 0
         parser.error("usage: chimera mind count")
+        return 2
+
+    if args.command == "soak":
+        if args.soak_command == "summary":
+            # Leaf import (the v44 first-real-feature module), same
+            # shadow-free pattern as `mind count`.
+            from .core import LoopConfig
+            from .soak_summary import format_soak_summary
+            mind_dir = LoopConfig.from_env().mind_dir
+            print(format_soak_summary(mind_dir, args.run_id), end="")
+            return 0
+        parser.error("usage: chimera soak summary <run-id>")
         return 2
 
     parser.error(f"unknown command: {args.command}")

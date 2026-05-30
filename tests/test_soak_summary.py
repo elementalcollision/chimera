@@ -84,6 +84,22 @@ def _seed_ledger(mind_dir: Path, run_id: str, rows: list[dict]) -> None:
             fh.write(json.dumps(r) + "\n")
 
 
+def test_cli_soak_summary_verb(tmp_path, monkeypatch, capsys):
+    # v44 follow-on: the `chimera soak summary <run-id>` CLI wrapper over
+    # format_soak_summary (the mind-count leaf pattern). This test is the
+    # guard that the verb is actually wired — its absence let an earlier
+    # landing ship the module without the CLI verb.
+    from chimera.cli import main
+    mind = tmp_path / "mind"
+    _seed_ledger(mind, "run-cli", [_ROW_A, _ROW_B])
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind))
+    rc = main(["soak", "summary", "run-cli"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.startswith("# Soak run-cli — 2 ACT cycles\n")
+    assert "**Σ**" in out
+
+
 def test_summary_headline_and_table(tmp_path):
     mind = tmp_path / "mind"
     _seed_ledger(mind, "run-x", [_ROW_A, _ROW_B])
