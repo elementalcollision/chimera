@@ -278,9 +278,17 @@ soak_phase1_deliverable_landed() {
     #
     # Returns 0 when ALL of:
     #   1. Every $allowed_files path exists on disk under $worktree.
-    #   2. At least one of those files contains the $ready_marker line.
+    #   2. Marker presence:
+    #        - default: at least ONE allowed file contains the $ready_marker;
+    #        - strict ($require_all_markers non-empty): EVERY allowed `.md`
+    #          file contains it. Strict is for N>1 fan-out (e.g. v43's three
+    #          postmortems) so phase 1 cannot exit "landed" while any one
+    #          deliverable is still unwritten.
     #   3. The $test_cmd exits 0 from $worktree (usually `true` for
-    #      research-only phase 1; the marker is the real gate).
+    #      research-only phase 1; the marker is the real gate). For a fan-out
+    #      build, $test_cmd is the COMBINED gate over all targets, so it
+    #      exits 0 only when every target's test passes — that is the
+    #      AND across all (target, test) pairs.
     #
     # Closes the defect surfaced by the v36 micro-soak postmortem (PR #117):
     # the legacy phase-1 ready_marker_found exit checks INVESTIGATION_DOC
@@ -299,6 +307,7 @@ soak_phase1_deliverable_landed() {
     local allowed_files="$2"
     local test_cmd="$3"
     local ready_marker="${4:-## READY-FOR-REMEDIATION}"
+    local require_all_markers="${5:-}"
 
     if [ -z "$worktree" ] || [ -z "$allowed_files" ] || [ -z "$test_cmd" ]; then
         echo "  phase1-sentinel: bad args (need worktree, allowed_files, test_cmd)" >&2
@@ -314,14 +323,25 @@ soak_phase1_deliverable_landed() {
         [ -f "$worktree/$f" ] || return 1
     done
 
-    local found=0
-    for f in $allowed_files; do
-        if grep -qF "$ready_marker" "$worktree/$f" 2>/dev/null; then
-            found=1
-            break
-        fi
-    done
-    [ "$found" -eq 1 ] || return 1
+    if [ -n "$require_all_markers" ]; then
+        # Strict (N>1 fan-out): EVERY .md deliverable must carry the marker.
+        for f in $allowed_files; do
+            case "$f" in
+                *.md)
+                    grep -qF "$ready_marker" "$worktree/$f" 2>/dev/null || return 1
+                    ;;
+            esac
+        done
+    else
+        local found=0
+        for f in $allowed_files; do
+            if grep -qF "$ready_marker" "$worktree/$f" 2>/dev/null; then
+                found=1
+                break
+            fi
+        done
+        [ "$found" -eq 1 ] || return 1
+    fi
 
     if ! ( cd "$worktree" && bash -c "$test_cmd" ) >/dev/null 2>&1; then
         return 1
