@@ -145,6 +145,8 @@ def test_escalations_list_json_with_grep(tmp_path: Path) -> None:
 def _seed_aged_escalations(db_path: Path) -> None:
     """Seed 5 old rows (30 days ago) + 3 fresh rows (today)."""
     import sqlite3
+    from datetime import UTC, datetime, timedelta
+
     db = sqlite3.connect(str(db_path))
     db.execute("""
         CREATE TABLE IF NOT EXISTS task_escalations (
@@ -158,7 +160,10 @@ def _seed_aged_escalations(db_path: Path) -> None:
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
-    old_cutoff = "2026-04-23T00:00:00"
+    # Dates are RELATIVE to wall-clock now so the 7-day prune window always
+    # splits the two cohorts deterministically, regardless of run date.
+    now = datetime.now(UTC)
+    old_cutoff = (now - timedelta(days=30)).isoformat()
     with db:
         for i in range(5):
             db.execute(
@@ -167,7 +172,7 @@ def _seed_aged_escalations(db_path: Path) -> None:
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (f"old_sig_{i}", f"old task {i}", "haiku", "max_rounds", 5, 1, old_cutoff),
             )
-    fresh_cutoff = "2026-05-23T00:00:00"
+    fresh_cutoff = (now - timedelta(days=1)).isoformat()
     with db:
         for i in range(3):
             db.execute(
