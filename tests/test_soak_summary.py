@@ -93,6 +93,9 @@ def test_cli_soak_summary_verb(tmp_path, monkeypatch, capsys):
     mind = tmp_path / "mind"
     _seed_ledger(mind, "run-cli", [_ROW_A, _ROW_B])
     monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind))
+    # Hermetic state dir with no DB → spend is None → headline has no spend
+    # (otherwise the verb would read the repo's real state/chimera.db).
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(tmp_path / "nostate"))
     rc = main(["soak", "summary", "run-cli"])
     out = capsys.readouterr().out
     assert rc == 0
@@ -113,3 +116,25 @@ def test_summary_empty_ledger(tmp_path):
     mind = tmp_path / "mind"
     out = _summary()(mind, "absent-run")
     assert out == "# Soak absent-run — no ACT records\n"
+
+
+def test_summary_with_spend_in_headline(tmp_path):
+    mind = tmp_path / "mind"
+    _seed_ledger(mind, "run-s", [_ROW_A, _ROW_B])
+    out = _summary()(mind, "run-s", spend_usd=0.41)
+    assert out.startswith("# Soak run-s — 2 ACT cycles, $0.41 spent\n")
+    assert _HEADER in out
+
+
+def test_summary_spend_none_omits(tmp_path):
+    mind = tmp_path / "mind"
+    _seed_ledger(mind, "run-n", [_ROW_A])
+    out = _summary()(mind, "run-n", spend_usd=None)
+    assert out.startswith("# Soak run-n — 1 ACT cycles\n")
+    assert "spent" not in out.splitlines()[0]
+
+
+def test_run_spend_from_db_missing_is_none(tmp_path):
+    from chimera.soak_summary import run_spend_from_db
+    # No chimera.db under the state dir → fail-soft None.
+    assert run_spend_from_db(tmp_path / "state") is None
