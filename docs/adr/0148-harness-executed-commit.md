@@ -1,8 +1,42 @@
 # ADR 0148 — Harness-executed commit for soak phase 2 (the agent won't self-commit)
 
-**Status**: Proposed (2026-05-30). Default OFF (knob `CHIMERA_SOAK_AUTOCOMMIT=1`).
-Flip to Accepted after a re-soak in harness-commit mode demonstrates a clean
-phase-2 convergence (real `[agent]` commit, scoped diff, test green).
+**Status**: **Accepted (2026-05-30)** — the acceptance criterion below was met
+by the harness-commit validation re-soak
+(`chimera-soak/v46-soakreport-2026-05-30-2235`). Default OFF (knob
+`CHIMERA_SOAK_AUTOCOMMIT=1`).
+
+> Acceptance criterion (now met): a re-soak in harness-commit mode demonstrates a
+> clean phase-2 convergence (real `[agent]` commit, scoped diff, test green).
+
+### Validation (re-soak in `CHIMERA_SOAK_AUTOCOMMIT=1` mode)
+
+Phase 2 **converged in one iteration** — the exact contrast with re-soak #2,
+which idled to `no_forward_progress` after 58 `commit_not_executed` firings:
+
+```
+phase2 iter 1:
+  Re-run gated test            → 4 passed
+  Stage deliverables           → staged
+  Commit with [agent]          → commit_not_executed   ← agent STILL won't commit
+  harness-autocommit: committed                        ← runner committed
+  phase2 end: soft_sentinel_deliverable_landed         ← CONVERGED
+```
+
+- Real commit landed: `f81b0e8 [agent] create chimera/soak_report.py —
+  harness-committed (ADR 0148): agent authored+staged+greened; runner executed
+  the commit (the agent did not run git commit)`.
+- Diff correctly scoped: `chimera/soak_report.py` + postmortem + `mind/` journal
+  only.
+- Post-soak primary gate **5 passed**; verdict-honesty ground truth **true**.
+  Converged at cycle 156, total spend **$0.13**.
+
+The honest boundary held: the agent did **not** self-commit — the ADR 0147 gate
+fired exactly once, then the harness supplied the commit. This validates the
+harness-commit *actuator* (autonomous authoring + harness delivery), not
+end-to-end autonomous self-commit. See
+`mind/research/v46-resoak2-gate-fires-agent-still-wont-commit.md` and the
+commit-avoidance analysis
+`mind/research/why-the-agent-avoids-git-commit-2026-05-30.md`.
 
 ## Context
 
