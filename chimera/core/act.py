@@ -541,9 +541,58 @@ def extract_write_targets_from_calls(
         if call.name not in _WRITING_TOOL_NAMES:
             continue
         blob = " ".join(map(str, call.args.values()))
-        for path in extract_target_paths(blob):
+        # v46 (ADR 0149): a path is a write target only when it is the
+        # DESTINATION of a write op — NOT merely mentioned in the CONTENT
+        # being written. Scraping every path-shaped token out of the call
+        # args dragged a *documented* source path into write_targets: the
+        # phase-1 postmortem task writes `…postmortem.md` whose PROSE names
+        # `chimera/soak_report.py`, that path got scraped in, should_witness()
+        # then surfaced the UNRELATED module to the witness panel under the
+        # postmortem charter, and the panel rejected it — phase-1
+        # no_forward_progress across the v46 re-soaks. When a write idiom is
+        # found we trust those destinations; otherwise we conservatively fall
+        # back to the legacy whole-blob scrape (keeps write_targets populated
+        # for exotic write styles that other gates + the honesty fallback
+        # depend on).
+        dests = _code_write_destinations(blob)
+        candidate = (
+            extract_target_paths(" ".join(dests)) if dests
+            else extract_target_paths(blob)
+        )
+        for path in candidate:
             if path not in out:
                 out.append(path)
+    return out
+
+
+# Write-DESTINATION idioms in a code_exec snippet (the only registered
+# writing tool). A path counts as a write target when it is the argument of
+# a write operation — `open('p','w'/'a'/'x'…)`, `Path('p').write_text/bytes(…)`,
+# or `Path('p').open('w'…)` — NOT when it merely appears inside the content
+# being written. See extract_write_targets_from_calls (ADR 0149).
+_WRITE_DEST_RE = re.compile(
+    r"""
+        open\s*\(\s*['"](?P<a>[^'"\n]+)['"]\s*,\s*['"][^'"\n]*[wax][^'"\n]*['"]
+      | Path\s*\(\s*['"](?P<b>[^'"\n]+)['"]\s*\)\s*\.\s*write_(?:text|bytes)
+      | Path\s*\(\s*['"](?P<c>[^'"\n]+)['"]\s*\)\s*\.\s*open\s*\(\s*['"][^'"\n]*[wax]
+    """,
+    re.VERBOSE,
+)
+
+
+def _code_write_destinations(blob: str) -> list[str]:
+    """Return the path(s) a code_exec snippet WRITES TO (idiom-based).
+
+    Empty when no recognized write idiom is present — the caller then falls
+    back to the legacy whole-blob scrape. Deliberately conservative: better to
+    occasionally over-scrape (legacy behavior) than to drag a documented but
+    unwritten path into write_targets (the v46 witness false-positive).
+    """
+    out: list[str] = []
+    for m in _WRITE_DEST_RE.finditer(blob):
+        p = m.group("a") or m.group("b") or m.group("c")
+        if p and p not in out:
+            out.append(p)
     return out
 
 

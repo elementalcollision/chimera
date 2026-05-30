@@ -333,6 +333,86 @@ def test_soak_v7_end_to_end_path():
     assert check_fix_without_test(calls, write_targets) == []
 
 
+# ── v46 (ADR 0149): write DESTINATION, not documented content paths ──
+#
+# Phase 1 of the v46 re-soaks ended no_forward_progress because the
+# postmortem task drew witness_rejected: the postmortem .md PROSE names
+# `chimera/soak_report.py`, that path was scraped out of the write CONTENT
+# into write_targets, should_witness() then surfaced the unrelated module
+# to the witness panel under the postmortem charter, and it was rejected.
+
+
+def test_documented_source_path_in_doc_content_is_not_a_write_target():
+    """Writing a postmortem .md whose prose documents a source path must NOT
+    scrape that source into write_targets (the v46 phase-1 friction)."""
+    calls = [
+        ToolCall(
+            name="code_exec",
+            args={
+                "code": (
+                    "from pathlib import Path\n"
+                    "Path('mind/research/v46-soakreport-postmortem.md').write_text(\n"
+                    "  '# Postmortem\\nBuilt chimera/soak_report.py and "
+                    "tests/test_soak_report.py; 4 passed.\\n'\n"
+                    ")\n"
+                ),
+            },
+        ),
+    ]
+    wt = extract_write_targets_from_calls(calls)
+    assert wt == ["mind/research/v46-soakreport-postmortem.md"]
+    assert "chimera/soak_report.py" not in wt
+    assert "tests/test_soak_report.py" not in wt
+    # Downstream effect: the witness sees no foundational code to review.
+    from chimera.core.witness import should_witness
+    assert should_witness(wt) == []
+
+
+def test_open_write_destination_extracted_not_content_paths():
+    """`open('dest','w').write('… chimera/core/act.py …')` → only the dest."""
+    calls = [
+        ToolCall(
+            name="code_exec",
+            args={"code": "open('mind/x.md','w').write('see chimera/core/act.py for impl')"},
+        ),
+    ]
+    assert extract_write_targets_from_calls(calls) == ["mind/x.md"]
+
+
+def test_real_py_write_destination_still_witnessed():
+    """The build task genuinely writes the module — it MUST still be a write
+    target (so should_witness reviews it). The fix narrows scope, not this."""
+    calls = [
+        ToolCall(
+            name="code_exec",
+            args={
+                "code": (
+                    "from pathlib import Path\n"
+                    "Path('chimera/soak_report.py').write_text('x = 1\\n')\n"
+                ),
+            },
+        ),
+    ]
+    wt = extract_write_targets_from_calls(calls)
+    assert wt == ["chimera/soak_report.py"]
+    from chimera.core.witness import should_witness
+    assert should_witness(wt) == ["chimera/soak_report.py"]
+
+
+def test_no_write_idiom_falls_back_to_legacy_scrape():
+    """Conservative fallback: a writing-tool call with no recognized write
+    idiom keeps the legacy whole-blob scrape so write_targets stays populated
+    for gates that depend on it."""
+    calls = [
+        ToolCall(
+            name="code_exec",
+            args={"code": "_dump(payload, 'mind/research/out.md')  # custom helper"},
+        ),
+    ]
+    # No open()/write_text idiom → legacy scrape still finds the path.
+    assert "mind/research/out.md" in extract_write_targets_from_calls(calls)
+
+
 # ── v4.99 (ADR 0103): phase-scope fix_without_test ──────────────────
 
 
