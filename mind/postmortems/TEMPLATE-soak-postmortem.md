@@ -125,10 +125,18 @@ like a dishonest `tests_passing`.
 **These two numbers are RUN-CUMULATIVE, not per-build (v43 R2).** They
 describe the whole soak, read from `summarize_run()` / `chimera cost`. In
 a **fan-out (N>1) soak that writes one postmortem per build**, EVERY
-postmortem reports the SAME run totals — do NOT slice them per build. (v43
-wrote `act_cycles: 7` per build against a cumulative ledger of 20; with
-the honesty gate now firing, a per-build slice trips it. Report the run
-total in each postmortem.) Authoritative sources:
+postmortem reports the SAME run totals — do NOT slice them per build.
+Report the run total in each postmortem.
+
+**The gate is OVER-claim-only (v44 R2).** It hard-blocks only claiming
+MORE cycles/spend than the ledger/DB holds (impossible without inflation).
+A conservative or stale-snapshot UNDER-count does not block — because the
+ledger keeps growing every cycle, hard-blocking a fixed under-count would
+deadlock a churning run against a moving target (v44: a correct 6/6 build
+could never commit because the postmortem's `act_cycles: 4` kept being
+re-checked against an ever-growing ledger). Still: read the numbers and
+report the cumulative total — the gate's leniency is a safety valve, not
+license to estimate. Authoritative sources:
 
 - `act_cycles` = the ACT-execute record count from the ledger, via
   `summarize_run` (NOT "cycles it took to converge" — that's a separate

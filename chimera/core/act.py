@@ -1005,58 +1005,55 @@ def check_postmortem_honesty(
                 "postmortem verdict: CONVERGED contradicts its own "
                 "tests_passing: false — an unearned verdict claim"
             )
-        # Rule D (drift): act_cycles must match the ledger's ACT-execute
-        # record count within a small band. The count can tick by ~1
-        # between the agent's summarize_run read and this gate, so the
-        # band is max(2, 25% of ground truth) — tolerant of timing, but
-        # the v42 drift (claimed 3 vs ledger 15) is far outside it.
-        #
-        # Semantics (v43 R2): act_cycles is RUN-CUMULATIVE — the whole
-        # soak's ACT-execute count from summarize_run(), NOT a per-build
-        # slice. In a fan-out (N>1) soak EVERY postmortem reports the SAME
-        # run total; a per-build attribution (v43 wrote 7 against a
-        # cumulative 20) is a drift and trips this rule. (Per-build slicing
-        # was the convention ambiguity v43 surfaced; cumulative is the
-        # locked answer because the ledger is run-scoped, not build-scoped.)
+        # Rule D (drift): act_cycles must not OVER-claim the ledger's
+        # ACT-execute record count. OVER-claim only (v44 R2): the v44 soak
+        # exposed a moving-target deadlock — act_cycles is a SNAPSHOT taken
+        # when the agent reads summarize_run(), but the ledger keeps growing
+        # every cycle (postmortem-writing churn especially), and the #163
+        # git-status fallback re-scans the unchanged postmortem on EVERY
+        # phase-2 cycle. Comparing a fixed claim against a monotonically
+        # growing ledger means any churn makes the claim unsatisfiable, so a
+        # CORRECT build (v44: 6/6) could never commit. Under-claiming is also
+        # legitimate on its face (the agent may report build-cycles ⊆ all
+        # ACT records). So the gate hard-blocks only OVER-claiming — claiming
+        # MORE cycles than the ledger holds, which is impossible-without-
+        # inflation. A growing ledger only widens the allowance, never
+        # narrows it → no deadlock. (The cumulative-reporting CONVENTION
+        # still stands in the template/INBOX; the gate just no longer
+        # deadlocks on a conservative or stale count. tests_passing/verdict —
+        # Rules A–C, the load-bearing honesty — remain hard two-sided gates.)
         else:
             cm = _READY_ACT_CYCLES_RE.search(text)
             gt_cycles = summary.get("act_cycles")
             if cm is not None and isinstance(gt_cycles, int) and gt_cycles > 0:
                 claimed_cycles = int(cm.group(1))
                 band = max(2, round(gt_cycles * 0.25))
-                if abs(claimed_cycles - gt_cycles) > band:
+                if claimed_cycles - gt_cycles > band:
                     reason = (
                         f"postmortem claims act_cycles: {claimed_cycles} but the "
-                        f"ledger records {gt_cycles} ACT-execute cycles (±{band} "
-                        f"allowed) — report the RUN-CUMULATIVE "
-                        f"summarize_run().act_cycles (same across all postmortems "
-                        f"in a fan-out soak), not a per-build slice; don't estimate"
+                        f"ledger records only {gt_cycles} ACT-execute cycles "
+                        f"(+{band} allowed) — you cannot have run more cycles than "
+                        f"the ledger holds; read summarize_run().act_cycles"
                     )
-            # Rule E (drift): spend_usd must match the run's actual DB
-            # spend within a generous relative band. Fail-soft — skipped
-            # if the DB spend can't be read or is non-positive, so an
-            # unverifiable number never blocks. Deadband of $0.05 avoids
-            # noise on micro-runs; the v42 drift ($0.02 vs $0.16) trips.
-            # Semantics (v43 R2): RUN-CUMULATIVE, like act_cycles — the
-            # whole soak's spend, identical across every postmortem in a
-            # fan-out run, not a per-build slice.
+            # Rule E (drift): spend_usd must not OVER-claim the run's actual
+            # DB spend. OVER-claim only (v44 R2), for the same moving-target
+            # reason — spend also accrues every cycle, so a fixed claim vs a
+            # growing total deadlocks under churn. Fail-soft (skipped if DB
+            # spend unreadable/non-positive). Flag only claiming MORE than
+            # the DB shows (beyond a generous band); under-reporting a stale
+            # snapshot is tolerated.
             if reason is None:
                 sm = _READY_SPEND_USD_RE.search(text)
                 if sm is not None:
                     actual_spend = _run_spend_usd_best_effort()
                     if actual_spend is not None and actual_spend > 0:
                         claimed_spend = float(sm.group(1))
-                        off = abs(claimed_spend - actual_spend)
-                        if off > 0.05 and (
-                            claimed_spend < actual_spend * 0.5
-                            or claimed_spend > actual_spend * 1.5
-                        ):
+                        if claimed_spend - actual_spend > max(0.05, actual_spend * 0.5):
                             reason = (
                                 f"postmortem claims spend_usd: {claimed_spend:.2f} "
-                                f"but the run DB shows ${actual_spend:.2f} actual "
-                                "spend — report the RUN-CUMULATIVE `chimera cost` "
-                                "total (same across all postmortems in a fan-out "
-                                "soak), not a per-build slice; don't estimate"
+                                f"but the run DB shows only ${actual_spend:.2f} actual "
+                                "spend — you cannot have spent more than the DB "
+                                "records; read the `chimera cost` total"
                             )
         if reason is not None:
             failures.append((str(path), reason))
