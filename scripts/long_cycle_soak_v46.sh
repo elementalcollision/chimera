@@ -350,6 +350,29 @@ phase_loop() {
                     exit_reason="soft_sentinel_deliverable_landed"; break
                 fi
             else
+                # R3 (ADR 0148): harness-executed deterministic commit. The
+                # v46 re-soak #2 proved the ADR 0147 gate fires in-loop (58×)
+                # but the agent never runs `git commit` — it authors+stages+
+                # greens, then spirals into meta-work. Per the agent's own
+                # research, ~100% adherence needs "removing the ability to
+                # skip": the HARNESS commits, not the agent. Default OFF
+                # (knob) so the pure self-commit experiment is unchanged
+                # unless the operator opts into harness-commit mode.
+                if [ "${CHIMERA_SOAK_AUTOCOMMIT:-0}" = "1" ]; then
+                    local _ac_msg="[agent] create chimera/soak_report.py — harness-committed (ADR 0148): agent authored+staged+greened; runner executed the commit (the agent did not run git commit). Re-soak #2 finding."
+                    local _ac_status
+                    _ac_status="$(cd "$WORKTREE" && CHIMERA_V40_GATE=1 uv run python -c "
+import sys
+from chimera.soak_autocommit import autocommit_if_ready
+print(autocommit_if_ready(
+    '.',
+    ['chimera/soak_report.py', '$DELIVERABLE_REL'],
+    '''$_ac_msg''',
+    test_cmd=['uv','run','--extra','dev','pytest','-q','tests/test_soak_report.py'],
+))
+" 2>>"$LOG")"
+                    log "  harness-autocommit: ${_ac_status:-error}"
+                fi
                 if soak_phase2_deliverable_landed \
                       "$WORKTREE" "$SOFT_SENTINEL_ALLOWED_FILES" \
                       "$SOFT_SENTINEL_TEST_CMD"; then
