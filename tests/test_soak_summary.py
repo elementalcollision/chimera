@@ -12,15 +12,9 @@ CHIMERA_V40_GATE.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CHIMERA_V40_GATE"),
-    reason="soak-summary build gate; run with CHIMERA_V40_GATE=1",
-)
 
 
 def _table():
