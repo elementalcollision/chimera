@@ -30,6 +30,23 @@ def test_nl_save_into_path():
     assert expected_artifacts(text) == ["state/dump.json"]
 
 
+def test_directory_paths_are_not_artifacts():
+    # v45 churn fix: a backtick-quoted DIRECTORY reference (trailing slash) is
+    # NOT a deliverable. The INBOX shape that caused the postmortem churn —
+    # "fill the table from the ledgers under `mind/soak/<run-id>/`" — must
+    # extract ONLY the postmortem file, not the directory (which check_artifacts
+    # would flag missing because a dir is not a non-empty file).
+    text = (
+        "Write the postmortem `mind/research/pm.md` using the ledgers under "
+        "`mind/soak/run-1/`."
+    )
+    assert expected_artifacts(text) == ["mind/research/pm.md"]
+
+
+def test_bare_directory_ref_yields_nothing():
+    assert expected_artifacts("read the ledgers under `mind/soak/run-1/`") == []
+
+
 def test_nl_create_at_path():
     text = "Create the report at docs/report-2026-05.md and link it."
     assert expected_artifacts(text) == ["docs/report-2026-05.md"]

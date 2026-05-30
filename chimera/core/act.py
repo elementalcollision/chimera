@@ -1527,6 +1527,17 @@ def expected_artifacts(task_text: str) -> list[str]:
     seen: list[str] = []
 
     def _add(path: str) -> None:
+        # Directory-shaped references (trailing slash) are NOT deliverables.
+        # v45 diagnosis: a build INBOX says "fill the table from the ledgers
+        # under `mind/soak/<run-id>/`", and that backtick-quoted DIRECTORY
+        # path was lifted here as an expected artifact. check_artifacts then
+        # flagged it missing — a directory is not a non-empty FILE — firing
+        # artifact_missing on every postmortem cycle even though the real
+        # .md deliverable was fine. That false positive is the postmortem
+        # churn that taxed every soak since v41. A path the task asks the
+        # agent to WRITE is always a file, never a directory; skip dir refs.
+        if not path or path.endswith("/"):
+            return
         if path not in seen:
             seen.append(path)
 
