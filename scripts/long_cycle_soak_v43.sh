@@ -198,6 +198,23 @@ ALL_POSTMORTEMS="$DELIVERABLE_STRCASE $DELIVERABLE_NUMFMT $DELIVERABLE_SEQSTATS"
 ALL_MODULES="chimera/strcase.py chimera/numfmt.py chimera/seqstats.py"
 mkdir -p "$WORKTREE/mind/research"
 
+# Re-run mode (opt-in). After the A⁗ landing (PR #162) the three target
+# modules are already on main, so a vanilla re-run has nothing to build —
+# phase 1's combined gate would be green from cycle 0. With
+# CHIMERA_RERUN_STRIP_TARGETS=1 the runner removes the three modules in the
+# worktree (as a setup commit) so phase 1 genuinely rebuilds them. Used to
+# CONFIRM the now-non-dormant honesty gate (PR #163/#164 git-status fallback)
+# fires in-loop on the rebuild's postmortems. Default off → normal first-run.
+if [ "${CHIMERA_RERUN_STRIP_TARGETS:-0}" = "1" ]; then
+    log "RE-RUN mode: stripping target modules to force a genuine rebuild"
+    # shellcheck disable=SC2086
+    ( cd "$WORKTREE" \
+        && git rm -q $ALL_MODULES \
+        && git commit -q -m "[rerun-setup] strip v43 targets to force rebuild" ) \
+        2>&1 | tee -a "$LOG" \
+        || log "WARN: target strip failed (targets may already be absent)"
+fi
+
 # ── phase-1 INBOX — CREATE all three modules, iterate to green, 3 postmortems ─
 cat > "$WORKTREE/mind/INBOX.md" <<INBOX_EOF
 # Inbox — Soak v43 phase 1 (PARALLEL BUILD ×3; engines off, no commits yet)
