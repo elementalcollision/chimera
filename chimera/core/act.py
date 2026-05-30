@@ -697,7 +697,10 @@ def _imported_names(node) -> list[str]:
     return names
 
 
-def check_import_shadowing(write_targets: list[str]) -> list[tuple[str, str]]:
+def check_import_shadowing(
+    write_targets: list[str],
+    worktree_root: Path | str | None = None,
+) -> list[tuple[str, str]]:
     """Return ``[(path, msg), ...]`` for any .py write target where a
     function-local import binds a name that is ALSO imported at module
     level — i.e. a shadow that makes the name function-local across the
@@ -716,13 +719,20 @@ def check_import_shadowing(write_targets: list[str]) -> list[tuple[str, str]]:
     NOT imported at module level — e.g. ``from .core import LoopConfig``
     inside one branch) is NOT flagged. Non-Python / nonexistent paths and
     unparseable files are skipped (syntax_invalid owns parse failures).
+
+    Target source (v43 R2 fix, coverage follow-up): ``write_targets``
+    UNION the worktree's changed ``.py`` files when ``worktree_root`` is
+    given. The v43 soak ran every write-target gate dormant because
+    ``write_targets`` was empty all run (the agent wrote via ``shell``,
+    not a captured writing tool); the git fallback makes THIS gate, too,
+    inspect the ``.py`` files actually on disk regardless of write tool.
+    With ``worktree_root=None`` only ``write_targets`` is inspected
+    (legacy behavior — keeps unit tests and non-soak runs hermetic).
     """
     import ast
 
     failures: list[tuple[str, str]] = []
-    for path in write_targets:
-        if not path.endswith(".py"):
-            continue
+    for path in _gate_targets(write_targets, worktree_root, ".py"):
         p = Path(path)
         if not p.exists():
             continue
@@ -852,23 +862,27 @@ def _git_changed_paths(
     return out
 
 
-def _postmortem_gate_targets(
-    write_targets: list[str], worktree_root: Path | str | None,
+def _gate_targets(
+    write_targets: list[str], worktree_root: Path | str | None, suffix: str,
 ) -> list[str]:
-    """``.md`` paths the honesty gate should inspect: ``write_targets``
-    UNION the worktree's changed ``.md`` files, deduped by resolved path.
+    """Paths a write-target gate should inspect: the ``write_targets``
+    entries ending in ``suffix`` UNION the worktree's changed files ending
+    in ``suffix``, deduped by resolved path.
 
-    ``write_targets`` is the in-loop signal (populated when the agent used
-    a writing tool); the git fallback catches postmortems written via any
-    other path. When ``worktree_root`` is ``None`` the fallback is off and
-    behavior is exactly the legacy ``write_targets``-only form — this is
-    what keeps the pure-unit tests (which pass no worktree) hermetic, and
-    means a non-soak ``chimera run`` is unaffected.
+    ``write_targets`` is the in-loop signal (populated only when the agent
+    used a tool in :data:`_WRITING_TOOL_NAMES`); the git fallback catches
+    files written via any other path — notably the ``shell`` tool, which is
+    deliberately excluded (soak v7) and which a soak agent uses for
+    ``python3 -c …`` / ``git apply``. When ``worktree_root`` is ``None`` the
+    fallback is off and behavior is exactly the legacy ``write_targets``-only
+    form — keeps pure-unit tests (which pass no worktree) hermetic and a
+    non-soak ``chimera run`` unaffected. v43 R2 fix (PR #163 for ``.md``;
+    generalized here so the import-shadow gate gets the same coverage).
     """
     seen: set[str] = set()
     ordered: list[str] = []
     for path in write_targets:
-        if not path.endswith(".md"):
+        if not path.endswith(suffix):
             continue
         key = str(Path(path).resolve())
         if key not in seen:
@@ -876,13 +890,20 @@ def _postmortem_gate_targets(
             ordered.append(path)
     if worktree_root is not None:
         root = Path(worktree_root)
-        for rel in _git_changed_paths(root, ".md"):
+        for rel in _git_changed_paths(root, suffix):
             abs_path = root / rel
             key = str(abs_path.resolve())
             if key not in seen:
                 seen.add(key)
                 ordered.append(str(abs_path))
     return ordered
+
+
+def _postmortem_gate_targets(
+    write_targets: list[str], worktree_root: Path | str | None,
+) -> list[str]:
+    """``.md`` gate targets — thin wrapper over :func:`_gate_targets`."""
+    return _gate_targets(write_targets, worktree_root, ".md")
 
 
 def check_postmortem_honesty(
@@ -989,6 +1010,14 @@ def check_postmortem_honesty(
         # between the agent's summarize_run read and this gate, so the
         # band is max(2, 25% of ground truth) — tolerant of timing, but
         # the v42 drift (claimed 3 vs ledger 15) is far outside it.
+        #
+        # Semantics (v43 R2): act_cycles is RUN-CUMULATIVE — the whole
+        # soak's ACT-execute count from summarize_run(), NOT a per-build
+        # slice. In a fan-out (N>1) soak EVERY postmortem reports the SAME
+        # run total; a per-build attribution (v43 wrote 7 against a
+        # cumulative 20) is a drift and trips this rule. (Per-build slicing
+        # was the convention ambiguity v43 surfaced; cumulative is the
+        # locked answer because the ledger is run-scoped, not build-scoped.)
         else:
             cm = _READY_ACT_CYCLES_RE.search(text)
             gt_cycles = summary.get("act_cycles")
@@ -999,13 +1028,18 @@ def check_postmortem_honesty(
                     reason = (
                         f"postmortem claims act_cycles: {claimed_cycles} but the "
                         f"ledger records {gt_cycles} ACT-execute cycles (±{band} "
-                        f"allowed) — read summarize_run().act_cycles, don't estimate"
+                        f"allowed) — report the RUN-CUMULATIVE "
+                        f"summarize_run().act_cycles (same across all postmortems "
+                        f"in a fan-out soak), not a per-build slice; don't estimate"
                     )
             # Rule E (drift): spend_usd must match the run's actual DB
             # spend within a generous relative band. Fail-soft — skipped
             # if the DB spend can't be read or is non-positive, so an
             # unverifiable number never blocks. Deadband of $0.05 avoids
             # noise on micro-runs; the v42 drift ($0.02 vs $0.16) trips.
+            # Semantics (v43 R2): RUN-CUMULATIVE, like act_cycles — the
+            # whole soak's spend, identical across every postmortem in a
+            # fan-out run, not a per-build slice.
             if reason is None:
                 sm = _READY_SPEND_USD_RE.search(text)
                 if sm is not None:
@@ -1020,7 +1054,9 @@ def check_postmortem_honesty(
                             reason = (
                                 f"postmortem claims spend_usd: {claimed_spend:.2f} "
                                 f"but the run DB shows ${actual_spend:.2f} actual "
-                                "spend — read `chimera cost`, don't estimate"
+                                "spend — report the RUN-CUMULATIVE `chimera cost` "
+                                "total (same across all postmortems in a fan-out "
+                                "soak), not a per-build slice; don't estimate"
                             )
         if reason is not None:
             failures.append((str(path), reason))
@@ -2402,9 +2438,14 @@ class ActExecutor:
                 # name — the os/Path UnboundLocalError class that bricked
                 # v40 #2/#4. AST parse-time gate; runs only when syntax is
                 # valid (an unparseable file is syntax_invalid's to own).
+                # v43 R2 coverage follow-up: pass the worktree so this gate
+                # also falls back to `git status` when write_targets is
+                # empty (same dormancy the postmortem gate hit on v43).
                 import_shadow_failures: list[tuple[str, str]] = []
                 if completed:
-                    import_shadow_failures = check_import_shadowing(write_targets)
+                    import_shadow_failures = check_import_shadowing(
+                        write_targets, worktree_root=Path.cwd(),
+                    )
                     if import_shadow_failures:
                         completed = False
                         finish_reason = "import_shadowing"

@@ -260,6 +260,11 @@ The three are independent — finishing one does not touch the others.
   numbers — do NOT estimate.** \`act_cycles\` (= summarize_run().act_cycles)
   and \`spend_usd\` (= \`chimera cost\`) are CHECKED at write time; a drifted
   number trips the honesty gate exactly like a dishonest \`tests_passing\`.
+  **These two are RUN-CUMULATIVE (whole-soak totals), NOT per-build:** all
+  THREE postmortems report the SAME act_cycles and spend_usd (the run
+  totals from summarize_run / chimera cost). Do NOT divide them by three or
+  attribute a per-build slice — the gate compares against the cumulative
+  ledger and rejects a per-build under-count.
 
 ## The contracts are EXACT — match them, don't summarize
 

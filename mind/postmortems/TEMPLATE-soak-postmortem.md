@@ -120,7 +120,15 @@ gate (Rules D and E), not merely guidance: `act_cycles` must match
 `summarize_run().act_cycles` within ±max(2, 25%), and `spend_usd` must
 match the run DB within a generous band (fail-soft if the DB is
 unreadable). A drifted number now trips `postmortem_dishonest` exactly
-like a dishonest `tests_passing`. Authoritative sources:
+like a dishonest `tests_passing`.
+
+**These two numbers are RUN-CUMULATIVE, not per-build (v43 R2).** They
+describe the whole soak, read from `summarize_run()` / `chimera cost`. In
+a **fan-out (N>1) soak that writes one postmortem per build**, EVERY
+postmortem reports the SAME run totals — do NOT slice them per build. (v43
+wrote `act_cycles: 7` per build against a cumulative ledger of 20; with
+the honesty gate now firing, a per-build slice trips it. Report the run
+total in each postmortem.) Authoritative sources:
 
 - `act_cycles` = the ACT-execute record count from the ledger, via
   `summarize_run` (NOT "cycles it took to converge" — that's a separate
