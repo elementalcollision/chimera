@@ -448,15 +448,20 @@ CHARTER:
      chimera/seqstats.py}. Any other code path — INCLUDING an edit to any
      tests/test_*.py or to chimera/cli.py — is REFUSED.
   3. Re-run \`$GATE_TEST_CMD\` first; confirm 17 passed before committing.
-  4. ONE commit per module: stage exactly that module + its postmortem and
-     commit with the \`[agent]\` prefix. Do NOT bundle all three into one
-     commit; do NOT cite paths absent from the diff (ADR 0122).
+  4. ONE commit per module: stage exactly that module + its postmortem.
+     Every commit message MUST begin with the literal token \`[agent]\` as
+     its FIRST characters — e.g. \`[agent] create chimera/strcase.py\`. This
+     is not optional and not a stylistic note: the phase-2 sentinel counts
+     ONLY commits whose subject starts with \`[agent]\`, so a message like
+     \`v43 seqstats: …\` (no prefix) does NOT count and leaves the soak
+     unconverged. Put \`[agent]\` first, then your description. Do NOT bundle
+     all three into one commit; do NOT cite paths absent from the diff (ADR 0122).
 
 ## Phase 2 tasks
 - [ ] Re-run the combined gated test; confirm 17 passed.
-- [ ] Commit 1: stage ONLY \`chimera/strcase.py\` + \`$DELIVERABLE_STRCASE\`; \`[agent]\` commit.
-- [ ] Commit 2: stage ONLY \`chimera/numfmt.py\` + \`$DELIVERABLE_NUMFMT\`; \`[agent]\` commit.
-- [ ] Commit 3: stage ONLY \`chimera/seqstats.py\` + \`$DELIVERABLE_SEQSTATS\`; \`[agent]\` commit.
+- [ ] Commit 1: stage ONLY \`chimera/strcase.py\` + \`$DELIVERABLE_STRCASE\`; message MUST start with \`[agent]\` (e.g. \`[agent] create chimera/strcase.py\`).
+- [ ] Commit 2: stage ONLY \`chimera/numfmt.py\` + \`$DELIVERABLE_NUMFMT\`; message MUST start with \`[agent]\` (e.g. \`[agent] create chimera/numfmt.py\`).
+- [ ] Commit 3: stage ONLY \`chimera/seqstats.py\` + \`$DELIVERABLE_SEQSTATS\`; message MUST start with \`[agent]\` (e.g. \`[agent] create chimera/seqstats.py\`).
 
 Manual-handoff (PR #111): after the commits the runner stops with the branch
 left in the worktree. NO auto-push, NO auto-PR, NO auto-merge — the operator
@@ -468,6 +473,9 @@ OVERSHOOT TRAPS the panel should reject:
   - Committing any code file other than the three targets
   - Committing with the combined gated test still red
   - Bundling all three modules into a single commit (charter wants three)
+  - A commit message that does NOT start with \`[agent]\` (the phase-2
+    sentinel counts only \`[agent]\`-prefixed commits; an unprefixed
+    subject like \`v43 seqstats: …\` leaves the soak unconverged)
   - Commit-message rooted-path discipline (ADR 0122)
 INBOX_EOF
 
