@@ -12,14 +12,7 @@ clean assertion failure. Gated by CHIMERA_V40_GATE.
 
 from __future__ import annotations
 
-import os
-
 import pytest
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CHIMERA_V40_GATE"),
-    reason="v43 build-capability gate; run with CHIMERA_V40_GATE=1",
-)
 
 
 def _fns():
