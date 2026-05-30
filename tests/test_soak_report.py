@@ -13,15 +13,9 @@ assertion failure. Gated by CHIMERA_V40_GATE.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CHIMERA_V40_GATE"),
-    reason="v46 build-capability gate; run with CHIMERA_V40_GATE=1",
-)
 
 
 def _body():
@@ -94,3 +88,16 @@ def test_report_empty_ledger(tmp_path):
     mind = tmp_path / "mind"
     out = _report()(mind, "absent")
     assert out == "# Soak absent — no ACT records\n"
+
+
+def test_cli_soak_report_verb(tmp_path, monkeypatch, capsys):
+    # CLI guard (the #169/#170 lesson): the verb is actually wired.
+    from chimera.cli import main
+    mind = tmp_path / "mind"
+    _seed(mind, "run-cli", _ROWS)
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind))
+    rc = main(["soak", "report", "run-cli"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.startswith("# Soak run-cli — report (2 cycles)\n\n")
+    assert "## Iterations" in out and "## Finish reasons" in out
