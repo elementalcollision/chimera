@@ -19,6 +19,7 @@ from chimera.core.witness import WitnessVerdict
 from chimera.core.witness_panel import (
     PanelMember,
     aggregate_concerns,
+    _is_charter_concern,
     build_witness_panel,
     diff_fits,
     panel_decision,
@@ -84,14 +85,17 @@ def test_panel_size_clamps_to_one_five(monkeypatch: pytest.MonkeyPatch) -> None:
     assert panel_size() == 1
 
 
-def test_voting_rule_defaults_to_unanimous(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_voting_rule_defaults_to_majority(monkeypatch: pytest.MonkeyPatch) -> None:
+    # v44 R2: relaxed from unanimous — the build soaks showed a single
+    # idiosyncratic dissent on a correct diff churned the soak. The charter
+    # override (panel_decision) preserves the strict catch for security.
     monkeypatch.delenv("CHIMERA_WITNESS_VOTING", raising=False)
-    assert voting_rule() == "unanimous"
-
-
-def test_voting_rule_accepts_majority(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CHIMERA_WITNESS_VOTING", "majority")
     assert voting_rule() == "majority"
+
+
+def test_voting_rule_unanimous_still_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CHIMERA_WITNESS_VOTING", "unanimous")
+    assert voting_rule() == "unanimous"
 
 
 # ── Panel composition ──────────────────────────────────────────
@@ -240,6 +244,58 @@ def test_panel_decision_majority_two_of_three_approves() -> None:
 
 def test_panel_decision_empty_panel_approves() -> None:
     assert panel_decision([], voting="unanimous") is True
+
+
+# ── v44 R2: asymmetric voting (charter override + majority default) ──
+
+def test_majority_single_codequality_dissent_approves() -> None:
+    # THE over-rejection fix: one model nitpicks a CORRECT diff; under the
+    # majority default the panel still approves (2 of 3), no churn.
+    vs = [
+        WitnessVerdict(approved=True),
+        WitnessVerdict(approved=True),
+        WitnessVerdict(approved=False, concerns=["possible off-by-one in the loop"]),
+    ]
+    assert panel_decision(vs, voting="majority") is True
+
+
+def test_charter_concern_single_dissent_rejects_under_majority() -> None:
+    # The high-value catch is PRESERVED: one model flags a charter/security
+    # crossing → reject even though the other two approve (majority rule).
+    vs = [
+        WitnessVerdict(approved=True),
+        WitnessVerdict(approved=True),
+        WitnessVerdict(
+            approved=False,
+            concerns=["crosses read-only-ish charter (shell.py): adds `rm` to RAW_ALLOWLIST"],
+        ),
+    ]
+    assert panel_decision(vs, voting="majority") is False
+
+
+def test_majority_two_codequality_dissents_reject() -> None:
+    # A genuine signal (2 of 3 disapprove) still rejects under majority.
+    vs = [
+        WitnessVerdict(approved=True),
+        WitnessVerdict(approved=False, concerns=["inverted condition"]),
+        WitnessVerdict(approved=False, concerns=["swapped operands"]),
+    ]
+    assert panel_decision(vs, voting="majority") is False
+
+
+def test_charter_override_applies_even_in_unanimous_mode() -> None:
+    # The override is rule-independent: a charter dissent rejects under both.
+    vs = [WitnessVerdict(approved=False, concerns=["expands the sandbox scope past the charter"])]
+    assert panel_decision(vs, voting="unanimous") is False
+    assert panel_decision(vs, voting="majority") is False
+
+
+def test_is_charter_concern_detection() -> None:
+    assert _is_charter_concern("adds write-capable rm to RAW_ALLOWLIST")
+    assert _is_charter_concern("crosses the read-only charter boundary")
+    assert _is_charter_concern("violates MUST NOT touch cli.py")
+    assert not _is_charter_concern("possible off-by-one error")
+    assert not _is_charter_concern("missing a docstring on the helper")
 
 
 # ── Aggregation ────────────────────────────────────────────────

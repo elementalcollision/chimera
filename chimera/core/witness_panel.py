@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -63,14 +64,44 @@ def require_cross_provider() -> bool:
 
 
 def voting_rule() -> str:
-    """``CHIMERA_WITNESS_VOTING`` env var. Default: ``unanimous``.
+    """``CHIMERA_WITNESS_VOTING`` env var. Default: ``majority``.
 
-    Code review is stricter than skill-assembly's majority rule because
-    foundational-code blast radius makes false-negative cost ≫
-    false-positive cost.
+    History: the default was ``unanimous`` (v4.103) on the theory that
+    foundational-code blast radius makes false-negative cost ≫ false-
+    positive cost. The build soaks (v42/v43/v44) disproved the second
+    half empirically: on CORRECT build diffs (tests green) a single
+    idiosyncratic dissent among the 3-model panel rejected the diff and
+    churned the soak — a recurring, real false-POSITIVE cost. The fix is
+    ASYMMETRIC (see :func:`panel_decision`): the high-value class the
+    unanimous rule actually protected — charter / security / scope
+    crossings (e.g. the v13 RAW_ALLOWLIST expansion) — still rejects on
+    ANY single dissent, while ordinary code-quality concerns now require
+    a MAJORITY. So the default relaxes to ``majority`` without losing the
+    catch unanimity was chosen for. Set ``CHIMERA_WITNESS_VOTING=unanimous``
+    to restore the strict rule for a high-stakes run.
     """
-    raw = os.environ.get("CHIMERA_WITNESS_VOTING", "unanimous").strip().lower()
-    return raw if raw in {"unanimous", "majority"} else "unanimous"
+    raw = os.environ.get("CHIMERA_WITNESS_VOTING", "majority").strip().lower()
+    return raw if raw in {"unanimous", "majority"} else "majority"
+
+
+# Charter / security / scope vocabulary. A dissent whose concern names
+# one of these is treated as the high-value class the unanimous rule was
+# built for (v13 RAW_ALLOWLIST, v14 "NOT on clear"): it rejects on ANY
+# single dissent regardless of the numeric voting rule. Deliberately the
+# security-leaning side of the line — matching here PRESERVES strictness,
+# so erring broad is the safe direction. Ordinary code-quality nitpicks
+# ("off-by-one", "missing docstring", "parens") match none of these and
+# fall to the majority rule, which is the over-rejection this fix targets.
+_CHARTER_CONCERN_MARKERS = re.compile(
+    r"(?i)\b(?:charter|read-?only|allow-?list|deny-?list|MUST NOT|shall not|"
+    r"out of scope|forbidden|sandbox|RAW_ALLOWLIST|security boundary|"
+    r"privilege|threshold the|crosses)\b"
+)
+
+
+def _is_charter_concern(concern: str) -> bool:
+    """True iff ``concern`` reads as a charter/security/scope crossing."""
+    return bool(_CHARTER_CONCERN_MARKERS.search(concern or ""))
 
 
 # ── Panel members ─────────────────────────────────────────
@@ -202,15 +233,30 @@ def panel_decision(
     *,
     voting: str | None = None,
 ) -> bool:
-    """Apply the configured voting rule to ``verdicts``.
+    """Apply the (asymmetric) voting rule to ``verdicts``; True == approve.
 
-    Empty panel approves (no signal to act on). Unanimous gate is the
-    default; majority is the v4.102 fallback when explicitly set.
+    Empty panel approves (no signal). Otherwise:
+
+      1. CHARTER OVERRIDE (always on, both rules): if ANY disapproving
+         witness raises a charter/security/scope concern
+         (:func:`_is_charter_concern`), the panel rejects — a single
+         model spotting a threshold crossing (v13 RAW_ALLOWLIST, v14
+         "NOT on clear") is decisive regardless of the count. This is the
+         catch the unanimous default was actually chosen for.
+      2. Otherwise the numeric rule applies. Default ``majority`` (reject
+         only when MORE than half disapprove) — so a single idiosyncratic
+         dissent on a CORRECT diff (the v42/v43/v44 over-rejection) no
+         longer churns the soak. ``unanimous`` (opt-in) rejects on any
+         dissent, charter or not.
     """
     rule = voting or voting_rule()
     vs = list(verdicts)
     if not vs:
         return True
+    # Charter/security dissent is decisive on any single vote.
+    for v in vs:
+        if not v.approved and any(_is_charter_concern(c) for c in v.concerns):
+            return False
     if rule == "unanimous":
         return all(v.approved for v in vs)
     return sum(1 for v in vs if v.approved) > len(vs) / 2
