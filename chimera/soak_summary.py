@@ -56,11 +56,47 @@ def format_iteration_table(act_rows: list[dict[str, Any]]) -> str:
 def format_soak_summary(
     mind_dir: Path | str,
     run_id: str,
+    spend_usd: float | None = None,
 ) -> str:
-    """Read a soak run's ACT-tools ledger and return a full summary."""
+    """Read a soak run's ACT-tools ledger and return a full summary.
+
+    When ``spend_usd`` is given (the run-cumulative cost, read by the CLI
+    from the run DB), it is appended to the headline. It is a parameter,
+    not a file read, because cost is not in the ledger (it lives in the
+    run's SQLite ``api_calls``) \u2014 keeping this function file-only-testable.
+    """
     path = Path(mind_dir) / "soak" / run_id / "act-tools.jsonl"
     rows = _read_jsonl(path)
     if not rows:
         return "# Soak " + run_id + " \u2014 no ACT records\n"
-    table = format_iteration_table(rows)
-    return "# Soak " + run_id + " \u2014 " + str(len(rows)) + " ACT cycles\n" + table
+    headline = "# Soak " + run_id + " \u2014 " + str(len(rows)) + " ACT cycles"
+    if spend_usd is not None:
+        headline += f", ${spend_usd:.2f} spent"
+    return headline + "\n" + format_iteration_table(rows)
+
+
+def run_spend_from_db(state_dir: Path | str) -> float | None:
+    """Best-effort run-cumulative spend (USD) from a soak run's DB, or None.
+
+    Reads ``<state_dir>/chimera.db`` and sums token-priced ``api_calls``
+    via :func:`chimera.core.budget.rolling_spend_usd` over an effectively
+    unbounded window (a soak DB is per-run, so the total IS the run spend).
+    Fail-soft: any error (missing DB, locked, pricing gap) returns ``None``
+    so the CLI simply omits the spend figure. Primarily meaningful when run
+    from a soak worktree (where the DB holds that run's calls); on a pruned
+    or unrelated DB it returns None or an irrelevant total, hence best-effort.
+    """
+    try:
+        from chimera.core.budget import rolling_spend_usd
+        from chimera.memory.store import connect
+
+        db_path = Path(state_dir) / "chimera.db"
+        if not db_path.exists():
+            return None
+        conn = connect(db_path)
+        try:
+            return rolling_spend_usd(conn, minutes=100 * 365 * 24 * 60)
+        finally:
+            conn.close()
+    except Exception:
+        return None

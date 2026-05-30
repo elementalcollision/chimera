@@ -3190,11 +3190,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "soak":
         if args.soak_command == "summary":
             # Leaf import (the v44 first-real-feature module), same
-            # shadow-free pattern as `mind count`.
+            # shadow-free pattern as `mind count`. spend is read best-effort
+            # from the run DB (meaningful in a soak worktree; omitted if
+            # unavailable) and passed in — the ledger carries no cost.
             from .core import LoopConfig
-            from .soak_summary import format_soak_summary
-            mind_dir = LoopConfig.from_env().mind_dir
-            print(format_soak_summary(mind_dir, args.run_id), end="")
+            from .soak_summary import format_soak_summary, run_spend_from_db
+            cfg = LoopConfig.from_env()
+            spend = run_spend_from_db(cfg.state_dir)
+            print(
+                format_soak_summary(cfg.mind_dir, args.run_id, spend_usd=spend),
+                end="",
+            )
             return 0
         parser.error("usage: chimera soak summary <run-id>")
         return 2
