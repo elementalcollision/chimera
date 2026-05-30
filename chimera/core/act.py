@@ -1392,6 +1392,85 @@ def check_commit_message_diff_drift(
     return [p for p in claimed if p not in diff_paths]
 
 
+# v46 R2 (ADR 0147): commit-not-executed gate. The v46 re-soak confirmed
+# the scope_evasion commit-phase fix (#180) and, with that mask removed,
+# isolated the SECOND half of the original v46 finding: the phase-2 commit
+# task self-reported completed=True after `git add`, but `git commit` never
+# ran — the deliverable sat STAGED-but-uncommitted and the run idled to no
+# convergence. Every existing commit gate (message-drift v4.115, provenance
+# v4.118, charter-count v4.116) assumes a commit HAPPENED; none enforce that
+# the commit ACTION ran. The phase-2 INBOX says "git add only stages…
+# verify with git log" in PROSE — and the agent's own cycle-158 curiosity
+# research found prose/trust gets ~40% adherence vs ~100% for a deterministic
+# gate ("the gap is removing the ability to skip"). This is that gate.
+_AGENT_COMMIT_TASK_RE = re.compile(r"\bcommit(s|ted|ting)?\b", re.IGNORECASE)
+
+
+def _task_demands_agent_commit(task_text: str) -> bool:
+    """True if the task instructs the agent to create an ``[agent]`` commit.
+
+    Targets the autonomous-delivery commit contract specifically: the task
+    must BOTH reference the ``[agent]`` subject token (the enforced
+    commit-message marker, ADR 0122/0146) AND contain a ``commit`` imperative.
+    An incidental ``commit`` mention without the ``[agent]`` token (e.g. a
+    build task that says "before you commit, run the tests") does not trip it,
+    and the ``[agent]`` token alone (with no commit verb) does not either.
+    """
+    if not task_text or "[agent]" not in task_text:
+        return False
+    return _AGENT_COMMIT_TASK_RE.search(task_text) is not None
+
+
+def check_commit_not_executed(
+    task_text: str,
+    worktree_root: Path | str | None,
+    base_ref: str = "main",
+    head_ref: str = "HEAD",
+) -> list[str]:
+    """Return a one-item reason list if the task demanded an ``[agent]``
+    commit but none landed; otherwise ``[]``.
+
+    Fires only when ALL hold:
+      - ``worktree_root`` is given (soak-scoped via
+        :func:`_import_shadow_scan_root` — off-soak a normal ``chimera run``
+        is NEVER forced to commit), AND
+      - the task demands an ``[agent]`` commit
+        (:func:`_task_demands_agent_commit`), AND
+      - no ``[agent]``-subject commit exists in ``base_ref..head_ref``.
+
+    This is the inverse of every other commit gate: they validate a commit
+    that happened; this catches a commit that was instructed but SKIPPED
+    (staged-but-uncommitted — the v46 re-soak "Problem B" signature). The
+    convergence criterion mirrors the runner's external soft-sentinel
+    (``soak_phase2_deliverable_landed``: ≥1 ``[agent]`` commit in
+    ``main..HEAD``), brought INSIDE the loop so the agent gets the feedback
+    in-cycle instead of silently idling. Charter: never raise; subprocess /
+    seatbelt errors return ``[]`` (fail-open, like its sibling gates).
+    """
+    if worktree_root is None:
+        return []
+    if not _task_demands_agent_commit(task_text):
+        return []
+    root = Path(worktree_root)
+    try:
+        log = subprocess.run(
+            ["git", "log", "--format=%s", f"{base_ref}..{head_ref}"],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+    if log.returncode != 0:
+        return []
+    for line in (log.stdout or "").splitlines():
+        if line.strip().startswith("[agent]"):
+            return []  # a commit landed — the contract is satisfied
+    return [
+        f"task instructed an [agent] commit but none exists in "
+        f"{base_ref}..{head_ref} — work is staged but not committed; "
+        f"run `git commit` and verify with `git log`"
+    ]
+
+
 # v4.118 (ADR 0118): provenance citations in [agent] commit messages.
 # Soak v20-3rd surfaced an agent shipping commit e3af158 with message
 # "[agent] Add ruff_claim_invalid detector (v4.120 / ADR 0120)" when
@@ -2573,6 +2652,26 @@ class ActExecutor:
                     if test_claim_failures:
                         completed = False
                         finish_reason = "test_claim_invalid"
+                # v46 R2 (ADR 0147): commit-not-executed gate. The task
+                # demanded an [agent] commit but none landed — the v46
+                # re-soak "Problem B" (staged but never committed; the run
+                # idled to no convergence). Runs BEFORE the message/diff/
+                # provenance commit gates: if no commit exists at all, "go
+                # run git commit" is the actionable next step and those
+                # message-validators are moot (each bails on a missing
+                # [agent] commit anyway). Soak-scoped via
+                # _import_shadow_scan_root() — off-soak the root is None so
+                # this is a no-op and a normal chimera run is never forced
+                # to commit. Deterministic enforcement of the commit
+                # contract the phase-2 INBOX previously stated only in prose.
+                commit_not_executed: list[str] = []
+                if completed:
+                    commit_not_executed = check_commit_not_executed(
+                        task_text, _import_shadow_scan_root(),
+                    )
+                    if commit_not_executed:
+                        completed = False
+                        finish_reason = "commit_not_executed"
                 # v4.115 (ADR 0115): commit-message-vs-diff drift.
                 # Soak v20-relaunch shipped an [agent] commit whose
                 # message claimed the work included a tests file the

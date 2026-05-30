@@ -154,6 +154,24 @@ git config extensions.worktreeConfig true 2>&1 | tee -a "$LOG" || true
 git config --worktree remote.origin.pushurl \
     "no-push://disabled-for-soak-v46-soakreport-$STAMP" 2>&1 | tee -a "$LOG" || true
 
+# ── re-soak strip (genuine-rebuild knob) ───────────────────────
+# The v46 target was operator-landed in #179, so a worktree off main starts
+# GREEN with nothing to build. For a genuine RE-BUILD soak (confirming the
+# scope_evasion commit-phase fix self-commits cleanly), strip the landed
+# module AND its postmortem on the soak branch via a removal commit: phase 1
+# then actually rebuilds the module (test goes red → green) and phase 2
+# exercises the real commit path. The postmortem MUST be stripped too, else
+# its stale READY marker short-circuits the phase-1 sentinel. The strip
+# commit is intentionally NOT [agent]-prefixed (it is operator scaffolding,
+# not the agent's work). Default off — no behavior change unless set.
+if [ -n "${CHIMERA_SOAK_STRIP_TARGETS:-}" ]; then
+    log "re-soak: stripping landed targets for genuine rebuild: $CHIMERA_SOAK_STRIP_TARGETS"
+    # shellcheck disable=SC2086
+    git rm -q $CHIMERA_SOAK_STRIP_TARGETS 2>&1 | tee -a "$LOG" || true
+    git commit -q -m "strip v46 targets for re-soak rebuild (operator scaffold; not an [agent] commit)" \
+        2>&1 | tee -a "$LOG" || true
+fi
+
 WORKTREE_STATE="$WORKTREE/state"
 WORKTREE_DB="$WORKTREE_STATE/chimera.db"
 mkdir -p "$WORKTREE_STATE"
