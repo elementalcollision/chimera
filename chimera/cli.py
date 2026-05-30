@@ -793,6 +793,15 @@ def _build_parser() -> argparse.ArgumentParser:
     soak_summary_p.add_argument(
         "run_id", help="The soak run id (the mind/soak/<run-id>/ directory name).",
     )
+    # v45: `chimera soak breakdown <run-id>` — finish-reason count table
+    # (chimera/soak_breakdown.py, the v45 second-real-feature module).
+    soak_breakdown_p = soak_sub.add_parser(
+        "breakdown",
+        help="Print the finish-reason count table for a soak run from its ledger.",
+    )
+    soak_breakdown_p.add_argument(
+        "run_id", help="The soak run id (the mind/soak/<run-id>/ directory name).",
+    )
 
     return parser
 
@@ -3202,7 +3211,14 @@ def main(argv: list[str] | None = None) -> int:
                 end="",
             )
             return 0
-        parser.error("usage: chimera soak summary <run-id>")
+        if args.soak_command == "breakdown":
+            # v45 second-real-feature module; same shadow-free leaf pattern.
+            from .core import LoopConfig
+            from .soak_breakdown import format_soak_breakdown
+            cfg = LoopConfig.from_env()
+            print(format_soak_breakdown(cfg.mind_dir, args.run_id), end="")
+            return 0
+        parser.error("usage: chimera soak {summary|breakdown} <run-id>")
         return 2
 
     parser.error(f"unknown command: {args.command}")
