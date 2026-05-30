@@ -23,8 +23,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
-
 import chimera.core.act as act
 from chimera.core.act import (
     _git_changed_paths,
@@ -145,17 +143,19 @@ def test_gate_fires_from_fallback_when_write_targets_empty(
     assert "tests_passing" in failures[0][1]
 
 
-def test_v43_per_build_act_cycles_drift_now_caught(tmp_path, monkeypatch):
-    # The exact v43 scenario: postmortem reports PER-BUILD act_cycles: 7
-    # while the ledger's CUMULATIVE count is 20. write_targets empty (as
-    # in the real run); the git fallback surfaces the postmortem and
-    # Rule D trips (7 outside 20 ± max(2, 25%·20=5) = [15, 25]).
+def test_fallback_under_claim_tolerated_over_claim_caught(tmp_path, monkeypatch):
+    # v44 R2: the gate is now OVER-claim-only. The v43 per-build under-claim
+    # (7 vs cumulative 20) deadlocked a churning run against a growing
+    # ledger, so under-claims are now tolerated; only over-claims (more
+    # cycles than the ledger holds) are flagged. write_targets empty (the
+    # real-run condition) → reached via the git fallback.
     _arm(monkeypatch, act_cycles=20)
     root = _git_repo(tmp_path)
-    _write_pm(root, act_cycles="7", tests_passing="true")
-    failures = check_postmortem_honesty([], worktree_root=root)
-    assert len(failures) == 1
-    assert "act_cycles" in failures[0][1]
+    pm = _write_pm(root, act_cycles="7", tests_passing="true")
+    assert check_postmortem_honesty([], worktree_root=root) == []  # under-claim ok
+    pm.write_text(pm.read_text().replace("act_cycles: 7", "act_cycles: 40"))
+    failures = check_postmortem_honesty([], worktree_root=root)  # over-claim caught
+    assert len(failures) == 1 and "act_cycles" in failures[0][1]
 
 
 def test_cumulative_postmortem_passes_via_fallback(tmp_path, monkeypatch):
@@ -169,12 +169,14 @@ def test_cumulative_postmortem_passes_via_fallback(tmp_path, monkeypatch):
 
 def test_fallback_evaluates_multiple_postmortems(tmp_path, monkeypatch):
     # Fan-out N=3: three postmortems land at once. Two honest (cumulative
-    # 20), one drifted (per-build 7). The gate must flag exactly the one.
+    # 20), one OVER-claims (40 > 20). The gate must flag exactly the one
+    # over-claimer (v44 R2: under-claims are tolerated, so the drifted one
+    # must over-claim to be caught).
     _arm(monkeypatch, act_cycles=20)
     root = _git_repo(tmp_path)
     _write_pm(root, act_cycles="20", name="v43-strcase-postmortem.md")
     _write_pm(root, act_cycles="20", name="v43-numfmt-postmortem.md")
-    _write_pm(root, act_cycles="7", name="v43-seqstats-postmortem.md")
+    _write_pm(root, act_cycles="40", name="v43-seqstats-postmortem.md")
     failures = check_postmortem_honesty([], worktree_root=root)
     assert len(failures) == 1
     assert failures[0][0].endswith("v43-seqstats-postmortem.md")

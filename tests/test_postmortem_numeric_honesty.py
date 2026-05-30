@@ -48,10 +48,20 @@ def _arm(monkeypatch, *, act_cycles: int = 15, spend: float | None = None):
 
 # ── Rule D: act_cycles ───────────────────────────────────────────
 
-def test_act_cycles_gross_drift_flagged(tmp_path, monkeypatch):
+def test_act_cycles_over_claim_flagged(tmp_path, monkeypatch):
+    # OVER-claim only (v44 R2): claiming MORE cycles than the ledger holds
+    # is impossible-without-inflation → flagged.
     _arm(monkeypatch, act_cycles=15, spend=None)
-    f = check_postmortem_honesty([_pm(tmp_path, act_cycles="3")])
+    f = check_postmortem_honesty([_pm(tmp_path, act_cycles="40")])
     assert len(f) == 1 and "act_cycles" in f[0][1]
+
+
+def test_act_cycles_under_claim_tolerated(tmp_path, monkeypatch):
+    # v44 R2: under-claiming is a stale snapshot or build-cycles ⊆ all
+    # records — NOT inflation, and hard-blocking it deadlocks a churning
+    # run against a growing ledger. Tolerated.
+    _arm(monkeypatch, act_cycles=15, spend=None)
+    assert check_postmortem_honesty([_pm(tmp_path, act_cycles="3")]) == []
 
 
 def test_act_cycles_within_band_passes(tmp_path, monkeypatch):
@@ -79,11 +89,12 @@ def test_act_cycles_not_checked_when_ledger_zero(tmp_path, monkeypatch):
 
 # ── Rule E: spend_usd ────────────────────────────────────────────
 
-def test_spend_gross_under_report_flagged(tmp_path, monkeypatch):
-    # the v42 case: claim $0.02, actual $0.16.
+def test_spend_under_report_tolerated(tmp_path, monkeypatch):
+    # v44 R2: under-reporting spend is a stale snapshot (spend accrues every
+    # cycle) — tolerated, like act_cycles. (Was flagged pre-v44; the
+    # moving-target deadlock it caused is why the gate is now over-claim-only.)
     _arm(monkeypatch, act_cycles=15, spend=0.16)
-    f = check_postmortem_honesty([_pm(tmp_path, spend_usd="0.02")])
-    assert len(f) == 1 and "spend_usd" in f[0][1]
+    assert check_postmortem_honesty([_pm(tmp_path, spend_usd="0.02")]) == []
 
 
 def test_spend_over_report_flagged(tmp_path, monkeypatch):
