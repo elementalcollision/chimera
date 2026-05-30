@@ -11,15 +11,9 @@ assertion failure (N failed, never a collection error). Gated by CHIMERA_V40_GAT
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CHIMERA_V40_GATE"),
-    reason="v45 build-capability gate; run with CHIMERA_V40_GATE=1",
-)
 
 
 def _breakdown():
@@ -102,3 +96,17 @@ def test_soak_breakdown_empty_ledger(tmp_path):
     mind = tmp_path / "mind"
     out = _soak()(mind, "absent")
     assert out == "# Soak absent — no ACT records\n"
+
+
+def test_cli_soak_breakdown_verb(tmp_path, monkeypatch, capsys):
+    # The CLI guard (the #169/#170 lesson: every verb ships with a test that
+    # invokes it). `chimera soak breakdown <run-id>` over format_soak_breakdown.
+    from chimera.cli import main
+    mind = tmp_path / "mind"
+    _seed(mind, "run-cli", _rows("stop", "stop", "artifact_missing"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind))
+    rc = main(["soak", "breakdown", "run-cli"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.startswith("# Soak run-cli — finish-reason breakdown (3 cycles)\n")
+    assert "| stop | 2 |" in out
