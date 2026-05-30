@@ -697,6 +697,27 @@ def _imported_names(node) -> list[str]:
     return names
 
 
+def _import_shadow_scan_root() -> Path | None:
+    """Return the worktree root the import-shadow gate should git-scan,
+    or ``None`` to disable the fallback.
+
+    v44 fix (#169): the ``git status`` fallback added in #164 scanned
+    ``Path.cwd()`` unconditionally. Off-soak that is a bug — a real
+    ``chimera run`` in a repo with uncommitted ``.py`` would fire the gate
+    on the developer's working files, and (because the unit tests run in
+    the repo worktree) a DIRTY worktree containing any shadowed ``.py``
+    polluted unrelated ACT tests. The postmortem-honesty fallback is
+    implicitly soak-scoped (its ``summarize_run()`` no-ops off-soak); the
+    import-shadow fallback had no such guard. We make it explicit here:
+    the cwd git-scan is enabled only inside a soak (``CHIMERA_SOAK_RUN_ID``
+    set). The ``write_targets`` path — the in-loop signal — is unaffected
+    and still works in every run.
+    """
+    from .soak_ledger import soak_run_id
+
+    return Path.cwd() if soak_run_id() else None
+
+
 def check_import_shadowing(
     write_targets: list[str],
     worktree_root: Path | str | None = None,
@@ -2438,10 +2459,15 @@ class ActExecutor:
                 # v43 R2 coverage follow-up: pass the worktree so this gate
                 # also falls back to `git status` when write_targets is
                 # empty (same dormancy the postmortem gate hit on v43).
+                # v44 fix (#169): that fallback is SOAK-SCOPED via
+                # _import_shadow_scan_root() — off-soak it would fire on a
+                # developer's uncommitted .py and (since unit tests run in
+                # the repo worktree) let a dirty worktree pollute unrelated
+                # ACT tests. The write_targets path still works every run.
                 import_shadow_failures: list[tuple[str, str]] = []
                 if completed:
                     import_shadow_failures = check_import_shadowing(
-                        write_targets, worktree_root=Path.cwd(),
+                        write_targets, worktree_root=_import_shadow_scan_root(),
                     )
                     if import_shadow_failures:
                         completed = False

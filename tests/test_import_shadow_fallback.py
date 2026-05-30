@@ -14,7 +14,11 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from chimera.core.act import _gate_targets, check_import_shadowing
+from chimera.core.act import (
+    _gate_targets,
+    _import_shadow_scan_root,
+    check_import_shadowing,
+)
 
 # A module that shadows a module-level import inside a function — the exact
 # UnboundLocalError class the gate exists to catch.
@@ -90,3 +94,49 @@ def test_gate_targets_unions_and_dedupes_py(tmp_path):
     targets = _gate_targets([str(p)], root, ".py")
     resolved = {str(Path(t).resolve()) for t in targets}
     assert resolved == {str(p.resolve())}
+
+
+# ── v44/#169: the cwd git-scan is SOAK-SCOPED ──────────────────────
+#
+# The #164 fallback scanned Path.cwd() UNCONDITIONALLY at the ACT call
+# site. Off-soak that fired on a developer's uncommitted .py during a real
+# `chimera run` and — because unit tests run in the repo worktree — let a
+# DIRTY worktree (e.g. an in-progress shadowed .py) pollute unrelated ACT
+# tests. These tests pin the gate the call site uses to pick its
+# worktree_root: None off-soak, Path.cwd() on-soak.
+
+def test_scan_root_is_none_outside_soak(monkeypatch):
+    # No CHIMERA_SOAK_RUN_ID → the call site passes worktree_root=None, so
+    # the cwd git-scan never runs and a dirty repo cannot pollute.
+    monkeypatch.delenv("CHIMERA_SOAK_RUN_ID", raising=False)
+    assert _import_shadow_scan_root() is None
+
+
+def test_scan_root_is_cwd_inside_soak(monkeypatch):
+    monkeypatch.setenv("CHIMERA_SOAK_RUN_ID", "v44-test")
+    assert _import_shadow_scan_root() == Path.cwd()
+
+
+def test_dirty_worktree_does_not_pollute_off_soak(tmp_path, monkeypatch):
+    # The concrete pollution scenario from landing v44: a shadowed .py
+    # exists on disk in cwd, write_targets is empty, and we are NOT in a
+    # soak. With the call site passing _import_shadow_scan_root() (None
+    # off-soak), the gate must no-op rather than scan cwd's git status.
+    root = _git_repo(tmp_path)
+    _write(root, "chimera/dirty.py", _SHADOW_SRC)
+    monkeypatch.chdir(root)
+    monkeypatch.delenv("CHIMERA_SOAK_RUN_ID", raising=False)
+    assert check_import_shadowing([], worktree_root=_import_shadow_scan_root()) == []
+
+
+def test_fallback_still_catches_shadow_inside_soak(tmp_path, monkeypatch):
+    # Inside a soak the fallback is live again: a real shadow on disk is
+    # caught via the cwd git-scan even when write_targets is empty.
+    root = _git_repo(tmp_path)
+    _write(root, "chimera/dirty.py", _SHADOW_SRC)
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("CHIMERA_SOAK_RUN_ID", "v44-test")
+    failures = check_import_shadowing([], worktree_root=_import_shadow_scan_root())
+    assert len(failures) == 1
+    path, msg = failures[0]
+    assert path.endswith("chimera/dirty.py") and "shadows" in msg
