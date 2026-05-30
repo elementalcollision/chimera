@@ -388,6 +388,13 @@ CHARTER:
 - [ ] Stage ONLY \`chimera/soak_report.py\` and \`$DELIVERABLE_REL\`.
 - [ ] Commit with a message starting with \`[agent]\` (e.g. \`[agent] create chimera/soak_report.py\`).
 
+STAGING IS NOT DONE. \`git add\` only stages — it does NOT create a commit. This
+phase is COMPLETE only after \`git commit\` returns AND \`git log --oneline
+main..HEAD\` shows your \`[agent]\` commit. If you have staged but not committed,
+the task is UNFINISHED: run \`git commit\` now. Do NOT report the task complete on
+the strength of a \`git add\` alone — verify the commit exists with \`git log\`
+before you stop.
+
 Manual-handoff (PR #111): after the commit the runner stops with the branch in
 the worktree. NO auto-push, NO auto-PR, NO auto-merge.
 
