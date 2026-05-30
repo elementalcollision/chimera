@@ -111,6 +111,40 @@ def test_task_text_is_truncated(tmp_path, monkeypatch):
     assert len(rec["task"]) == 200
 
 
+# ── 2c. Artifact-failure detail (postmortem-churn instrumentation) ──
+
+def test_missing_artifacts_recorded():
+    # An artifact_missing cycle now records WHICH artifact was missing, so
+    # the next soak's ledger is directly diagnosable (was: only the count).
+    rec = build_act_record(
+        run_id="v44", cycle=1, task_text="write the postmortem",
+        result=_result(
+            completed=False, finish_reason="artifact_missing",
+            missing_artifacts=["mind/research/soak-summary-postmortem.md"],
+        ),
+    )
+    assert rec["missing_artifacts"] == ["mind/research/soak-summary-postmortem.md"]
+    assert rec["incomplete_artifacts"] == []
+
+
+def test_incomplete_artifacts_serialized_as_lists():
+    rec = build_act_record(
+        run_id="v44", cycle=2, task_text="t",
+        result=_result(
+            completed=False, finish_reason="artifact_incomplete",
+            incomplete_artifacts=[("pm.md", "missing ## READY-FOR-REMEDIATION")],
+        ),
+    )
+    # Tuples → JSON-serializable lists.
+    assert rec["incomplete_artifacts"] == [["pm.md", "missing ## READY-FOR-REMEDIATION"]]
+
+
+def test_clean_cycle_has_empty_artifact_detail():
+    rec = build_act_record(run_id="v44", cycle=3, task_text="t", result=_result())
+    assert rec["missing_artifacts"] == []
+    assert rec["incomplete_artifacts"] == []
+
+
 # ── 2b. Per-call exit + duration (depth) ─────────────────────
 
 def test_per_call_exit_and_duration_recorded():

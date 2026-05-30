@@ -194,6 +194,17 @@ def build_act_record(
         sum(c["duration_ms"] for c in tool_calls if c["duration_ms"] is not None),
         3,
     )
+    # Artifact-failure detail (postmortem-churn instrumentation). A soak
+    # records `finish_reason: "artifact_missing"` but not WHICH artifact was
+    # missing/empty — so a post-hoc analysis could see the count of churn
+    # cycles but never the cause (e.g. the postmortem task repeatedly
+    # tripping on its .md deliverable). Surface the ActResult's already-
+    # populated detail lists so the next soak's ledger is directly
+    # diagnosable. Empty lists when the corresponding gate didn't fire.
+    missing_artifacts = list(getattr(result, "missing_artifacts", []) or [])
+    incomplete_artifacts = [
+        [str(p), str(m)] for p, m in getattr(result, "incomplete_artifacts", []) or []
+    ]
     return {
         "run_id": run_id,
         "cycle": cycle,
@@ -206,6 +217,8 @@ def build_act_record(
         "tool_error_count": error_count,
         "tool_total_ms": total_ms,
         "tool_calls": tool_calls,
+        "missing_artifacts": missing_artifacts,
+        "incomplete_artifacts": incomplete_artifacts,
         "ts": round(time.time(), 3),
     }
 
