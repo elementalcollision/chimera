@@ -802,6 +802,15 @@ def _build_parser() -> argparse.ArgumentParser:
     soak_breakdown_p.add_argument(
         "run_id", help="The soak run id (the mind/soak/<run-id>/ directory name).",
     )
+    # v46: `chimera soak report <run-id>` — full soak-health view
+    # (chimera/soak_report.py composes summary + breakdown).
+    soak_report_p = soak_sub.add_parser(
+        "report",
+        help="Print the full soak-health report (iterations + finish reasons).",
+    )
+    soak_report_p.add_argument(
+        "run_id", help="The soak run id (the mind/soak/<run-id>/ directory name).",
+    )
 
     return parser
 
@@ -3218,7 +3227,14 @@ def main(argv: list[str] | None = None) -> int:
             cfg = LoopConfig.from_env()
             print(format_soak_breakdown(cfg.mind_dir, args.run_id), end="")
             return 0
-        parser.error("usage: chimera soak {summary|breakdown} <run-id>")
+        if args.soak_command == "report":
+            # v46 third-real-feature module; same shadow-free leaf pattern.
+            from .core import LoopConfig
+            from .soak_report import format_soak_report
+            cfg = LoopConfig.from_env()
+            print(format_soak_report(cfg.mind_dir, args.run_id), end="")
+            return 0
+        parser.error("usage: chimera soak {summary|breakdown|report} <run-id>")
         return 2
 
     parser.error(f"unknown command: {args.command}")
