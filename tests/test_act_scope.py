@@ -427,3 +427,70 @@ def test_evasion_when_agent_only_writes_under_mind():
     assert check_scope_evasion(intended, history, []) == [
         "chimera/core/act.py",
     ]
+
+
+# ── v46 (commit-phase fix): intended file already ON DISK ───────────
+
+
+def test_evasion_skipped_when_intended_file_exists_on_disk(tmp_path):
+    """The v46 commit-phase case. Phase 2's INBOX names the file to COMMIT;
+    the agent runs ``git add``/``git commit`` — no write-target, the path
+    doesn't surface in this cycle's tool args. But the file IS present
+    (written in phase 1). With base_dir given, that is NOT scope-evasion.
+    """
+    rel = "chimera/soak_report.py"
+    fp = tmp_path / rel
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text("# authored phase 1\n")
+    intended = [rel]
+    history = [
+        ToolCall(name="shell", args={"command": "git add -A && git commit -m x"}),
+    ]
+    # Without base_dir → legacy blob-only → flagged (the path is absent).
+    assert check_scope_evasion(intended, history, []) == [rel]
+    # With base_dir → file exists on disk → satisfied, not flagged.
+    assert check_scope_evasion(intended, history, [], base_dir=tmp_path) == []
+
+
+def test_evasion_still_fires_when_intended_file_absent_on_disk(tmp_path):
+    """The real catch is preserved: an intended file that was genuinely
+    never written does not exist under base_dir → still flagged, even with
+    base_dir given.
+    """
+    intended = ["chimera/never_written.py"]
+    history = [
+        ToolCall(name="shell", args={"command": "git status"}),
+    ]
+    assert check_scope_evasion(
+        intended, history, [], base_dir=tmp_path,
+    ) == ["chimera/never_written.py"]
+
+
+def test_evasion_empty_file_does_not_satisfy(tmp_path):
+    """A zero-byte file is not a deliverable — still flagged."""
+    rel = "chimera/empty.py"
+    fp = tmp_path / rel
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text("")
+    assert check_scope_evasion(
+        [rel], [ToolCall(name="shell", args={"command": "git status"})], [],
+        base_dir=tmp_path,
+    ) == [rel]
+
+
+def test_strict_evasion_skipped_when_intended_file_exists_on_disk(tmp_path):
+    """Same fix on the strict (max_rounds-exit) path."""
+    rel = "chimera/soak_report.py"
+    fp = tmp_path / rel
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text("# authored phase 1\n")
+    # write_targets empty + no base_dir → flagged.
+    assert check_scope_evasion_strict([rel], []) == [rel]
+    # base_dir given + file present → satisfied.
+    assert check_scope_evasion_strict([rel], [], base_dir=tmp_path) == []
+
+
+def test_strict_evasion_still_fires_when_absent_on_disk(tmp_path):
+    assert check_scope_evasion_strict(
+        ["chimera/never_written.py"], [], base_dir=tmp_path,
+    ) == ["chimera/never_written.py"]

@@ -424,10 +424,35 @@ def _normalize_intended_groups(
     return out
 
 
+def _group_already_on_disk(
+    group: "frozenset[str] | list[str]", base_dir: Path | str | None,
+) -> bool:
+    """True iff any path in ``group`` exists on disk as a non-empty file.
+
+    v46 fix: such a path WAS written (this cycle, a prior cycle, or phase 1)
+    — the deliverable is present, so the agent committing/finishing is not
+    scope-evasion. Disabled (False) when ``base_dir`` is None, preserving
+    the legacy blob-only behavior for the pure unit tests.
+    """
+    if base_dir is None:
+        return False
+    base = Path(base_dir)
+    for p in group:
+        try:
+            fp = base / p
+            if fp.is_file() and fp.stat().st_size > 0:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def check_scope_evasion(
     intended: "Sequence[str | frozenset[str]]",
     tool_call_history: list[ToolCall],
     write_targets: list[str],
+    *,
+    base_dir: Path | str | None = None,
 ) -> list[str]:
     """Return intended paths from unsatisfied disjunction groups.
 
@@ -440,6 +465,17 @@ def check_scope_evasion(
     Accepts a flat ``list[str]`` for backward compat (each path
     becomes its own singleton group). Use
     :func:`intended_code_path_groups` for OR-aware grouping.
+
+    v46 fix: a group is also satisfied when one of its paths already
+    EXISTS on disk as a non-empty file (``base_dir`` given). The two-phase
+    soak's phase-2 INBOX names the target file to COMMIT; the agent then
+    runs ``git add``/``git commit`` (not an edit), so the path may not
+    surface in this cycle's tool args — but the file IS present (written in
+    phase 1). Without this guard scope_evasion false-fires in the commit
+    phase, derailing it into a three-strikes stall (v46). The real catch is
+    preserved: an intended file that was genuinely never written does not
+    exist on disk → still flagged. ``base_dir=None`` keeps the legacy
+    blob-only behavior (unit tests, non-soak runs).
     """
     groups = _normalize_intended_groups(intended)
     if not groups:
@@ -451,8 +487,11 @@ def check_scope_evasion(
     blob = " ".join(blob_parts)
     unedited: list[str] = []
     for group in groups:
-        if not any(p in blob for p in group):
-            unedited.extend(sorted(group))
+        if any(p in blob for p in group):
+            continue
+        if _group_already_on_disk(group, base_dir):
+            continue
+        unedited.extend(sorted(group))
     return unedited
 
 
@@ -1479,6 +1518,8 @@ def check_provenance_claim_valid(
 def check_scope_evasion_strict(
     intended: "Sequence[str | frozenset[str]]",
     write_targets: list[str],
+    *,
+    base_dir: Path | str | None = None,
 ) -> list[str]:
     """Stricter variant: a group is "satisfied" only if AT LEAST ONE of
     its paths appears in ``write_targets`` (populated by the post-tool
@@ -1508,8 +1549,13 @@ def check_scope_evasion_strict(
     targets = set(write_targets)
     unedited: list[str] = []
     for group in groups:
-        if not any(p in targets for p in group):
-            unedited.extend(sorted(group))
+        if any(p in targets for p in group):
+            continue
+        # v46 fix: same on-disk guard — a file already written (prior
+        # cycle / phase 1) is not scope-evasion even on the max_rounds path.
+        if _group_already_on_disk(group, base_dir):
+            continue
+        unedited.extend(sorted(group))
     return unedited
 
 
@@ -2443,8 +2489,17 @@ class ActExecutor:
                     # v4.105 (ADR 0109): group OR-disjunctions so
                     # "edit `X` OR `Y`" is satisfied by touching either.
                     intended_groups = intended_code_path_groups(task_text)
+                    # v46 fix: pass the worktree so an intended file already
+                    # ON DISK (written phase 1, being committed in phase 2)
+                    # is not flagged — removes the commit-phase false positive
+                    # that stalled v46. SOAK-SCOPED via _import_shadow_scan_root
+                    # (the #169 precedent): off-soak the on-disk guard is a
+                    # no-op (base_dir=None), so a real `chimera run` and the
+                    # repo-worktree unit tests keep the legacy blob-only gate
+                    # and a dirty worktree can't mask a genuine evasion.
                     unedited = check_scope_evasion(
                         intended_groups, history, write_targets,
+                        base_dir=_import_shadow_scan_root(),
                     )
                     if unedited:
                         completed = False
@@ -2938,7 +2993,9 @@ class ActExecutor:
         # required BOTH paths in write_targets; the agent had
         # correctly written one.
         intended_at_max = intended_code_path_groups(task_text)
-        unedited_at_max = check_scope_evasion_strict(intended_at_max, write_targets)
+        unedited_at_max = check_scope_evasion_strict(
+            intended_at_max, write_targets, base_dir=_import_shadow_scan_root(),
+        )
         finish_reason_at_max = "max_rounds"
         failure_reason_at_max = "exhausted max rounds without final stop"
         if unedited_at_max and not missing_at_max:
