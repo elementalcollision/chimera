@@ -803,7 +803,92 @@ def _run_spend_usd_best_effort() -> float | None:
         return None
 
 
-def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
+def _git_changed_paths(
+    worktree_root: Path | str, suffix: str,
+) -> list[str]:
+    """Worktree-relative paths whose file currently differs from HEAD and
+    ends with ``suffix`` — the FALLBACK source for the write-target gates.
+
+    v43 soak (run ``v43-trio-2026-05-30-0052``) surfaced the gap this
+    closes: ``write_targets`` was empty on all 20 ACT records, so the
+    write-target gates (import-shadow + postmortem honesty) no-op'd the
+    whole run. Root cause: ``write_targets`` is only populated from
+    :data:`_WRITING_TOOL_NAMES` calls (``code_exec`` and friends), but a
+    soak agent that writes via the ``shell`` tool (``python3 -c …``,
+    ``git apply``) leaves no trace there — shell is deliberately excluded
+    (soak v7). The honesty gate must not depend on *which* tool happened
+    to do the write: ``git status`` is ground truth for "what changed in
+    this worktree" regardless of the tool path.
+
+    Covers staged, unstaged, AND untracked files (``--porcelain`` shows
+    all three), so a just-written, not-yet-committed postmortem is found.
+    Rename entries (``R  old -> new``) contribute their destination.
+    Charter: never raise — any git/OS error returns ``[]`` (fail-soft, so
+    the gate degrades to the ``write_targets``-only behavior it had
+    before, never blocks on an unreadable worktree).
+    """
+    root = Path(worktree_root)
+    try:
+        res = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=str(root), capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+    if res.returncode != 0:
+        return []
+    out: list[str] = []
+    for line in (res.stdout or "").splitlines():
+        # Porcelain v1: two status chars, a space, then the path. Renames
+        # render as ``old -> new`` — the destination is what was written.
+        if len(line) < 4:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        path = path.strip().strip('"')
+        if path.endswith(suffix) and path not in out:
+            out.append(path)
+    return out
+
+
+def _postmortem_gate_targets(
+    write_targets: list[str], worktree_root: Path | str | None,
+) -> list[str]:
+    """``.md`` paths the honesty gate should inspect: ``write_targets``
+    UNION the worktree's changed ``.md`` files, deduped by resolved path.
+
+    ``write_targets`` is the in-loop signal (populated when the agent used
+    a writing tool); the git fallback catches postmortems written via any
+    other path. When ``worktree_root`` is ``None`` the fallback is off and
+    behavior is exactly the legacy ``write_targets``-only form — this is
+    what keeps the pure-unit tests (which pass no worktree) hermetic, and
+    means a non-soak ``chimera run`` is unaffected.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for path in write_targets:
+        if not path.endswith(".md"):
+            continue
+        key = str(Path(path).resolve())
+        if key not in seen:
+            seen.add(key)
+            ordered.append(path)
+    if worktree_root is not None:
+        root = Path(worktree_root)
+        for rel in _git_changed_paths(root, ".md"):
+            abs_path = root / rel
+            key = str(abs_path.resolve())
+            if key not in seen:
+                seen.add(key)
+                ordered.append(str(abs_path))
+    return ordered
+
+
+def check_postmortem_honesty(
+    write_targets: list[str],
+    worktree_root: Path | str | None = None,
+) -> list[tuple[str, str]]:
     """Return ``[(path, msg), ...]`` for a written postmortem whose
     READY-FOR-REMEDIATION claims contradict the test-run ledger ground
     truth — either the ``tests_passing`` field, or a ``verdict``
@@ -838,9 +923,18 @@ def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
 
     No-op outside a soak (``CHIMERA_SOAK_RUN_ID`` unset) or when no
     summary is available, so normal ``chimera run`` is unaffected. Only
-    inspects ``.md`` write targets that carry a ``tests_passing:`` line
-    (i.e. a READY block). Fail-soft. One reason per file (most severe;
-    rules are checked in A→E severity order).
+    inspects ``.md`` targets that carry a ``tests_passing:`` line (i.e. a
+    READY block). Fail-soft. One reason per file (most severe; rules are
+    checked in A→E severity order).
+
+    Target source (v43 fix): ``write_targets`` UNION the worktree's
+    changed ``.md`` files when ``worktree_root`` is given. The v43 soak
+    ran every write-target gate dormant because ``write_targets`` was
+    empty all run (the agent wrote via ``shell``, not a captured writing
+    tool); the git fallback makes the gate fire on the postmortem that is
+    actually on disk, regardless of which tool wrote it. With
+    ``worktree_root=None`` only ``write_targets`` is inspected (legacy
+    behavior — keeps unit tests and non-soak runs hermetic).
     """
     from .soak_ledger import soak_run_id, summarize_run
 
@@ -852,7 +946,7 @@ def check_postmortem_honesty(write_targets: list[str]) -> list[tuple[str, str]]:
     ground_truth = bool(summary.get("tests_passed_any"))
 
     failures: list[tuple[str, str]] = []
-    for path in write_targets:
+    for path in _postmortem_gate_targets(write_targets, worktree_root):
         if not path.endswith(".md"):
             continue
         p = Path(path)
@@ -2319,9 +2413,16 @@ class ActExecutor:
                 # sub-agent-draft-dishonesty class at WRITE time (before
                 # acceptance), not via a later manual cross-check. No-op
                 # outside a soak.
+                # v43 fix: pass the worktree so the gate falls back to
+                # `git status` when write_targets is empty. The v43 soak
+                # ran this gate dormant on all 20 cycles because the agent
+                # wrote postmortems via shell (uncaptured); the fallback
+                # finds the on-disk postmortem regardless of write tool.
                 postmortem_honesty_failures: list[tuple[str, str]] = []
                 if completed:
-                    postmortem_honesty_failures = check_postmortem_honesty(write_targets)
+                    postmortem_honesty_failures = check_postmortem_honesty(
+                        write_targets, worktree_root=Path.cwd(),
+                    )
                     if postmortem_honesty_failures:
                         completed = False
                         finish_reason = "postmortem_dishonest"
