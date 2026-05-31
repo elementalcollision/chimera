@@ -152,6 +152,34 @@ Still open from that run (separate follow-ups, NOT addressed here):
 - **W3** — the runner logged `cycle=`/`spend=` blank (DB telemetry not
   resolving); the forward-progress watchdog tripped on the stall signal.
 
+## Amendment (W1 fix, 2026-05-31) — phase-1 build-completion gate
+
+A second live run with the harness fallback OFF (`CHIMERA_SOAK_AUTOCOMMIT=0`)
+falsified the clean story: the agent **never made the fix** — it marked the
+"prove `chimera verify` is green" task complete with sub-10ms no-op tool calls
+(gate never run, file never edited), phase 2 then looped on `commit_not_executed`
+trying to commit a nonexistent change, and nothing landed. Run-to-run variance
+(run 1 made the fix; run 2 didn't) showed **W1 is the dominant reliability
+blocker, not W2** — the first run only "succeeded" because the harness fallback
+silently committed work the agent's own loop didn't reliably produce.
+
+**Fix — `check_verify_claim_invalid` (chimera/core/act.py).** A new in-loop
+completion gate, the build-step analogue of `check_test_claim_valid` /
+`check_commit_not_executed`: when a task demands a green verification
+(`_task_demands_verify_green`) and a verify command is configured
+(`CHIMERA_PHASE1_VERIFY_CMD`, set by `real_task_soak.sh`), it **re-runs that
+command** and, if red, sets `completed=False` / `finish_reason=
+verify_claim_invalid` — so the agent cannot self-report the build done while the
+gate is still red; the task stays open and it must actually make it green.
+Soak/env-scoped (no-op off-soak or unconfigured) and fail-open on subprocess
+error, like its siblings. The command is runner-controlled, never parsed from
+agent output. `tests/test_verify_claim_gate.py` (10): demand-detection;
+soak/env/task scoping no-ops; fires on red; passes on green; env-var supplies
+the command; unrunnable command counts as red. No regression in the 362-test
+ACT-gate slice.
+
+W3 (telemetry) still open.
+
 ## Next
 
 - **Re-run the B1 demonstration** with the W2 fix and confirm GENUINE agent

@@ -1520,6 +1520,81 @@ def check_commit_not_executed(
     ]
 
 
+# B1 W1 (ADR 0158): phase-1 build-completion gate. The first real-task soak
+# surfaced an agent marking a "make the change and prove `chimera verify` is
+# green" task COMPLETE with sub-10ms no-op tool calls — it never ran the gate
+# or edited the file, yet self-reported done. Engines-off phase 1 had no
+# honesty gate on the build step, so the over-claim slid; the run idled to
+# no_forward_progress with the change never made. This is the build-step
+# analogue of check_test_claim_valid / check_commit_not_executed: ground-truth
+# the claim by RE-RUNNING the repo's real verification, not trusting the
+# agent's self-report.
+_VERIFY_GREEN_TASK_RE = re.compile(
+    r"chimera\s+verify|verify\b[^.]*\bgreen|exits?\s+0|prints?\s+`?PASS",
+    re.IGNORECASE,
+)
+
+
+def _task_demands_verify_green(task_text: str) -> bool:
+    """True if the task instructs the agent to make the repo's real
+    verification pass (the real-task soak phase-1 build task: "make the change
+    and prove ``chimera verify`` is green ... until it prints ``PASS``")."""
+    if not task_text:
+        return False
+    return _VERIFY_GREEN_TASK_RE.search(task_text) is not None
+
+
+def check_verify_claim_invalid(
+    task_text: str,
+    worktree_root: Path | str | None,
+    verify_cmd: str | None = None,
+    timeout: float = 600.0,
+) -> list[str]:
+    """Return a one-item reason list when a build task claims the repo's real
+    verification is green but it is NOT — the W1 over-claim.
+
+    Fires only when ALL hold:
+      - ``worktree_root`` is given (soak-scoped via
+        :func:`_import_shadow_scan_root`; off-soak this is a no-op), AND
+      - a verify command is configured — ``verify_cmd`` or the
+        ``CHIMERA_PHASE1_VERIFY_CMD`` env var the real-task runner sets, AND
+      - the task demands a green verification
+        (:func:`_task_demands_verify_green`), AND
+      - that command exits non-zero when re-run from ``worktree_root``.
+
+    The verify command is RUNNER-controlled (an operator-set env var), never
+    parsed from agent output — so this re-runs a trusted gate, not arbitrary
+    text. Charter: never raise; a subprocess/seatbelt error returns ``[]``
+    (fail-open, like its sibling gates) so the witness panel + engine guards
+    stay authoritative.
+    """
+    if worktree_root is None:
+        return []
+    import os
+
+    cmd = verify_cmd if verify_cmd is not None else os.environ.get(
+        "CHIMERA_PHASE1_VERIFY_CMD"
+    )
+    if not cmd:
+        return []
+    if not _task_demands_verify_green(task_text):
+        return []
+    try:
+        proc = subprocess.run(
+            ["bash", "-c", cmd], cwd=str(Path(worktree_root)),
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+    if proc.returncode == 0:
+        return []  # genuinely green — the claim holds
+    return [
+        f"task claimed the repo's real verification is green, but `{cmd}` "
+        f"exits {proc.returncode} — the change is not done. Make the edit and "
+        f"re-run the gate until it prints PASS before reporting complete"
+    ]
+
+
 # v4.118 (ADR 0118): provenance citations in [agent] commit messages.
 # Soak v20-3rd surfaced an agent shipping commit e3af158 with message
 # "[agent] Add ruff_claim_invalid detector (v4.120 / ADR 0120)" when
@@ -2701,6 +2776,22 @@ class ActExecutor:
                     if test_claim_failures:
                         completed = False
                         finish_reason = "test_claim_invalid"
+                # B1 W1 (ADR 0158): phase-1 build-completion gate. A real-task
+                # soak's "make the change and prove `chimera verify` is green"
+                # task was marked complete with no-op tool calls (gate never
+                # run, file never edited). Ground-truth the claim by re-running
+                # the runner-configured verify command; a red gate means the
+                # build isn't done — keep the task open so the agent must
+                # actually make it green instead of idling to no-progress.
+                # Soak/env-scoped: no-op unless CHIMERA_PHASE1_VERIFY_CMD is set.
+                verify_claim_failures: list[str] = []
+                if completed:
+                    verify_claim_failures = check_verify_claim_invalid(
+                        task_text, _import_shadow_scan_root(),
+                    )
+                    if verify_claim_failures:
+                        completed = False
+                        finish_reason = "verify_claim_invalid"
                 # v46 R2 (ADR 0147): commit-not-executed gate. The task
                 # demanded an [agent] commit but none landed — the v46
                 # re-soak "Problem B" (staged but never committed; the run
