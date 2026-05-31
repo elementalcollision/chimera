@@ -41,17 +41,6 @@ RUNS=(
   "v3|chimera/strcase.py|tests/test_strcase.py|s[i - 1].islower() or|s[i - 1].isupper() or|fix to_snake in chimera/strcase.py so tests/test_strcase.py passes|regression-tempting"
 )
 
-inject_fault() {  # module correct buggy  -> rewrites the file (python, safe with specials)
-    CMOD="$1" COLD="$2" CNEW="$3" python3 - <<'PY'
-import os, pathlib
-p = pathlib.Path(os.environ["CMOD"])
-t = p.read_text()
-old, new = os.environ["COLD"], os.environ["CNEW"]
-assert old in t, f"correct snippet not found in {p}: {old!r}"
-p.write_text(t.replace(old, new, 1))
-PY
-}
-
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
 if [ "$DRYRUN" = "1" ]; then
@@ -84,17 +73,24 @@ log "campaign report: $REPORT"
 for spec in "${RUNS[@]}"; do
     IFS='|' read -r id mod test cold cnew goal kind <<< "$spec"
     base="validation/${id}-base-${STAMP}"
+    fbwt="$REPO/../campaign-${id}-base-${STAMP}"
     log "── $id [$kind] — $mod ──"
 
-    git checkout main -q
-    git checkout -b "$base" -q
-    inject_fault "$mod" "$cold" "$cnew"
-    git add "$mod"
-    git commit -q -m "test(validation): INJECTED FAULT for campaign $id — NOT for main"
-    # confirm the gate is RED on the base
-    red="$(uv run chimera verify --ruff "$mod" --test "$test" 2>&1 | tail -1)"
-    log "  base gate: $red"
-    git checkout main -q
+    # Inject the fault on a dedicated base branch via a temp worktree — never
+    # touches the main repo's working tree or current branch.
+    git worktree add -b "$base" "$fbwt" HEAD >/dev/null 2>&1
+    ( cd "$fbwt" && CMOD="$mod" COLD="$cold" CNEW="$cnew" python3 - <<'PY'
+import os, pathlib
+p = pathlib.Path(os.environ["CMOD"]); t = p.read_text()
+old, new = os.environ["COLD"], os.environ["CNEW"]
+assert old in t, f"correct snippet not found: {old!r}"
+p.write_text(t.replace(old, new, 1))
+PY
+      git add "$mod"
+      git commit -q -m "test(validation): INJECTED FAULT for campaign $id — NOT for main" )
+    red="$(cd "$fbwt" && uv run chimera verify --ruff "$mod" --test "$test" 2>&1 | tail -1)"
+    log "  base gate (expect FAIL): $red"
+    git worktree remove "$fbwt" --force >/dev/null 2>&1
 
     log "  launching soak (base=$base, fallback OFF)…"
     TASK_GOAL="$goal" TASK_FILES="$mod" TASK_TEST="$test" TASK_BASE="$base" \
