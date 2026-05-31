@@ -27,6 +27,10 @@ def _cands(n):
 class _Args:
     base = "main"
     limit = 10
+    log = False
+    accept = None
+    reject = None
+    precision = False
 
 
 def test_empty_prints_no_candidates_exit_zero(monkeypatch, capsys):
