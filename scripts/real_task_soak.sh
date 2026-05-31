@@ -82,6 +82,23 @@ export CHIMERA_SOAK_AUTOCOMMIT
 
 LOG="$REPO_ROOT/state/real_task_${RUN_ID}.log"
 
+design_note() {
+    # ADR 0146 pre-commit scope check: write a design note whose
+    # ## READY-FOR-REMEDIATION allowlist == TASK_FILES so the agent's OWN
+    # commit passes the scope gate. Without this, the check binds to the
+    # newest STALE *-design.md left in the worktree from a prior soak and
+    # refuses the commit ("staged paths … outside the allowlist") — the W2
+    # finding: the agent's self-commit was blocked and only the harness
+    # fallback got through, masking it.
+    echo "# Real-task scope: ${TASK_GOAL}"
+    echo
+    echo "## READY-FOR-REMEDIATION"
+    echo
+    echo "Allowed scope for this change (the only files the commit may touch):"
+    echo
+    for f in $TASK_FILES; do echo "- \`$f\`"; done
+}
+
 phase1_inbox() {
     cat <<INBOX_EOF
 # Inbox — real-task soak phase 1 (FIX; engines off, no commits)
@@ -120,6 +137,9 @@ if [ "${TASK_DRYRUN:-0}" = "1" ]; then
     echo "  gate cmd  = $GATE_VERIFY_CMD"
     echo "  autocommit= $CHIMERA_SOAK_AUTOCOMMIT"
     echo "  worktree  = $WORKTREE"
+    echo "  scope note= mind/research/realtask-${RUN_ID}-design.md"
+    echo "--- scope design note (ADR 0146 allowlist) ---"
+    design_note
     echo "--- phase-1 INBOX ---"
     phase1_inbox
     exit 0
@@ -146,6 +166,15 @@ mkdir -p "$WORKTREE_STATE"
 export CHIMERA_STATE_DIR="$WORKTREE_STATE"
 export CHIMERA_MIND_DIR="$WORKTREE/mind"
 mkdir -p "$WORKTREE/mind/research"
+
+# W2 fix: write the scope design note (ADR 0146 allowlist = TASK_FILES) so the
+# agent's OWN commit passes the pre-commit scope check, instead of being refused
+# against a stale design note left in the worktree by a prior soak. Written here
+# (post-worktree, pre-phase-1) so it is the newest *-design.md by mtime — the one
+# find_active_design_note() binds to.
+DESIGN_NOTE="$WORKTREE/mind/research/realtask-${RUN_ID}-design.md"
+design_note > "$DESIGN_NOTE"
+log "scope design note written: mind/research/realtask-${RUN_ID}-design.md (allowlist: $TASK_FILES)"
 
 source "$(dirname "$0")/../scripts/soak_lib.sh" 2>/dev/null || source "$REPO_ROOT/scripts/soak_lib.sh"
 log "$(soak_lib_version)"
