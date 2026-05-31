@@ -8,6 +8,12 @@ from .charter import (
     generate_charter,
     validate_charter,
 )
+from .charter_materialize import (
+    CharterArtifacts,
+    format_charter_packet,
+    materialize_charter,
+    rewrite_test_imports,
+)
 from .dedup import cluster_key, dedup, fingerprint
 from .generate import (
     MAX_PROPOSED_TASKS_PER_PLAN,
@@ -20,6 +26,7 @@ from .generate import (
 __all__ = [
     "MAX_PROPOSED_TASKS_PER_PLAN",
     "PLAN_PROMPT_TEMPLATE",
+    "CharterArtifacts",
     "CharterBundle",
     "CharterValidation",
     "ProposedTask",
@@ -30,6 +37,9 @@ __all__ = [
     "extract_charter",
     "extract_proposals",
     "fingerprint",
+    "format_charter_packet",
     "generate_charter",
+    "materialize_charter",
+    "rewrite_test_imports",
     "validate_charter",
 ]
