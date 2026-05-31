@@ -18,6 +18,26 @@
 # arrays, no setsid). They depend on pgrep and pkill, which are present on
 # Darwin and Linux.
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase budget + cycle telemetry helpers (shared)
+# ─────────────────────────────────────────────────────────────────────
+#
+# B1 W3 fix: these three were defined ONLY inside charter_build_soak.sh and the
+# legacy long_cycle_soak_v*.sh runners. real_task_soak.sh sourced _soak_common.sh
+# + soak_lib.sh and CALLED them but never got a definition — so in that runner
+# they were "command not found": `cycle=`/`spend=` logged blank AND the phase
+# dollar-cap (fp_ge) silently never fired (only iteration/wall/stall limits
+# bounded the run). Hoisting them here gives every runner one definition.
+# Runners that still define their own copies after sourcing simply override
+# with an identical body (harmless).
+#
+# total_spend_in_db <db> <iso_since>  → summed cost_usd since the phase start.
+# last_cycle_in_db  <db>              → MAX(cycle) recorded, or 0.
+# fp_ge <a> <b>                       → exit 0 iff float a >= float b.
+total_spend_in_db() { sqlite3 "$1" "SELECT COALESCE(ROUND(SUM(cost_usd),4),0.0) FROM api_calls WHERE created_at >= '$2';" 2>/dev/null || echo "0.0"; }
+last_cycle_in_db() { sqlite3 "$1" "SELECT COALESCE(MAX(cycle),0) FROM api_calls;" 2>/dev/null || echo "0"; }
+fp_ge() { awk -v a="$1" -v b="$2" 'BEGIN { exit (a+0 >= b+0) ? 0 : 1 }'; }
+
 soak_refuse_concurrent() {
     # Pidfile-based concurrent-instance check.
     #
