@@ -73,13 +73,38 @@ blind spots; the threshold knob; a red baseline is unassessable; and an
 **integration** test running the real mutator on `chimera/strcase.py` proving
 the green suite is under-verified.
 
+## Amendment (differential complement, 2026-05-31)
+
+The mutation gate's documented blind spot — a *deleted* method-call clause has no
+mutation site — is now covered by `chimera/core/differential.py`. It runs the
+touched function over an input corpus under BOTH the pre-change and post-change
+source and reports every input whose output differs (the "behaviour delta"). A
+delta is legitimate only if a test demanded it (the failing test the fix
+repaired); a delta on an untested input is a candidate **silent regression** the
+agent must pin with a test or revert. Contract-free: deltas come from running the
+code, not a spec.
+
+This closes the exact hole: comparing the correct `to_snake` against the agent's
+`isdigit`-dropped fix over `default_string_corpus()` surfaces
+`foo2Bar → foo2_bar/foo2bar`, `v2Point`, `a1B2c3` — the digit-adjacent behaviour
+the mutation gate could not see. `tests/test_differential.py` (7): the headline
+regression reproduction; identical-source → no delta; before/after capture; a
+raised exception is observable behaviour; uncompilable source is an error marker
+(not a raise); report defaults; corpus includes digit-adjacent cases.
+
+Together, mutation (under-tested logic) + differential (deleted behaviour) cover
+both directions of the faithfulness problem. Honest limits: the differential
+needs an input corpus (the default covers single-string functions; general input
+generation for arbitrary signatures is open), and it `exec`s the agent's own
+source in an isolated namespace (not a sandbox boundary).
+
 ## Next
 
-- Wire `assess_faithfulness` into `real_task_soak.sh` / the ACT gate as an
-  acceptance criterion: a change is not "done" until the touched file is
-  mutation-clean (or the agent has authored tests that kill the survivors).
-- Complement with a differential / characterization check to catch behaviour
-  DELETION (the method-call-clause gap this gate cannot see).
+- Wire BOTH halves (`assess_faithfulness` + `behavioral_delta`) into
+  `real_task_soak.sh` / the ACT gate as a single acceptance criterion: a change
+  is not "done" until the touched file is mutation-clean AND has no
+  test-unjustified behaviour delta vs base.
+- Corpus generation for non-string signatures (type-driven / property-based).
 
 ## References
 
