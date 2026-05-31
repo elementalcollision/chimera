@@ -185,7 +185,7 @@ print(autocommit_if_ready('.', ['${CHARTER_TARGET}', '${DELIVERABLE_REL}'], '''$
             log "  harness-autocommit: ${st:-error}"
         fi
         if [ "$engines_enabled" = "1" ]; then
-            if soak_phase2_deliverable_landed "$WORKTREE" "${CHARTER_TARGET} ${DELIVERABLE_REL}" "$GATE_TEST_CMD"; then
+            if soak_phase2_deliverable_landed "$WORKTREE" "${CHARTER_TARGET} ${DELIVERABLE_REL}" "$GATE_TEST_CMD" "$CHARTER_BASE"; then
                 exit_reason="soft_sentinel_deliverable_landed"; break
             fi
         else
