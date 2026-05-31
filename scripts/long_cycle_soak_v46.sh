@@ -417,6 +417,25 @@ SOFT_SENTINEL_TEST_CMD=""
 PHASE2_START_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
 log "phase 2 baseline: $PHASE2_START_ISO"
 
+# R5 commit-stress lever: CHIMERA_SOAK_BARE_COMMIT=1 swaps the phase-2 commit
+# instruction back to the BARE-shell form (no git_commit tool). This reproduces
+# the re-soak #2 avoidance (the agent stages but won't run a bare `git commit`),
+# so phase 2 runs MANY iterations with a commit pending — exactly the condition
+# under which the planner/engines would spawn governance busywork (mechanism C).
+# With CHIMERA_SUPPRESS_PROPOSALS=1 (set for phase 2) that busywork must NOT
+# appear: same stall, but a clean ledger. Default off → the git_commit tool form.
+if [ "${CHIMERA_SOAK_BARE_COMMIT:-0}" = "1" ]; then
+    COMMIT_INSTRUCTION="- [ ] Stage ONLY \`chimera/soak_report.py\` and \`$DELIVERABLE_REL\`, then create ONE commit with a bare \`git commit -m '[agent] create chimera/soak_report.py'\` via the shell tool. (The git_commit tool is intentionally NOT offered for this run.)"
+    log "phase-2 COMMIT-STRESS mode: bare-commit instruction (no git_commit tool)"
+else
+    COMMIT_INSTRUCTION="- [ ] Commit the deliverable in ONE step with the **\`git_commit\` tool**:
+  call \`git_commit\` with \`message\`=\"create chimera/soak_report.py\" and
+  \`paths\`=[\"chimera/soak_report.py\", \"$DELIVERABLE_REL\"]. This single tool
+  call stages AND commits AND returns the new HEAD — it IS the whole commit
+  step. The \`[agent]\` prefix is added for you. Do NOT also run a bare
+  \`git commit\` via shell; do NOT stop after \`git add\` alone."
+fi
+
 cat > "$WORKTREE/mind/INBOX.md" <<INBOX_EOF
 # Inbox — Soak v46-soakreport phase 2 (commit-only, engines on)
 
@@ -437,12 +456,7 @@ CHARTER:
 
 ## Phase 2 tasks
 - [ ] Re-run the gated test; confirm 4 passed.
-- [ ] Commit the deliverable in ONE step with the **\`git_commit\` tool**:
-  call \`git_commit\` with \`message\`=\"create chimera/soak_report.py\" and
-  \`paths\`=[\"chimera/soak_report.py\", \"$DELIVERABLE_REL\"]. This single tool
-  call stages AND commits AND returns the new HEAD — it IS the whole commit
-  step. The \`[agent]\` prefix is added for you. Do NOT also run a bare
-  \`git commit\` via shell; do NOT stop after \`git add\` alone.
+$COMMIT_INSTRUCTION
 
 (If for some reason the \`git_commit\` tool is unavailable, fall back to the
 manual flow: \`git add\` the two paths, then a bare \`git commit -m '[agent] ...'\`.)
