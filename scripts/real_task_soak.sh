@@ -76,6 +76,10 @@ export CHIMERA_ENGINE_GATES_ENABLED=1
 export CHIMERA_V40_GATE=1
 export CHIMERA_SOAK_RUN_ID="$RUN_ID"
 export CHIMERA_ACT_BUDGET_SECONDS="${CHIMERA_ACT_BUDGET_SECONDS:-600}"
+# W1 (ADR 0158): the in-loop build-completion gate (check_verify_claim_invalid)
+# re-runs THIS command to ground-truth a "prove `chimera verify` is green" task
+# — so the agent cannot mark the fix complete while the gate is still red.
+export CHIMERA_PHASE1_VERIFY_CMD="$GATE_VERIFY_CMD"
 OPERATOR_SUPPRESS_PROPOSALS="${CHIMERA_SUPPRESS_PROPOSALS:-}"
 CHIMERA_SOAK_AUTOCOMMIT="${CHIMERA_SOAK_AUTOCOMMIT:-1}"
 export CHIMERA_SOAK_AUTOCOMMIT
