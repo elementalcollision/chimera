@@ -1592,10 +1592,10 @@ def _cmd_review(args) -> int:
     the diff, the touched code's docstrings (intent), and the faithfulness
     report (ADR 0160).
     """
-    import asyncio
     import subprocess
     from pathlib import Path
 
+    from ._async_loop import run_on_persistent_loop
     from .core import ChimeraLoop
     from .core.critic import review_change
     from .providers.tiers import Provider as ProviderKind
@@ -1627,7 +1627,7 @@ def _cmd_review(args) -> int:
         rung.config.model_id if rung.config.provider is ProviderKind.ANTHROPIC
         else rung.config.openrouter_model_id
     )
-    verdict = asyncio.run(review_change(
+    verdict = run_on_persistent_loop(review_change(
         diff, provider=provider, model_id=model_id, goal=args.goal,
         docstring=docstring, faithfulness=faithfulness,
     ))
