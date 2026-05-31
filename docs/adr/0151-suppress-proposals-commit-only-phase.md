@@ -1,7 +1,39 @@
 # ADR 0151 — Suppress proposals in a commit-only phase (mechanism C)
 
-**Status**: Proposed (2026-05-31). Flip to Accepted after a commit-stress soak
-shows no governance-busywork proposals spawned while a commit is pending.
+**Status**: **Accepted (2026-05-31)** — validated by the forced-stall A/B below.
+
+> Acceptance criterion (now met): a commit-stress soak shows no
+> governance-busywork proposals spawned while a commit is pending.
+
+### Validation — forced-stall A/B
+
+Two soaks, identical except for R5, each with the commit made unsatisfiable
+(`CHIMERA_SOAK_FORCE_STALL=1`) so phase 2 idles under a genuine prolonged stall —
+the condition mechanism C needs. The contrast is unambiguous:
+
+| Arm | R5 (`SUPPRESS_PROPOSALS`) | phase-2 cycles | spend | `src:planner` busywork tasks |
+|---|---|---|---|---|
+| A (control) | **off** (`0`) | 32 (budget-capped) | $1.56 | **63** |
+| B (treatment) | **on** (default) | 150 (budget-capped) | $0.75 | **0** |
+
+- **Control (R5 off):** the planner fired 8 proposal-adding PLAN cycles and the
+  agent ran **63** governance-busywork ACT tasks — "Add a CHANGELOG entry",
+  "capture action items as discrete tasks", and four variants of "Push the
+  commit to the remote" (the planner even hallucinating a commit to push while
+  the real commit was force-blocked). Mechanism C, vividly.
+- **Treatment (R5 on):** every one of 150 stall cycles logged `PLAN: skipped
+  (proposals suppressed — commit-only phase)`; **zero** busywork.
+
+This proves R5 matters under a real stall and rules out H2 (variance): the
+difference is deterministic and large (63 vs 0). It also surfaced a **cost**
+finding — the control burned **2× the budget in 1/5 the cycles** (proposal/engine
+model calls are expensive), so R5 sharply reduces spend during a stall too.
+
+The A/B uncovered and fixed a harness bug: phase 1's `unset
+CHIMERA_SUPPRESS_PROPOSALS` clobbered the operator override, so the first control
+attempt silently ran suppressed. The runner now captures the operator value at
+startup (`OPERATOR_SUPPRESS_PROPOSALS`) and reads that in phase 2. Capstone:
+`mind/research/r5-forced-stall-ab-mechanism-c-proven.md`.
 
 ## Context
 
