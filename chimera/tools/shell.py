@@ -238,6 +238,28 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
             "from firing in phase 2."
         )
 
+    # ADR 0151 validation lever (R5 forced-stall A/B). When
+    # CHIMERA_SOAK_FORCE_STALL=1, refuse `git commit` UNCONDITIONALLY so a
+    # commit-only phase can never converge and idles to max iterations — the
+    # only way to deterministically exercise the prolonged stall under which
+    # the planner/engines would spawn governance busywork (mechanism C). This
+    # is a SOAK TEST KNOB, not a real gate: default off, and double-gated on
+    # being inside a soak (CHIMERA_SOAK_RUN_ID set) so it can never fire on a
+    # normal `chimera run`.
+    if (
+        program == "git"
+        and len(argv) >= 2
+        and argv[1] == "commit"
+        and os.environ.get("CHIMERA_SOAK_FORCE_STALL") == "1"
+        and os.environ.get("CHIMERA_SOAK_RUN_ID")
+    ):
+        raise PermissionError(
+            "git commit blocked: CHIMERA_SOAK_FORCE_STALL=1 — the commit is "
+            "intentionally unsatisfiable for the R5 forced-stall A/B test so "
+            "phase 2 idles to max iterations. Not a real failure; nothing you "
+            "do will make this commit land."
+        )
+
     # v4.117 (ADR 0117): trust-state commit gate. Soak v20-3rd surfaced
     # the platform gap: when v4.115 fires repeatedly across cycles, the
     # demotions collapse trust to T0 but nothing prevents the *next*
