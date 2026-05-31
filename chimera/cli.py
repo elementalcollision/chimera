@@ -242,6 +242,19 @@ def _build_parser() -> argparse.ArgumentParser:
     calib.add_argument("--model", default="claude-sonnet-4-6",
                        help="Anthropic model id for the critic.")
 
+    sscan = sub.add_parser(
+        "self-scan",
+        help="Propose ranked, behaviour-neutral maintenance tasks from the repo "
+             "(ruff debt, mutation survivors) — the WHAT leg of no-contract "
+             "autonomy (ADR 0161). PRINTS ONLY; launches nothing.",
+        epilog="Each candidate prints with a copy-pasteable real_task_soak.sh "
+               "invocation. A human picks and runs one — self-scan never does.",
+    )
+    sscan.add_argument("--base", default="main",
+                       help="Base ref for the emitted soak commands (default main).")
+    sscan.add_argument("--limit", type=int, default=10,
+                       help="Max candidates to print (default 10).")
+
     cost = sub.add_parser(
         "cost",
         help="Show windowed spend (cycle, 15m, 60m, total) with band classification.",
@@ -1646,6 +1659,32 @@ def _cmd_review(args) -> int:
     return 0 if verdict.approved else 1
 
 
+def _cmd_self_scan(args) -> int:
+    """`chimera self-scan` — print ranked, behaviour-neutral maintenance
+    candidates from the repo, each with a copy-pasteable real_task_soak.sh
+    line. PRINTS ONLY; launches nothing (ADR 0161). Exit 0 whether or not
+    candidates are found (it is a proposal surface, not a gate)."""
+    from pathlib import Path
+
+    from .core.self_scan import scan_repo
+
+    candidates = scan_repo(Path.cwd())
+    if not candidates:
+        print("self-scan: no behaviour-neutral candidates found (clean tree, or "
+              "ruff unavailable).")
+        return 0
+    shown = candidates[: max(args.limit, 0)]
+    print(f"self-scan: {len(candidates)} candidate(s) "
+          f"(showing {len(shown)}) — PROPOSAL ONLY, nothing launched:\n")
+    for i, c in enumerate(shown, 1):
+        flag = c.risk_flag or "behaviour-neutral"
+        print(f"{i}. [{c.score:.2f}] {c.source} · {flag}")
+        print(f"   {c.goal}")
+        print(f"   $ {c.soak_command(base=args.base)}\n")
+    print("Pick one and run its command yourself — self-scan does not launch soaks.")
+    return 0
+
+
 def _cmd_critic_calibrate(args) -> int:
     """`chimera critic-calibrate` — measure the critic's error rates on a
     labelled change set. Prints the confusion matrix + false-approve rate
@@ -2434,6 +2473,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_review(args)
     if args.command == "critic-calibrate":
         return _cmd_critic_calibrate(args)
+    if args.command == "self-scan":
+        return _cmd_self_scan(args)
     if args.command == "ping":
         targets = ["anthropic", "openrouter"] if args.provider == "both" else [args.provider]
         print("chimera ping:")
