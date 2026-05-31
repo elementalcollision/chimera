@@ -98,12 +98,40 @@ needs an input corpus (the default covers single-string functions; general input
 generation for arbitrary signatures is open), and it `exec`s the agent's own
 source in an isolated namespace (not a sandbox boundary).
 
+## Amendment (loop wiring, 2026-05-31) — `chimera faithfulness` verb
+
+Both halves are now a first-class affordance: `chimera faithfulness --target FILE
+--test TARGET [--base REF] [--strict]` runs the mutation gate (exit-affecting)
+and, when `--base` is given, the differential over every single-string-arg
+function (advisory; exit-affecting under `--strict`). `real_task_soak.sh`'s
+phase-1 INBOX now requires it as a distinct task: "prove the change is FAITHFUL,
+not just green — kill every surviving mutant with a test, and for every behaviour
+delta vs base confirm a failing test demanded it; do NOT pass the suite by
+deleting untested behaviour." `tests/test_cli_faithfulness.py` (5): mutation
+drives the exit code; differential is advisory unless `--strict`; the
+single-arg-function filter; and a real run on `chimera/strcase.py` (exit 1,
+UNDER-VERIFIED).
+
+### The enforcement/adjudication boundary (important for "no contract")
+
+The mutation half is fully **auto-enforceable**: survivors → add tests, no
+judgment needed. The differential half is **advisory by default** because it can
+DETECT a behaviour change but cannot, on its own, ADJUDICATE which direction is
+correct when the suite is silent (base buggy, fix dropped a clause — neither
+output is "right" without intent). That adjudication is irreducibly a judgment
+call. This is the key finding for the no-contract goal: contract-free
+verification can get you trustworthy *detection* of faithfulness problems, but
+*adjudication* of silent behaviour still needs judgment — a strong internal
+critic (thrust ③) or a human reviewer. The gate surfaces the deltas precisely so
+that judgment has something concrete to act on.
+
 ## Next
 
-- Wire BOTH halves (`assess_faithfulness` + `behavioral_delta`) into
-  `real_task_soak.sh` / the ACT gate as a single acceptance criterion: a change
-  is not "done" until the touched file is mutation-clean AND has no
-  test-unjustified behaviour delta vs base.
+- A live proof run (fallback off) with the faithfulness step in the INBOX: does
+  the agent, told to run `chimera faithfulness`, produce a *faithful* fix (keep
+  the clause / add the test) instead of the silent regression?
+- Thrust ③ — an internal critic that can adjudicate flagged behaviour deltas
+  (the judgment the differential cannot make alone).
 - Corpus generation for non-string signatures (type-driven / property-based).
 
 ## References

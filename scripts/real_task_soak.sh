@@ -62,6 +62,14 @@ GATE_TEST_ARG=""
 # shellcheck disable=SC2086
 GATE_VERIFY_CMD="uv run chimera verify${GATE_RUFF} ${GATE_TEST_ARG}"
 
+# Faithfulness check (ADR 0159): mutation teeth + differential-vs-base over the
+# FIRST changed file. Toward no-contract verification — the agent must not pass
+# the suite by leaving behaviour unpinned or silently deleting untested branches.
+# Only meaningful with a TASK_TEST; targets one file (single-file maintenance).
+FAITH_TARGET="$(printf '%s\n' $TASK_FILES | head -1)"
+FAITH_CMD=""
+[ -n "$TASK_TEST" ] && FAITH_CMD="uv run chimera faithfulness --target ${FAITH_TARGET} --test ${TASK_TEST} --base ${TASK_BASE}"
+
 PHASE1_CAP_USD="${PHASE1_CAP_USD:-2.50}"
 PHASE2_CAP_USD="${PHASE2_CAP_USD:-1.00}"
 SAFETY_BUFFER_USD="${SAFETY_BUFFER_USD:-0.25}"
@@ -124,6 +132,14 @@ Iterate edit → \`chimera verify\` → read failures → fix, until it prints
 - [ ] **Make the change and prove \`chimera verify\` is green.** Edit ONLY the
   files in SCOPE below. Run \`${GATE_VERIFY_CMD}\` and keep fixing until it
   exits 0 (\`PASS\`).
+- [ ] **Prove the change is FAITHFUL, not just green.** Run
+  \`${FAITH_CMD:-uv run chimera faithfulness --target $FAITH_TARGET --test <test>}\`.
+  A passing suite is not enough: (a) kill every surviving mutant it reports by
+  adding a discriminating test (the behaviour is otherwise unpinned), and (b)
+  for every behaviour delta vs the base, confirm a failing test DEMANDED it —
+  any delta on an input no test covers is a silent regression: revert it or pin
+  the intended behaviour with a test. Do NOT make the suite pass by deleting
+  untested behaviour.
 - [ ] Do NOT commit in phase 1 (engines are off). The runner commits in phase 2.
 
 SCOPE (locked): edit ONLY these files for the fix — ${TASK_FILES}. Operational
@@ -139,6 +155,7 @@ if [ "${TASK_DRYRUN:-0}" = "1" ]; then
     echo "  base      = $TASK_BASE"
     echo "  run id    = $RUN_ID"
     echo "  gate cmd  = $GATE_VERIFY_CMD"
+    echo "  faith cmd = ${FAITH_CMD:-<none: TASK_TEST unset>}"
     echo "  autocommit= $CHIMERA_SOAK_AUTOCOMMIT"
     echo "  worktree  = $WORKTREE"
     echo "  scope note= mind/research/realtask-${RUN_ID}-design.md"

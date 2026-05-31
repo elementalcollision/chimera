@@ -174,6 +174,46 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Per-check timeout in seconds (default 600).",
     )
 
+    faith = sub.add_parser(
+        "faithfulness",
+        help="Is a change's behaviour actually pinned by the suite? Mutation "
+             "teeth (under-tested logic) + differential vs base (deleted "
+             "behaviour) — toward no-contract verification (ADR 0159).",
+        epilog="Exit 1 when the suite under-verifies the file (surviving "
+               "mutants); the differential vs --base is advisory unless "
+               "--strict. Blind spots are derived from the code, not a spec.",
+    )
+    faith.add_argument(
+        "--target", required=True, metavar="FILE",
+        help="The changed source file to assess (e.g. chimera/strcase.py).",
+    )
+    faith.add_argument(
+        "--test", required=True, metavar="TARGET",
+        help="pytest target that should pin the file (e.g. tests/test_x.py).",
+    )
+    faith.add_argument(
+        "--base", default=None, metavar="REF",
+        help="Git ref to diff behaviour against; enables the differential "
+             "(deleted-behaviour) check over single-string-arg functions.",
+    )
+    faith.add_argument(
+        "--threshold", type=float, default=1.0,
+        help="Fraction of mutants that must be killed to count as faithful "
+             "(default 1.0 — every probed behaviour pinned).",
+    )
+    faith.add_argument(
+        "--max-mutants", type=int, default=40,
+        help="Cap on mutation sites probed (default 40).",
+    )
+    faith.add_argument(
+        "--strict", action="store_true",
+        help="Also exit 1 on any test-unjustified behaviour delta vs --base.",
+    )
+    faith.add_argument(
+        "--timeout", type=float, default=120.0,
+        help="Per-mutant test timeout in seconds (default 120).",
+    )
+
     cost = sub.add_parser(
         "cost",
         help="Show windowed spend (cycle, 15m, 60m, total) with band classification.",
@@ -1390,6 +1430,86 @@ def _cmd_verify(args) -> int:
     return 0 if report.ok else 1
 
 
+def _single_string_arg_functions(source: str) -> list[str]:
+    """Top-level function names taking exactly one positional arg — the ones the
+    default string corpus can exercise. (Type-mismatched calls raise identically
+    under base and changed, so they self-cancel in the differential anyway.)"""
+    import ast
+
+    names: list[str] = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return names
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            a = node.args
+            if len(a.args) == 1 and not a.vararg and not a.kwonlyargs:
+                names.append(node.name)
+    return names
+
+
+def _cmd_faithfulness(args) -> int:
+    """`chimera faithfulness` — is a change's behaviour pinned by the suite?
+
+    Mutation teeth (under-tested logic) is exit-affecting; the differential vs
+    --base (deleted behaviour) is advisory unless --strict. Both signals are
+    derived from the code, not a human contract (ADR 0159).
+    """
+    import subprocess
+    from pathlib import Path
+
+    from .core.differential import behavioral_delta, default_string_corpus
+    from .core.faithfulness import assess_faithfulness
+
+    cwd = Path.cwd()
+    test_cmd = ["uv", "run", "--extra", "dev", "pytest", "-q", args.test]
+
+    report = assess_faithfulness(
+        cwd / args.target, test_cmd, cwd=cwd,
+        threshold=args.threshold, max_mutants=args.max_mutants,
+        timeout=args.timeout,
+    )
+    print(report.summary())
+    exit_code = 0 if report.faithful else 1
+
+    if args.base:
+        try:
+            base_src = subprocess.run(
+                ["git", "show", f"{args.base}:{args.target}"],
+                cwd=str(cwd), capture_output=True, text=True, timeout=30,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            base_src = None
+        changed_src = (cwd / args.target).read_text(encoding="utf-8")
+        if base_src is not None and base_src.returncode == 0:
+            any_delta = False
+            for fn in _single_string_arg_functions(changed_src):
+                delta = behavioral_delta(
+                    base_src.stdout, changed_src, fn, default_string_corpus(),
+                )
+                if delta.behaviour_changed:
+                    any_delta = True
+                    print(delta.summary(), file=sys.stderr)
+            if any_delta:
+                print(
+                    "\nNote: each behaviour delta must be a change a failing "
+                    "test demanded — otherwise it is a silent regression to "
+                    "revert or pin with a test.",
+                    file=sys.stderr,
+                )
+                if args.strict:
+                    exit_code = 1
+        else:
+            print(
+                f"faithfulness: could not read {args.target} at {args.base!r} "
+                "for the differential (skipped).",
+                file=sys.stderr,
+            )
+
+    return exit_code
+
+
 def _cmd_charter(args) -> int:
     """`chimera charter "<goal>"` — self-author a teeth-validated charter."""
     from .core import ChimeraLoop
@@ -2142,6 +2262,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_charter(args)
     if args.command == "verify":
         return _cmd_verify(args)
+    if args.command == "faithfulness":
+        return _cmd_faithfulness(args)
     if args.command == "ping":
         targets = ["anthropic", "openrouter"] if args.provider == "both" else [args.provider]
         print("chimera ping:")
