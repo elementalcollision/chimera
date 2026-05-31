@@ -214,6 +214,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Per-mutant test timeout in seconds (default 120).",
     )
 
+    review = sub.add_parser(
+        "review",
+        help="Adjudicate a change's faithfulness with a cross-model critic — "
+             "the judgment gates can't make (ADR 0160). Fail-closed.",
+        epilog="Exit 0 only on an explicit APPROVED verdict; 1 on rejection, "
+               "unreadable verdict, or no provider. Feeds the critic the diff, "
+               "the touched code's docstring, and the faithfulness report.",
+    )
+    review.add_argument("--target", required=True, metavar="FILE",
+                        help="The changed source file.")
+    review.add_argument("--base", required=True, metavar="REF",
+                        help="Git ref the diff/behaviour is measured against.")
+    review.add_argument("--test", default=None, metavar="TARGET",
+                        help="pytest target for the faithfulness context.")
+    review.add_argument("--goal", default=None,
+                        help="One-line description of what the change should do.")
+    review.add_argument("--tier", default="T3",
+                        help="Provider rung for the critic (default T3).")
+
     cost = sub.add_parser(
         "cost",
         help="Show windowed spend (cycle, 15m, 60m, total) with band classification.",
@@ -1510,6 +1529,114 @@ def _cmd_faithfulness(args) -> int:
     return exit_code
 
 
+def _function_docstrings(source: str) -> str:
+    """Concatenate the module + top-level function docstrings — the intent the
+    tests may not pin (the critic's source of truth)."""
+    import ast
+
+    out: list[str] = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+    mod = ast.get_docstring(tree)
+    if mod:
+        out.append(f"(module) {mod}")
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            ds = ast.get_docstring(node)
+            if ds:
+                out.append(f"{node.name}: {ds}")
+    return "\n\n".join(out)
+
+
+def _faithfulness_context(target: str, base: str, test: str | None) -> str:
+    """Assemble the machine-derived faithfulness report (mutation + differential)
+    as text for the critic."""
+    import subprocess
+    from pathlib import Path
+
+    from .core.differential import behavioral_delta, default_string_corpus
+    from .core.faithfulness import assess_faithfulness
+
+    cwd = Path.cwd()
+    lines: list[str] = []
+    if test:
+        rep = assess_faithfulness(
+            cwd / target, ["uv", "run", "--extra", "dev", "pytest", "-q", test],
+            cwd=cwd, threshold=1.0, max_mutants=40,
+        )
+        lines.append(rep.summary())
+    try:
+        base_src = subprocess.run(
+            ["git", "show", f"{base}:{target}"], cwd=str(cwd),
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        base_src = None
+    changed_src = (cwd / target).read_text(encoding="utf-8")
+    if base_src is not None and base_src.returncode == 0:
+        for fn in _single_string_arg_functions(changed_src):
+            delta = behavioral_delta(
+                base_src.stdout, changed_src, fn, default_string_corpus(),
+            )
+            if delta.behaviour_changed:
+                lines.append(delta.summary())
+    return "\n".join(lines) or "(no faithfulness signals)"
+
+
+def _cmd_review(args) -> int:
+    """`chimera review` — cross-model critic adjudicates a change's faithfulness.
+
+    Exit 0 only on an explicit APPROVED verdict (fail-closed). Feeds the critic
+    the diff, the touched code's docstrings (intent), and the faithfulness
+    report (ADR 0160).
+    """
+    import asyncio
+    import subprocess
+    from pathlib import Path
+
+    from .core import ChimeraLoop
+    from .core.critic import review_change
+    from .providers.tiers import Provider as ProviderKind
+    from .providers.tiers import select_rung
+
+    cwd = Path.cwd()
+    diff = subprocess.run(
+        ["git", "diff", args.base, "--", args.target], cwd=str(cwd),
+        capture_output=True, text=True, timeout=30,
+    ).stdout
+    if not diff.strip():
+        print("chimera review: empty diff — nothing to adjudicate.", file=sys.stderr)
+        return 1
+    docstring = _function_docstrings((cwd / args.target).read_text(encoding="utf-8"))
+    faithfulness = _faithfulness_context(args.target, args.base, args.test)
+
+    loop = ChimeraLoop()
+    providers = loop._act.providers if loop._act is not None else {}
+    if not providers:
+        print("chimera review: no provider available (fail-closed → REJECTED).",
+              file=sys.stderr)
+        return 1
+    rung = select_rung(args.tier)
+    provider = providers.get(rung.config.provider)
+    if provider is None:
+        print(f"chimera review: no provider for tier {args.tier!r}.", file=sys.stderr)
+        return 1
+    model_id = (
+        rung.config.model_id if rung.config.provider is ProviderKind.ANTHROPIC
+        else rung.config.openrouter_model_id
+    )
+    verdict = asyncio.run(review_change(
+        diff, provider=provider, model_id=model_id, goal=args.goal,
+        docstring=docstring, faithfulness=faithfulness,
+    ))
+    print(verdict.summary())
+    if verdict.rationale and verdict.approved:
+        print(verdict.rationale)
+    return 0 if verdict.approved else 1
+
+
 def _cmd_charter(args) -> int:
     """`chimera charter "<goal>"` — self-author a teeth-validated charter."""
     from .core import ChimeraLoop
@@ -2264,6 +2391,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_verify(args)
     if args.command == "faithfulness":
         return _cmd_faithfulness(args)
+    if args.command == "review":
+        return _cmd_review(args)
     if args.command == "ping":
         targets = ["anthropic", "openrouter"] if args.provider == "both" else [args.provider]
         print("chimera ping:")
