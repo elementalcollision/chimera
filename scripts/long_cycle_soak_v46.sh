@@ -51,6 +51,13 @@ if [ -f .env ]; then
 fi
 
 # ── configuration ──────────────────────────────────────────────
+# Capture the operator's CHIMERA_SUPPRESS_PROPOSALS intent ONCE, before the
+# phase loop. Phase 1 unsets the live var (engines off), so phase 2 cannot read
+# the operator's value directly — it must read this captured copy. Empty =
+# "operator did not set it" → phase 2 defaults to suppressed (1). This is what
+# makes the R5 forced-stall A/B control arm (=0) actually take effect.
+OPERATOR_SUPPRESS_PROPOSALS="${CHIMERA_SUPPRESS_PROPOSALS:-}"
+
 STAMP="$(date -u +%Y-%m-%d-%H%M)"
 BRANCH="chimera-soak/v46-soakreport-$STAMP"
 WORKTREE="${WORKTREE:-$REPO_ROOT/../chimera-soak-v46-soakreport-$STAMP}"
@@ -303,10 +310,11 @@ phase_loop() {
     # the commit imperative (the re-soak #2 stall). Phase 1 (engines off) and
     # the every-cycle planner are unaffected.
     if [ "$engines_enabled" = "1" ]; then
-        # Default ON for the commit-only phase, but honor an operator override
-        # so the R5 forced-stall A/B can run phase 2 with proposals ENABLED
+        # Default ON for the commit-only phase, but honor the operator override
+        # captured at startup (survives phase 1's unset below) so the R5
+        # forced-stall A/B can run phase 2 with proposals ENABLED
         # (CHIMERA_SUPPRESS_PROPOSALS=0) as the control arm.
-        export CHIMERA_SUPPRESS_PROPOSALS="${CHIMERA_SUPPRESS_PROPOSALS:-1}"
+        export CHIMERA_SUPPRESS_PROPOSALS="${OPERATOR_SUPPRESS_PROPOSALS:-1}"
     else
         unset CHIMERA_SUPPRESS_PROPOSALS
     fi
