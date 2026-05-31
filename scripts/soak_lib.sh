@@ -123,6 +123,79 @@ soak_phase2_deliverable_landed() {
 }
 
 # ─────────────────────────────────────────────────────────────────────
+# soak_phase1_verify_green  (B1 Chip 3 — real-task loop)
+# ─────────────────────────────────────────────────────────────────────
+#
+# Phase-1 done-condition for the REAL-TASK soak, where the gate is the
+# repo's OWN checks (`chimera verify`), not a pre-written charter test —
+# and the deliverable is a MODIFICATION to existing files, so there is no
+# `.md` ready-marker to key on (the marker-based phase-1 sentinel doesn't
+# apply). The exit is purely empirical: the agent made a real, in-scope
+# change AND the repo's real verification now passes.
+#
+# Returns 0 when ALL of:
+#   1. The working tree differs from $base_ref (a real change happened) —
+#      phase 1 runs engines-OFF / no-commit, so the change is uncommitted;
+#      the diff is working-tree-vs-base.
+#   2. Every changed path is in $allowed_files (mind/* auto-allowed, as in
+#      the phase-2 sentinel) — the change stayed in scope.
+#   3. $gate_cmd exits 0 from the worktree — the real pipeline is green.
+#      (Pass `uv run chimera verify --ruff <files> --test <target>`.)
+#
+# Arguments:
+#   $1 = worktree path (absolute)
+#   $2 = space-separated whitelist of files the change may touch
+#   $3 = gate command (run via bash -c from the worktree; e.g. chimera verify)
+#   $4 = base ref the diff is measured against (default: main)
+#
+# Returns: 0 landed · 1 not yet · 2 bad args
+#
+soak_phase1_verify_green() {
+    local worktree="$1"
+    local allowed_files="$2"
+    local gate_cmd="$3"
+    local base_ref="${4:-main}"
+
+    if [ -z "$worktree" ] || [ -z "$allowed_files" ] || [ -z "$gate_cmd" ]; then
+        echo "  phase1-verify: bad args (need worktree, allowed_files, gate_cmd)" >&2
+        return 2
+    fi
+    if [ ! -d "$worktree/.git" ] && [ ! -f "$worktree/.git" ]; then
+        echo "  phase1-verify: $worktree is not a git worktree" >&2
+        return 2
+    fi
+
+    # 1. A real change exists (working tree vs base) — tracked-file edits.
+    local touched
+    touched="$(cd "$worktree" && git diff --name-only "$base_ref" 2>/dev/null)"
+    if [ -z "$touched" ]; then
+        return 1
+    fi
+
+    # 2. Every changed file is in scope (mind/* auto-allowed; see ADR 0121).
+    local f
+    for f in $touched; do
+        case "$f" in
+            mind/*) continue ;;
+        esac
+        local ok=0 allowed
+        for allowed in $allowed_files; do
+            if [ "$f" = "$allowed" ]; then ok=1; break; fi
+        done
+        if [ "$ok" -eq 0 ]; then
+            return 1
+        fi
+    done
+
+    # 3. The repo's real verification passes.
+    if ! ( cd "$worktree" && bash -c "$gate_cmd" ) >/dev/null 2>&1; then
+        return 1
+    fi
+
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────
 # soak_run_chimera_with_watchdog
 # ─────────────────────────────────────────────────────────────────────
 #
@@ -194,5 +267,5 @@ soak_run_chimera_with_watchdog() {
 # Print the lib version. Runners log this so post-mortems can correlate
 # soak behavior with the lib revision when the lib changes shape.
 soak_lib_version() {
-    echo "soak_lib.sh v4 — mind/* journal auto-allow (structural fix for journal-pollution blocker, observed v19-v25)"
+    echo "soak_lib.sh v5 — phase1 verify-green sentinel for real-task soak (B1 Chip 3); mind/* journal auto-allow (v19-v25)"
 }

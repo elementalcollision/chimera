@@ -85,13 +85,47 @@ pytest only, so main stays green). This is exactly why callers must narrow
 `--ruff` to the changed files — the gate reports the repo's true state, debt
 included.
 
+## Amendment (Chip 3, 2026-05-31) — the real-task loop
+
+The gate and the verb are now wired into a **loop**: `scripts/real_task_soak.sh`
+drives Chimera to make + fix a genuine maintenance change against `chimera
+verify`, NOT a pre-written charter test. It is `charter_build_soak.sh`'s sibling
+— same two-phase scaffold (phase 1 fix / engines-off / no-commit; phase 2
+commit-only / engines-on), same falsification gates, same manual-handoff (NO
+auto-push/PR/merge) — with two real-task-specific changes:
+
+- **The gate is the repo's own checks.** Parameterized by `TASK_GOAL`,
+  `TASK_FILES` (the in-scope allowlist + ruff scope), and optional `TASK_TEST`,
+  it builds `uv run chimera verify --ruff <each file> [--test <target>]` and
+  uses *that* as the convergence criterion. The agent iterates against the real
+  pipeline's actual failure text.
+- **Phase 1 has no `.md` marker.** The deliverable is a modification to existing
+  files, so the marker-based phase-1 sentinel doesn't apply. New
+  `soak_phase1_verify_green` (soak_lib.sh v5) exits phase 1 purely empirically:
+  a real, **in-scope** working-tree diff (mind/* auto-allowed, ADR 0121) AND a
+  green gate.
+
+Tests: `tests/test_real_task_soak.py` (4, dryrun) pins the verify-gate
+construction, full-suite fallback, autocommit default/override, required-param
+guard; `tests/test_soak_phase1_verify.py` (6) pins the sentinel's AND over a tmp
+git repo — in-scope+green → landed; no-change → not; red gate → not; out-of-
+scope → not; mind/* auto-allowed; bad args → 2.
+
+### What this chip is and isn't
+
+This is the **harness** — the deterministic, tested machinery that *would* drive
+a real-task fix to a reviewable commit. It is **not** a live demonstration: no
+real soak has been launched (that is a separate, explicit operator action, and a
+real task + budget must be chosen). The honest claim is "the loop is built and
+its convergence logic is unit-proven," not "Chimera has autonomously fixed a
+real bug." That live run is the operator's call.
+
 ## Next
 
-- **B1 loop (Chip 3):** a real-task soak — give Chimera a genuine low-risk
-  maintenance task (a real failing test, a dep bump), let it iterate against
-  `chimera verify` (real ruff + pytest, narrowed to its change) rather than a
-  pre-written charter test, human-review the PR. The first
-  literally-production-valuable output.
+- **Operator-run B1 demonstration:** pick a genuine low-risk task (a real
+  failing test, a dep bump), set `TASK_GOAL`/`TASK_FILES`/`TASK_TEST`, launch
+  `real_task_soak.sh`, and human-review the resulting PR — the first
+  literally-production-valuable autonomous output.
 - Type-check as a third default check if/when adopted; per-change test selection.
 
 ## References
