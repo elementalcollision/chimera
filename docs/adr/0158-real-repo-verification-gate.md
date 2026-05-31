@@ -120,8 +120,43 @@ real task + budget must be chosen). The honest claim is "the loop is built and
 its convergence logic is unit-proven," not "Chimera has autonomously fixed a
 real bug." That live run is the operator's call.
 
+## Amendment (W2 fix, 2026-05-31) — real-task soak writes its own scope note
+
+The first **live** real-task soak (injected fault: `islower`→`isupper` in
+`chimera/strcase.py`) produced a correct, minimal, scope-clean fix and a
+gate-green commit — but via the *fallback* path, and surfaced a real runner gap:
+
+**W2 — the agent's own commit was refused, not the agent's fault.** The ADR-0146
+pre-commit scope check binds to the newest `*-design.md` by mtime. The
+real-task soak wrote **no** scope note, so the check bound to a *stale*
+`v46-soakreport-design.md` left in the worktree (allowlist
+`chimera/soak_report.py`) and refused the staged `chimera/strcase.py` as
+out-of-scope. The agent (3 rounds, 32s) hit `commit_not_executed`; only the
+ADR-0148 harness-autocommit fallback got the work in, masking the block.
+
+**Fix.** `real_task_soak.sh` now writes
+`mind/research/realtask-<runid>-design.md` with a `## READY-FOR-REMEDIATION`
+allowlist == `TASK_FILES`, at setup (newest by mtime → the note the check binds
+to). Verified: this flips `check_commit_scope` from *refuse* to *allow* for an
+in-scope change. `tests/test_real_task_scope_note.py` (4) runs the runner's
+GENERATED note through the REAL `check_commit_scope` — the gate that fired:
+in-scope → allow; out-of-scope → refuse; **fresh note wins over a stale
+prior-soak note** (the exact W2 condition); multi-file allowlist. This is the
+regression that would have caught W2.
+
+Still open from that run (separate follow-ups, NOT addressed here):
+- **W1** — phase-1 engines-off has no completion check, so the agent marked the
+  fix "done" with sub-10ms no-op tool calls (never ran the gate). The
+  verify-green sentinel correctly prevented false convergence (phase 1 ran to
+  `no_forward_progress`), but the over-claim + wasted iterations remain.
+- **W3** — the runner logged `cycle=`/`spend=` blank (DB telemetry not
+  resolving); the forward-progress watchdog tripped on the stall signal.
+
 ## Next
 
+- **Re-run the B1 demonstration** with the W2 fix and confirm GENUINE agent
+  self-commit (an `[agent]` commit from the agent's own `git_commit`, not the
+  harness fallback). Then W1/W3.
 - **Operator-run B1 demonstration:** pick a genuine low-risk task (a real
   failing test, a dep bump), set `TASK_GOAL`/`TASK_FILES`/`TASK_TEST`, launch
   `real_task_soak.sh`, and human-review the resulting PR — the first
