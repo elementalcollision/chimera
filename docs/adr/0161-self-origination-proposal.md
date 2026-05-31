@@ -89,11 +89,30 @@ found (a proposal surface, not a gate). Live on this repo it lists
 with N soak lines + the proposal-only banner; `--limit` caps; `--base` flows into
 the command; and a real-repo integration run.
 
+## Amendment (chip 3 — precision logging, 2026-05-31)
+
+`chimera/core/self_scan_log.py` is the labelled-data layer: an append-only JSONL
+of `proposal` and `decision` events keyed by a deterministic content-hash
+`proposal_id` (re-emitting a candidate is idempotent). `precision_report` folds
+it — latest decision per proposal wins — into `proposed / accepted / rejected /
+undecided` and **origination precision** = accepted / (accepted + rejected). The
+`self-scan` verb gains `--log` (persist + print ids), `--accept ID` / `--reject
+ID` (record the operator's call), and `--precision` (print the report). Charter:
+never raise on a malformed line; timestamps injected for determinism.
+
+This is the metric that, together with critic calibration, eventually earns an
+opt-in auto-run — until both are healthy the loop stays proposal-only and the
+human supplies the labels. `tests/test_self_scan_log.py` (8) pin the log math
+(deterministic id, round-trip, mixed-decision precision, latest-decision-wins,
+idempotency, malformed-line skip); `tests/test_cli_self_scan_log.py` (4) pin the
+verb wiring (log writes + ids, accept/reject → precision, empty report, no write
+without --log).
+
 ## Next
 
-- **Chip 3** — precision logging (candidate + operator accept/reject) → the
-  labelled dataset that, with critic calibration, later earns an opt-in auto-run.
 - Behaviour-changing sources behind the risk flag; DiscoveryEngine cadence.
+- ONLY after a healthy origination precision AND critic calibration: an opt-in
+  auto-run that picks the top candidate and launches the soak.
 
 ## References
 
