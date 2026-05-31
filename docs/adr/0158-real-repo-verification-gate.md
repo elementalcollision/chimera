@@ -67,12 +67,31 @@ program is a failed check (not a raise); `default_checks` is ruff-then-pytest an
 narrows to targets; report `ok`/`failed` math; and an **integration** test
 running the real `uv run ruff check` on a known-clean file.
 
+## Amendment (Chip 2, 2026-05-31) — `chimera verify` verb
+
+The gate is now a first-class command: `chimera verify [--test T] [--ruff P …]
+[--timeout S]` runs `verify_change` over the current tree, prints the
+`summary()`, writes each failed check's actionable detail to stderr, and exits 0
+(all pass) / 1 (any fail). This is the single affordance both the **agent** (run
+the real pipeline mid-build and read the failure) and a **B-tier soak** (use as
+its convergence criterion) invoke — the bridge from the gate (Chip 1) to the
+loop (Chip 3). `tests/test_cli_verify.py` (5): exit-0 on pass, exit-1 + detail
+on fail, `--test`/`--ruff`/`--timeout` forwarding, runs against cwd, and an
+**integration** test driving the real `uv run ruff check` through the verb.
+
+Honest wrinkle: an *un-narrowed* `chimera verify` currently reports FAIL because
+`chimera/cli.py` carries pre-existing lint debt (14 ruff findings; CI runs
+pytest only, so main stays green). This is exactly why callers must narrow
+`--ruff` to the changed files — the gate reports the repo's true state, debt
+included.
+
 ## Next
 
-- **B1 loop:** a real-task soak — give Chimera a genuine low-risk maintenance
-  task (a real failing test, a dep bump), let it iterate against `verify_change`
-  (real ruff + pytest) rather than a pre-written charter test, human-review the
-  PR. The first literally-production-valuable output.
+- **B1 loop (Chip 3):** a real-task soak — give Chimera a genuine low-risk
+  maintenance task (a real failing test, a dep bump), let it iterate against
+  `chimera verify` (real ruff + pytest, narrowed to its change) rather than a
+  pre-written charter test, human-review the PR. The first
+  literally-production-valuable output.
 - Type-check as a third default check if/when adopted; per-change test selection.
 
 ## References

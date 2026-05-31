@@ -153,6 +153,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Preview the charter without writing any files.",
     )
 
+    verify = sub.add_parser(
+        "verify",
+        help="Run the repo's real checks (ruff + pytest) over a change and "
+             "report structured pass/fail (B1 / ADR 0158).",
+        epilog="Exit 0 when every check passes, 1 otherwise. Narrow to the "
+               "changed files / affected tests with --ruff / --test to keep it "
+               "fast.",
+    )
+    verify.add_argument(
+        "--test", default=None,
+        help="Narrow pytest to this target (e.g. tests/test_x.py).",
+    )
+    verify.add_argument(
+        "--ruff", action="append", default=None, metavar="PATH",
+        help="Narrow ruff to these path(s); repeatable. Default: whole repo.",
+    )
+    verify.add_argument(
+        "--timeout", type=float, default=600.0,
+        help="Per-check timeout in seconds (default 600).",
+    )
+
     cost = sub.add_parser(
         "cost",
         help="Show windowed spend (cycle, 15m, 60m, total) with band classification.",
@@ -1343,6 +1364,32 @@ def _build_openrouter_answer_fn(
     return answer_fn
 
 
+def _cmd_verify(args) -> int:
+    """`chimera verify` — run the repo's real checks (ruff + pytest) over the
+    current tree and print a structured pass/fail (B1 / ADR 0158).
+
+    Exit 0 when every check passes, 1 when any fails. The same gate a B-tier
+    soak uses as its convergence criterion, exposed so the agent (or operator)
+    can run the real pipeline as one command and read the actionable failure
+    detail.
+    """
+    from pathlib import Path
+
+    from .core.repo_verify import verify_change
+
+    report = verify_change(
+        Path.cwd(),
+        test_target=args.test,
+        ruff_paths=args.ruff,
+        timeout=args.timeout,
+    )
+    print(report.summary())
+    for check in report.failed:
+        print(f"\n── {check.name} (exit {check.returncode}) ──", file=sys.stderr)
+        print(check.detail, file=sys.stderr)
+    return 0 if report.ok else 1
+
+
 def _cmd_charter(args) -> int:
     """`chimera charter "<goal>"` — self-author a teeth-validated charter."""
     from .core import ChimeraLoop
@@ -2093,6 +2140,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "charter":
         return _cmd_charter(args)
+    if args.command == "verify":
+        return _cmd_verify(args)
     if args.command == "ping":
         targets = ["anthropic", "openrouter"] if args.provider == "both" else [args.provider]
         print("chimera ping:")
