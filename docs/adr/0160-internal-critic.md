@@ -70,6 +70,27 @@ intent + faithfulness + the faithful/silent-regression framing; and the
 provider-driven path with a mock (approve, reject, provider-error fail-closed,
 garbage fail-closed).
 
+## Amendment (verb + live validation, 2026-05-31)
+
+`chimera review --target FILE --base REF [--test T] [--goal G]` exposes the
+critic: it assembles the diff (`git diff base -- target`), the touched code's
+docstrings (`_function_docstrings`), and the faithfulness report (mutation +
+differential), runs `review_change`, and exits 0 ONLY on an explicit APPROVED
+verdict (fail-closed). `real_task_soak.sh`'s phase-2 INBOX now requires it before
+the commit step (advisory in-loop; the verdict ships with the branch for the
+human reviewer). `tests/test_cli_review.py` (3): docstring extraction; empty-diff
+guard.
+
+**Live validation — the critic caught the canonical regression.** Given the
+gate-PASSING silent regression (the `isdigit`-dropped `to_snake` that the green
+gate accepted in the first live soak), `claude-sonnet-4-6` **REJECTED** with the
+exact concern: *"The new condition `s[i-1].islower()` drops the digit case
+entirely, so 'foo2Bar' → 'foo2_bar' becomes 'foo2bar' — a silent regression vs
+the stated spec."* It read the docstring + differential deltas + diff and
+adjudicated correctly. The gate said PASS; the critic said REJECT; the critic was
+right. (One favourable case — calibration over many changes is the open work, per
+`mind/research/no-contract-autonomy-state-2026-05-31.md`.)
+
 ## Next
 
 - Wire `review_change` into the real-task loop as a post-fix acceptance step:

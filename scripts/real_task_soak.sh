@@ -69,6 +69,11 @@ GATE_VERIFY_CMD="uv run chimera verify${GATE_RUFF} ${GATE_TEST_ARG}"
 FAITH_TARGET="$(printf '%s\n' $TASK_FILES | head -1)"
 FAITH_CMD=""
 [ -n "$TASK_TEST" ] && FAITH_CMD="uv run chimera faithfulness --target ${FAITH_TARGET} --test ${TASK_TEST} --base ${TASK_BASE}"
+# Cross-model critic (ADR 0160): adjudicates faithfulness before the commit —
+# the judgment the gates can't make. Advisory in-loop (fail-closed), surfaced
+# so the agent addresses concerns; the operator sees the verdict at review.
+REVIEW_CMD="uv run chimera review --target ${FAITH_TARGET} --base ${TASK_BASE} --goal \"${TASK_GOAL}\""
+[ -n "$TASK_TEST" ] && REVIEW_CMD="${REVIEW_CMD} --test ${TASK_TEST}"
 
 PHASE1_CAP_USD="${PHASE1_CAP_USD:-2.50}"
 PHASE2_CAP_USD="${PHASE2_CAP_USD:-1.00}"
@@ -156,6 +161,7 @@ if [ "${TASK_DRYRUN:-0}" = "1" ]; then
     echo "  run id    = $RUN_ID"
     echo "  gate cmd  = $GATE_VERIFY_CMD"
     echo "  faith cmd = ${FAITH_CMD:-<none: TASK_TEST unset>}"
+    echo "  review cmd= $REVIEW_CMD"
     echo "  autocommit= $CHIMERA_SOAK_AUTOCOMMIT"
     echo "  worktree  = $WORKTREE"
     echo "  scope note= mind/research/realtask-${RUN_ID}-design.md"
@@ -265,6 +271,11 @@ Phase 1 made the change and \`chimera verify\` passes. Commit it.
 
 ## Phase 2 tasks
 - [ ] Re-run the gate \`${GATE_VERIFY_CMD}\`; confirm it prints \`PASS\`.
+- [ ] **Adjudicate faithfulness with the cross-model critic.** Run
+  \`${REVIEW_CMD}\`. If it REJECTS, read the concerns and fix them (a concern is
+  usually a silent regression — restore the behaviour or pin it with a test),
+  then re-run until it APPROVES. The critic's verdict ships with the branch for
+  the human reviewer regardless.
 - [ ] Commit the change in ONE step with the **\`git_commit\` tool**: call
   \`git_commit\` with message="${TASK_GOAL}" and paths=[${TASK_FILES}]. That
   single tool call stages AND commits AND returns the new HEAD — it IS the whole
