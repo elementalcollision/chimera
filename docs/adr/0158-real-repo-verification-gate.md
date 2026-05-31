@@ -178,7 +178,25 @@ soak/env/task scoping no-ops; fires on red; passes on green; env-var supplies
 the command; unrunnable command counts as red. No regression in the 362-test
 ACT-gate slice.
 
-W3 (telemetry) still open.
+## Amendment (W3 fix, 2026-05-31) — shared telemetry/budget helpers
+
+W3 was worse than cosmetic. The runner's `cycle=`/`spend=` logged blank because
+`total_spend_in_db`, `last_cycle_in_db`, and `fp_ge` were defined ONLY inside
+`charter_build_soak.sh` (and the legacy `long_cycle_soak_v*.sh`).
+`real_task_soak.sh` sourced `_soak_common.sh` + `soak_lib.sh`, CALLED all three
+in `phase_loop`, but never received a definition — so they were "command not
+found": blank telemetry, AND the phase dollar-cap (`fp_ge`) silently never fired
+(only iteration/wall/stall limits bounded the run). The DB itself was fine (the
+queries return cycle 165 / $0.0055 against the real run's `chimera.db`).
+
+**Fix.** Hoisted the three helpers into the shared `_soak_common.sh` so every
+runner that sources it gets one definition; runners with their own copies just
+override with an identical body. `tests/test_soak_telemetry_helpers.py` (6):
+the helpers are defined after sourcing; `last_cycle_in_db` → MAX(cycle);
+`total_spend_in_db` sums since the ISO window; `fp_ge` float comparison;
+missing-DB safe defaults (0 / 0.0); and the real-task runner resolves all three.
+
+All of W1/W2/W3 from the first live run are now closed.
 
 ## Next
 
