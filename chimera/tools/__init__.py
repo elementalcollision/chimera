@@ -21,6 +21,7 @@ from .mcp_client import (
     register_mcp_servers,
     register_mcp_servers_from_env,
 )
+from .git_commit import register_git_commit_tool
 from .mind_search import register_mind_search
 from .shell import SAFE_COMMANDS, register_shell_tool
 from .subagent import SubAgentConfig, SubAgentRunner, register_sub_agent_tool
@@ -49,6 +50,7 @@ __all__ = [
     "parse_mcp_config",
     "register_code_exec_tool",
     "register_core_tools",
+    "register_git_commit_tool",
     "register_mcp_servers",
     "register_mcp_servers_from_env",
     "register_mind_search",
@@ -81,5 +83,8 @@ def register_core_tools(registry=None) -> None:
     register_shell_tool(registry)
     register_web_tools(registry)
     register_code_exec_tool(registry)
+    # R4 (ADR 0150): atomic stage+commit affordance — collapses the commit
+    # ritual the agent reliably under-executes into one gated tool call.
+    register_git_commit_tool(registry)
     # v4.61: mind_search exposes the FTS5 wiki index to the agent.
     register_mind_search(registry)
