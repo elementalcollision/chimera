@@ -39,6 +39,21 @@ def _init_repo(root) -> None:
     _git(root, "commit", "-qm", "seed")
 
 
+def _scope_roots_to(monkeypatch, root) -> None:
+    """Make ``root`` the shell-tool's allowed cwd root, deterministically.
+
+    shell_handler resolves its allowed cwd roots from CHIMERA_MIND_DIR /
+    CHIMERA_STATE_DIR (or cwd/mind, cwd/state). Pointing both under ``root``
+    makes ``root`` their shared parent → the default cwd. We set them
+    explicitly (not via chdir) so a leaked env var from another test cannot
+    change the roots — the CI-only failure this guards against. The
+    git_commit calls then OMIT cwd and default to ``root`` (the worktree),
+    matching production use.
+    """
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(root / "mind"))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(root / "state"))
+
+
 def _head_subject(root) -> str:
     return subprocess.run(
         ["git", "log", "-1", "--format=%s"], cwd=str(root),
@@ -66,12 +81,12 @@ def test_normalize_preserves_existing_prefix():
 
 def test_stages_paths_and_commits(tmp_path, monkeypatch):
     monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
-    monkeypatch.chdir(tmp_path)
+    _scope_roots_to(monkeypatch, tmp_path)
     _init_repo(tmp_path)
     (tmp_path / "deliverable.py").write_text("x = 1\n")
     ctx = DispatchContext()
     out = _run(git_commit_handler(
-        {"message": "create deliverable", "paths": ["deliverable.py"], "cwd": str(tmp_path)},
+        {"message": "create deliverable", "paths": ["deliverable.py"]},
         ctx,
     ))
     assert out.startswith("committed:")
@@ -87,12 +102,12 @@ def test_stages_paths_and_commits(tmp_path, monkeypatch):
 
 def test_commits_already_staged_index_without_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
-    monkeypatch.chdir(tmp_path)
+    _scope_roots_to(monkeypatch, tmp_path)
     _init_repo(tmp_path)
     (tmp_path / "d.py").write_text("x = 1\n")
     _git(tmp_path, "add", "d.py")  # agent staged in a prior step
     out = _run(git_commit_handler(
-        {"message": "[agent] land it", "cwd": str(tmp_path)}, DispatchContext(),
+        {"message": "[agent] land it"}, DispatchContext(),
     ))
     assert out.startswith("committed:")
     assert _head_subject(tmp_path) == "[agent] land it"
@@ -102,11 +117,11 @@ def test_engines_off_refusal_surfaces_as_text_not_crash(tmp_path, monkeypatch):
     # Phase-1 engines-off block: the shell gate raises PermissionError; the tool
     # must surface the reason, not propagate the exception.
     monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "0")
-    monkeypatch.chdir(tmp_path)
+    _scope_roots_to(monkeypatch, tmp_path)
     _init_repo(tmp_path)
     (tmp_path / "d.py").write_text("x = 1\n")
     out = _run(git_commit_handler(
-        {"message": "should be blocked", "paths": ["d.py"], "cwd": str(tmp_path)},
+        {"message": "should be blocked", "paths": ["d.py"]},
         DispatchContext(),
     ))
     assert "refused by a commit gate" in out
