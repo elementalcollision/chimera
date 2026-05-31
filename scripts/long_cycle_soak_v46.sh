@@ -296,6 +296,17 @@ phase_loop() {
     cap_minus_buffer="$(awk -v c="$cap_usd" -v b="$SAFETY_BUFFER_USD" 'BEGIN { print c - b }')"
 
     export CHIMERA_ENGINES_ENABLED="$engines_enabled"
+    # R5 (ADR 0151 / mechanism C): in the commit-only phase (engines ON so
+    # commits are allowed), suppress proposal generation so the planner +
+    # discovery/curiosity/reflection engines can't spawn governance busywork
+    # ("build a pre-commit hook", "document the convention") that out-competes
+    # the commit imperative (the re-soak #2 stall). Phase 1 (engines off) and
+    # the every-cycle planner are unaffected.
+    if [ "$engines_enabled" = "1" ]; then
+        export CHIMERA_SUPPRESS_PROPOSALS=1
+    else
+        unset CHIMERA_SUPPRESS_PROPOSALS
+    fi
 
     local iter=0
     local exit_reason=""

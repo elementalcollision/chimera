@@ -198,6 +198,36 @@ async def test_engines_kill_switch_gates_plan_phase(
 
 
 @pytest.mark.asyncio
+async def test_suppress_proposals_gates_plan_phase(
+    config: LoopConfig, monkeypatch,
+):
+    """R5 (ADR 0151 / mechanism C): CHIMERA_SUPPRESS_PROPOSALS=1 must skip the
+    planner AND the daily engines — WITHOUT disabling CHIMERA_ENGINES_ENABLED
+    (which would block commits). Only the operator INBOX runs in a commit-only
+    phase, so no governance busywork can out-compete the commit imperative."""
+    monkeypatch.delenv("CHIMERA_ENGINES_ENABLED", raising=False)  # engines ON
+    monkeypatch.setenv("CHIMERA_SUPPRESS_PROPOSALS", "1")
+    config.opus_plan_every_n_cycles = 1  # planner would otherwise fire
+    report = await ChimeraLoop(config).run_one_cycle()
+    log_text = "\n".join(report.phase_log)
+    assert "PLAN: skipped (proposals suppressed — commit-only phase)" in log_text
+    assert report.phase_times_ms.get("plan", 0) < 100  # no model calls
+    assert report.proposals_added == 0
+
+
+def test_proposals_suppressed_env(monkeypatch):
+    from chimera.core.loop import _proposals_suppressed
+    monkeypatch.delenv("CHIMERA_SUPPRESS_PROPOSALS", raising=False)
+    assert _proposals_suppressed() is False
+    monkeypatch.setenv("CHIMERA_SUPPRESS_PROPOSALS", "0")
+    assert _proposals_suppressed() is False
+    monkeypatch.setenv("CHIMERA_SUPPRESS_PROPOSALS", "1")
+    assert _proposals_suppressed() is True
+    monkeypatch.setenv("CHIMERA_SUPPRESS_PROPOSALS", "true")
+    assert _proposals_suppressed() is True
+
+
+@pytest.mark.asyncio
 async def test_cycle_counter_survives_restart(config: LoopConfig):
     """ADR 0003 requires the cycle counter is restored from HEARTBEAT.md frontmatter."""
     loop = ChimeraLoop(config)
