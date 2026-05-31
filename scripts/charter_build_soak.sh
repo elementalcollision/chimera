@@ -209,12 +209,18 @@ P2_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
 cat > "$WORKTREE/mind/INBOX.md" <<INBOX_EOF
 # Inbox — charter build ${CHARTER_MODULE} phase 2 (commit-only, engines on)
 
-Phase 1 built \`${CHARTER_TARGET}\` and the test passes. Commit it with the
-\`git_commit\` tool: call \`git_commit\` with message="build ${CHARTER_TARGET}"
-and paths=["${CHARTER_TARGET}", "${DELIVERABLE_REL}"]. One tool call stages AND
-commits AND returns HEAD. Re-run \`${GATE_TEST_CMD}\` first; confirm green. The
-commit message begins with \`[agent]\` (the tool adds it). Manual-handoff: the
-runner stops with the branch in the worktree — NO auto-push/PR/merge.
+Phase 1 built \`${CHARTER_TARGET}\` and the test passes. Commit it.
+
+## Phase 2 tasks
+- [ ] Re-run the gated test \`${GATE_TEST_CMD}\`; confirm it passes.
+- [ ] Commit the deliverable in ONE step with the **\`git_commit\` tool**: call
+  \`git_commit\` with message="build ${CHARTER_TARGET}" and
+  paths=["${CHARTER_TARGET}", "${DELIVERABLE_REL}"]. That single tool call stages
+  AND commits AND returns the new HEAD — it IS the whole commit step. The
+  \`[agent]\` prefix is added for you. Do NOT stop after staging.
+
+Manual-handoff: after the commit the runner stops with the branch in the
+worktree — NO auto-push/PR/merge.
 INBOX_EOF
 log "phase-2 INBOX seeded"
 phase_loop "phase2" "$PHASE2_CAP_USD" "$P2_ISO" "1"
