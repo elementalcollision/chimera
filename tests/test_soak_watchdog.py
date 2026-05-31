@@ -112,9 +112,9 @@ def test_watchdog_nonzero_exit_returns_zero(tmp_path: Path) -> None:
     assert "non-zero exit (7)" in log_file.read_text()
 
 
-def test_soak_lib_version_is_v4() -> None:
+def test_soak_lib_version_is_v5() -> None:
     result = _run(f"source {SOAK_LIB}; soak_lib_version")
-    assert "v4" in result.stdout, result.stdout
+    assert "v5" in result.stdout, result.stdout
     assert "mind/*" in result.stdout
 
 
