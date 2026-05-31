@@ -151,3 +151,23 @@ def test_has_teeth_threshold():
     r = TeethReport(baseline_passed=True, mutants_applied=10, mutants_killed=8)
     assert r.has_teeth(0.8) is True
     assert r.has_teeth(0.9) is False
+
+
+def test_pytest_imported_module_no_stale_pyc(tmp_path):
+    """Regression: a pytest test that IMPORTS the target must still kill
+    mutants. Rapid rewrites + the .pyc second-granularity source-mtime header
+    previously let mutants reuse the baseline's cached bytecode (all survived).
+    Runs via `python -m pytest` (the case that broke), not `python -c`."""
+    (tmp_path / "mod.py").write_text(_MODULE, encoding="utf-8")
+    (tmp_path / "test_mod.py").write_text(
+        "import mod\n"
+        "def test_add(): assert mod.add(2, 3) == 5 and mod.add(-1, 1) == 0\n"
+        "def test_pos(): assert mod.is_positive(1) is True and mod.is_positive(-1) is False\n"
+        "def test_lbl(): assert mod.label(True) == 'yes' and mod.label(False) == 'no'\n"
+        "def test_en(): assert mod.enabled() is True\n",
+        encoding="utf-8",
+    )
+    cmd = [sys.executable, "-m", "pytest", "-q", "test_mod.py"]
+    report = verify_test_teeth(tmp_path / "mod.py", cmd, cwd=tmp_path)
+    assert report.baseline_passed
+    assert report.teeth_score >= 0.8, report.survived

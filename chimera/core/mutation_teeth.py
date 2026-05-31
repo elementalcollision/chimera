@@ -22,6 +22,7 @@ mid-run never leaves a mutant on disk. Only the target file is ever written.
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -168,11 +169,21 @@ def _generate_mutants(source: str, max_mutants: int) -> list[tuple[str, str]]:
 
 
 def _run(test_cmd: list[str], cwd: Path | None, timeout: float) -> bool:
-    """True iff ``test_cmd`` exits 0."""
+    """True iff ``test_cmd`` exits 0.
+
+    Runs with ``PYTHONDONTWRITEBYTECODE=1`` so NO ``.pyc`` is ever cached.
+    Mutation testing rewrites the target many times per second; the ``.pyc``
+    header records source mtime in *seconds*, so without this a rewrite within
+    the same second as the baseline run silently reuses the baseline's
+    (correct) bytecode and every mutant survives. Disabling the cache forces a
+    fresh compile from source on every run — the correctness-critical fix.
+    """
+    env = dict(os.environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     try:
         proc = subprocess.run(
             test_cmd, cwd=str(cwd) if cwd else None,
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True, text=True, timeout=timeout, env=env,
         )
     except (subprocess.TimeoutExpired, OSError):
         return False
