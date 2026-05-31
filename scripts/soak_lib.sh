@@ -55,6 +55,14 @@ soak_phase2_deliverable_landed() {
     local worktree="$1"
     local allowed_files="$2"
     local test_cmd="$3"
+    # A1 (convergence fix): the base ref the deliverable diff is measured
+    # against. Defaults to "main" (the v46 soaks build from main). The generic
+    # charter-build soak builds from a CHARTER_BASE branch that ALREADY carries
+    # the materialized test + design note — comparing against main would pull
+    # those (un-allowlisted) files into the diff, so the sentinel never fires
+    # and a clean [agent] commit falls through to no_forward_progress. Passing
+    # the real base makes the diff carry only the delta the agent produced.
+    local base_ref="${4:-main}"
 
     if [ -z "$worktree" ] || [ -z "$allowed_files" ] || [ -z "$test_cmd" ]; then
         echo "  soft-sentinel: bad args (need worktree, allowed_files, test_cmd)" >&2
@@ -65,9 +73,9 @@ soak_phase2_deliverable_landed() {
         return 2
     fi
 
-    # 1. At least one [agent]-prefixed commit since main
+    # 1. At least one [agent]-prefixed commit since the base.
     local agent_commits
-    agent_commits="$(cd "$worktree" && git log --format='%s' main..HEAD 2>/dev/null \
+    agent_commits="$(cd "$worktree" && git log --format='%s' "${base_ref}..HEAD" 2>/dev/null \
                       | grep -c '^\[agent\]')"
     if [ "${agent_commits:-0}" -lt 1 ]; then
         return 1
@@ -85,7 +93,7 @@ soak_phase2_deliverable_landed() {
     # intent (the deliverable shipped cleanly under the charter's
     # source-file scope). See ADR 0121.
     local touched
-    touched="$(cd "$worktree" && git diff --name-only main..HEAD 2>/dev/null)"
+    touched="$(cd "$worktree" && git diff --name-only "${base_ref}..HEAD" 2>/dev/null)"
     if [ -z "$touched" ]; then
         return 1
     fi
