@@ -75,10 +75,22 @@ opt-in default-skips; zero-count findings dropped; a finder exception fails open
 the soak command is copy-pasteable; ranking is deterministic/stable; and an
 **integration** test running the real ruff finder surfaces `chimera/cli.py`.
 
+## Amendment (chip 2 — the proposal verb, 2026-05-31)
+
+`chimera self-scan [--base REF] [--limit N]` is the human-facing proposal
+surface: it runs `scan_repo` over the cwd and prints the ranked candidates, each
+with its score, source, risk flag, goal, and a **copy-pasteable
+`real_task_soak.sh` invocation**. **It prints only — it launches nothing**; the
+output ends with an explicit "pick one and run it yourself" banner, and the
+handler has no code path that starts a soak. Exit 0 whether or not candidates are
+found (a proposal surface, not a gate). Live on this repo it lists
+`chimera/cli.py` (14 findings) as candidate #1 with a ready command.
+`tests/test_cli_self_scan.py` (5): empty → the no-candidates note; ranked output
+with N soak lines + the proposal-only banner; `--limit` caps; `--base` flows into
+the command; and a real-repo integration run.
+
 ## Next
 
-- **Chip 2** — `chimera self-scan` verb: print the ranked candidates + a
-  ready soak line per candidate (prints only, launches nothing).
 - **Chip 3** — precision logging (candidate + operator accept/reject) → the
   labelled dataset that, with critic calibration, later earns an opt-in auto-run.
 - Behaviour-changing sources behind the risk flag; DiscoveryEngine cadence.
