@@ -153,6 +153,39 @@ def validate_charter(
     )
 
 
+def build_charter_revision_prompt(
+    goal: str, prev: CharterBundle, validation: CharterValidation,
+) -> str:
+    """A3: ask the charterer to strengthen a charter that failed the teeth gate.
+
+    Feeds back the concrete failure — the reference impl not passing its own
+    test, or the specific mutations the test let survive (its blind spots) — so
+    the revision targets the actual weakness rather than guessing.
+    """
+    if validation.teeth is not None and not validation.teeth.baseline_passed:
+        problem = (
+            "Your reference implementation does NOT pass your own acceptance "
+            "test. Fix both so the impl is correct AND the test passes on it."
+        )
+    else:
+        survived = validation.teeth.survived if validation.teeth else []
+        shown = ", ".join(survived[:8]) or "(unknown)"
+        problem = (
+            "Your acceptance test is too weak — it did NOT catch these mutations "
+            f"of a wrong implementation: {shown}. Add discriminating assertions "
+            "that would FAIL on each of those mutations."
+        )
+    return (
+        f"You are revising a charter that failed its quality gate.\n\nGOAL: {goal}\n\n"
+        f"PROBLEM: {problem}\n\n"
+        f"Keep the SAME module_name (`{prev.module_name}`). Re-emit the full charter "
+        f"with a stronger test (and corrected impl if needed), in EXACTLY the same "
+        f"fenced blocks (charter-meta / -design / -test / -impl) and nothing else.\n\n"
+        f"--- your previous acceptance test ---\n{prev.acceptance_test}\n"
+        f"--- your previous reference implementation ---\n{prev.reference_impl}\n"
+    )
+
+
 async def generate_charter(
     goal: str,
     *,
@@ -160,26 +193,45 @@ async def generate_charter(
     model_id: str,
     threshold: float = 0.8,
     max_tokens: int = 4096,
+    max_revisions: int = 1,
 ) -> tuple[CharterBundle | None, CharterValidation]:
-    """One-shot: prompt the charterer, parse, and teeth-validate.
+    """Prompt the charterer, parse, teeth-validate, and (A3) revise on failure.
 
-    Returns ``(bundle, validation)``. ``bundle`` is ``None`` (and validation
-    ``ok=False``) when the model's output had no usable charter. A non-None
-    bundle with ``validation.ok=False`` is a parseable-but-weak charter —
-    surfaced so the caller can reject it (or ask for a revision).
+    Returns ``(bundle, validation)``. On a weak/unusable charter, up to
+    ``max_revisions`` revision passes are attempted — each fed the concrete teeth
+    failure (surviving mutants or baseline break). Returns as soon as a charter
+    passes; otherwise the last attempt (so the caller sees the best failure).
     """
     from ..providers.base import Message
 
-    prompt = build_charter_prompt(goal)
-    response = await provider.complete_with_tools(
-        messages=[Message.user(prompt)], model_id=model_id, tools=[],
-        max_tokens=max_tokens,
-    )
-    text = getattr(response, "text", "") or ""
-    bundle = extract_charter(text, goal=goal)
+    async def _ask(prompt: str) -> CharterBundle | None:
+        response = await provider.complete_with_tools(
+            messages=[Message.user(prompt)], model_id=model_id, tools=[],
+            max_tokens=max_tokens,
+        )
+        return extract_charter(getattr(response, "text", "") or "", goal=goal)
+
+    bundle = await _ask(build_charter_prompt(goal))
     if bundle is None:
-        return None, CharterValidation(False, "no usable charter in model output")
-    return bundle, validate_charter(bundle, threshold=threshold)
+        last = CharterValidation(False, "no usable charter in model output")
+    else:
+        last = validate_charter(bundle, threshold=threshold)
+        if last.ok:
+            return bundle, last
+
+    # A3: revise on failure, feeding back the concrete weakness.
+    for _ in range(max(0, max_revisions)):
+        if bundle is not None:
+            revised = await _ask(build_charter_revision_prompt(goal, bundle, last))
+        else:
+            revised = await _ask(build_charter_prompt(goal))  # retry from scratch
+        if revised is None:
+            continue
+        rval = validate_charter(revised, threshold=threshold)
+        bundle, last = revised, rval
+        if rval.ok:
+            return bundle, last
+    return bundle, last
 
 
 _CHARTER_PROMPT_TEMPLATE = '''You are the CHARTERER for Chimera, an autonomous coding agent. Given a GOAL,
@@ -195,6 +247,12 @@ Hard rules:
   a deliberately-wrong implementation must FAIL it. No vacuous ``assert True``.
 - The reference implementation MUST pass the test and be correct.
 - Keep it self-contained: standard library only unless the goal demands more.
+- TESTABILITY (A2): if the goal involves nondeterminism — the current time,
+  randomness, I/O, the network — design a deterministic SEAM so the behaviour is
+  pinnable. Inject the clock / RNG / source as a parameter (e.g.
+  ``now: float`` or ``rng: random.Random``) with a sensible default, and have the
+  test pass a fixed value. Do NOT write a function whose output cannot be
+  asserted exactly; that cannot pass the teeth check.
 
 Respond with EXACTLY these fenced blocks, nothing else:
 
