@@ -426,8 +426,15 @@ CHARTER:
 
 ## Phase 2 tasks
 - [ ] Re-run the gated test; confirm 4 passed.
-- [ ] Stage ONLY \`chimera/soak_report.py\` and \`$DELIVERABLE_REL\`.
-- [ ] Commit with a message starting with \`[agent]\` (e.g. \`[agent] create chimera/soak_report.py\`).
+- [ ] Commit the deliverable in ONE step with the **\`git_commit\` tool**:
+  call \`git_commit\` with \`message\`=\"create chimera/soak_report.py\" and
+  \`paths\`=[\"chimera/soak_report.py\", \"$DELIVERABLE_REL\"]. This single tool
+  call stages AND commits AND returns the new HEAD — it IS the whole commit
+  step. The \`[agent]\` prefix is added for you. Do NOT also run a bare
+  \`git commit\` via shell; do NOT stop after \`git add\` alone.
+
+(If for some reason the \`git_commit\` tool is unavailable, fall back to the
+manual flow: \`git add\` the two paths, then a bare \`git commit -m '[agent] ...'\`.)
 
 STAGING IS NOT DONE. \`git add\` only stages — it does NOT create a commit. This
 phase is COMPLETE only after \`git commit\` returns AND \`git log --oneline
