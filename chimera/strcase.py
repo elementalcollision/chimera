@@ -18,7 +18,7 @@ def to_snake(s: str) -> str:
     """
     result: list[str] = []
     for i, ch in enumerate(s):
-        if ch.isupper() and i > 0 and (s[i - 1].islower() or s[i - 1].isdigit()):
+        if ch.isupper() and i > 0 and (s[i - 1].isupper() or s[i - 1].isdigit()):
             result.append("_")
         result.append(ch.lower())
     return "".join(result)
