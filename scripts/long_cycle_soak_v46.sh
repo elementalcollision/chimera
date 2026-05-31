@@ -303,7 +303,10 @@ phase_loop() {
     # the commit imperative (the re-soak #2 stall). Phase 1 (engines off) and
     # the every-cycle planner are unaffected.
     if [ "$engines_enabled" = "1" ]; then
-        export CHIMERA_SUPPRESS_PROPOSALS=1
+        # Default ON for the commit-only phase, but honor an operator override
+        # so the R5 forced-stall A/B can run phase 2 with proposals ENABLED
+        # (CHIMERA_SUPPRESS_PROPOSALS=0) as the control arm.
+        export CHIMERA_SUPPRESS_PROPOSALS="${CHIMERA_SUPPRESS_PROPOSALS:-1}"
     else
         unset CHIMERA_SUPPRESS_PROPOSALS
     fi

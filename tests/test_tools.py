@@ -301,6 +301,59 @@ async def test_shell_allows_unlisted_with_elevation(shell_env):
     assert "[exit=0]" in out
 
 
+# ── ADR 0151 R5 forced-stall lever ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_force_stall_blocks_commit_in_soak(shell_env, monkeypatch):
+    """CHIMERA_SOAK_FORCE_STALL=1 inside a soak refuses git commit so phase 2
+    idles to max iterations (the forced-stall A/B). engines ON, trust not T0."""
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.setenv("CHIMERA_SOAK_RUN_ID", "force-stall-test")
+    monkeypatch.setenv("CHIMERA_SOAK_FORCE_STALL", "1")
+    with pytest.raises(PermissionError, match="CHIMERA_SOAK_FORCE_STALL"):
+        await shell_handler(
+            {"argv": ["git", "commit", "-m", "[agent] x"]}, DispatchContext(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_force_stall_noop_outside_soak(shell_env, monkeypatch):
+    """The lever is double-gated: without CHIMERA_SOAK_RUN_ID it must NOT fire
+    (it can never block a normal `chimera run`). git is allow-listed, so the
+    commit proceeds to subprocess and fails for an ordinary reason — never the
+    force-stall PermissionError."""
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.delenv("CHIMERA_SOAK_RUN_ID", raising=False)
+    monkeypatch.setenv("CHIMERA_SOAK_FORCE_STALL", "1")
+    try:
+        out = await shell_handler(
+            {"argv": ["git", "commit", "--allow-empty", "-m", "x"]},
+            DispatchContext(),
+        )
+    except PermissionError as exc:  # pragma: no cover - must not be force-stall
+        assert "CHIMERA_SOAK_FORCE_STALL" not in str(exc)
+    else:
+        assert "CHIMERA_SOAK_FORCE_STALL" not in out
+
+
+@pytest.mark.asyncio
+async def test_force_stall_off_by_default(shell_env, monkeypatch):
+    """In a soak but with the lever unset, git commit is NOT force-blocked."""
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.setenv("CHIMERA_SOAK_RUN_ID", "no-stall")
+    monkeypatch.delenv("CHIMERA_SOAK_FORCE_STALL", raising=False)
+    try:
+        out = await shell_handler(
+            {"argv": ["git", "commit", "--allow-empty", "-m", "x"]},
+            DispatchContext(),
+        )
+    except PermissionError as exc:  # pragma: no cover
+        assert "CHIMERA_SOAK_FORCE_STALL" not in str(exc)
+    else:
+        assert "CHIMERA_SOAK_FORCE_STALL" not in out
+
+
 def test_shell_default_cwd_is_common_parent_of_mind_and_state(shell_env, tmp_path):
     """v4.4 / L-2: default cwd is the parent of mind/+state/, so relative
     paths 'state/x' and 'mind/x' both resolve to the right place."""
