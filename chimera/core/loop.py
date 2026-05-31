@@ -85,6 +85,27 @@ def _plan_max_open_tasks() -> int:
     return value if value > 0 else _PLAN_MAX_OPEN_TASKS_DEFAULT
 
 
+def _proposals_suppressed() -> bool:
+    """True when PLAN must emit NO new proposals (planner + engines) this cycle.
+
+    R5 (ADR 0151 / mechanism C). Distinct from ``CHIMERA_ENGINES_ENABLED=0``,
+    which ALSO blocks ``git commit`` at the shell chokepoint (the phase-1
+    investigation-only gate) — so it cannot be used for a commit-only phase.
+    This knob suppresses proposal GENERATION only, leaving
+    ``CHIMERA_ENGINES_ENABLED=1`` (commits allowed) and the operator INBOX
+    tasks (the commit task) to run.
+
+    The v46 re-soak #2 showed why: with the commit stuck, the discovery/
+    curiosity/reflection engines filled the void with governance busywork
+    ("build a pre-commit hook", "document the convention") that out-competed
+    the bare commit imperative (mechanism C). In a commit-only phase there is
+    nothing to propose — only the deliverable to commit. Default OFF.
+    """
+    return os.environ.get("CHIMERA_SUPPRESS_PROPOSALS", "0").strip() not in {
+        "0", "", "false", "False", "no", "off",
+    }
+
+
 def _act_budget_seconds() -> float:
     """Hard ceiling for the ACT phase in seconds (v35 postmortem ladder #4).
 
@@ -548,6 +569,17 @@ class ChimeraLoop:
         if os.environ.get("CHIMERA_ENGINES_ENABLED", "1") == "0":
             self._record_phase_activity("plan", details={"skipped": "engines_disabled"})
             self._log_phase("PLAN: skipped (engines disabled)")
+            return
+        # R5 (ADR 0151 / mechanism C): commit-only phase — suppress ALL
+        # proposal generation (planner + daily engines) without disabling
+        # CHIMERA_ENGINES_ENABLED (which would block the commit itself). Only
+        # the operator INBOX commit task runs; no governance busywork can be
+        # spawned to out-compete it. See chimera.core.loop._proposals_suppressed.
+        if _proposals_suppressed():
+            self._record_phase_activity(
+                "plan", details={"skipped": "proposals_suppressed"},
+            )
+            self._log_phase("PLAN: skipped (proposals suppressed — commit-only phase)")
             return
         if self._planner is None:
             self._record_phase_activity("plan", details={"skipped": "no_providers"})
