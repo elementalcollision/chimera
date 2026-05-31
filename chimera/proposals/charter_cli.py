@@ -47,9 +47,16 @@ def run_charter(
     teeth = val.teeth.teeth_score if val.teeth else None
     packet = format_charter_packet(bundle, art, teeth_score=teeth)
     if write:
+        launch = (
+            f"CHARTER_MODULE={bundle.module_name} "
+            f"CHARTER_TARGET={art.target_module_path} "
+            f"CHARTER_TEST={art.test_path} \\\n"
+            f"  CHARTER_GOAL={goal!r} bash scripts/charter_build_soak.sh"
+        )
         packet += (
-            f"\n\nWrote:\n  {art.test_path}\n  {art.design_path}\n"
-            f"Run the build soak on `{art.target_module_path}` to deliver."
+            f"\n\nWrote:\n  {art.test_path}\n  {art.design_path}\n\n"
+            f"To build + self-commit (after committing the two files to a branch):\n"
+            f"  {launch}"
         )
     else:
         packet += "\n\n(preview — no files written)"
