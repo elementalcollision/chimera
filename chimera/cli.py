@@ -127,6 +127,32 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("prompt", nargs="?", help="Optional ad-hoc prompt to enqueue.")
 
+    charter = sub.add_parser(
+        "charter",
+        help="Self-author a buildable, teeth-validated charter for a goal "
+             "(ADR 0152/0153/0154).",
+        epilog="Generates a charter (design + acceptance test + scope), rejects "
+               "it if the self-written test lacks teeth, otherwise writes the "
+               "build-soak inputs and prints a review packet.",
+    )
+    charter.add_argument("goal", help="What to build, in one sentence.")
+    charter.add_argument(
+        "--prefix", default="charter",
+        help="Design-note filename prefix (default: charter).",
+    )
+    charter.add_argument(
+        "--tier", default="opus",
+        help="Provider tier for the charterer (default: opus).",
+    )
+    charter.add_argument(
+        "--threshold", type=float, default=0.8,
+        help="Minimum teeth score to accept the charter (default: 0.8).",
+    )
+    charter.add_argument(
+        "--no-write", action="store_true",
+        help="Preview the charter without writing any files.",
+    )
+
     cost = sub.add_parser(
         "cost",
         help="Show windowed spend (cycle, 15m, 60m, total) with band classification.",
@@ -1317,6 +1343,52 @@ def _build_openrouter_answer_fn(
     return answer_fn
 
 
+def _cmd_charter(args) -> int:
+    """`chimera charter "<goal>"` — self-author a teeth-validated charter."""
+    from .core import ChimeraLoop
+    from .proposals.charter_cli import run_charter
+    from .providers.tiers import Provider as ProviderKind
+    from .providers.tiers import select_rung
+
+    loop = ChimeraLoop()
+    try:
+        providers = loop._act.providers if loop._act is not None else {}
+        if not providers:
+            print(
+                "chimera charter: no provider available (set ANTHROPIC_API_KEY "
+                "or OPENROUTER_API_KEY).",
+                file=sys.stderr,
+            )
+            return 2
+        rung = select_rung(args.tier)
+        provider = providers.get(rung.config.provider)
+        if provider is None:
+            print(
+                f"chimera charter: no provider for tier {args.tier!r} "
+                f"({rung.config.provider}).",
+                file=sys.stderr,
+            )
+            return 2
+        model_id = (
+            rung.config.model_id
+            if rung.config.provider is ProviderKind.ANTHROPIC
+            else rung.config.openrouter_model_id
+        )
+        code, out = run_charter(
+            args.goal,
+            provider=provider,
+            model_id=model_id,
+            repo_root=Path.cwd(),
+            prefix=args.prefix,
+            threshold=args.threshold,
+            write=not args.no_write,
+        )
+        print(out)
+        return code
+    finally:
+        loop.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -2019,6 +2091,8 @@ def main(argv: list[str] | None = None) -> int:
             f"flipped={report.tasks_completed} rotated={report.rotated}"
         )
         return 0
+    if args.command == "charter":
+        return _cmd_charter(args)
     if args.command == "ping":
         targets = ["anthropic", "openrouter"] if args.provider == "both" else [args.provider]
         print("chimera ping:")
