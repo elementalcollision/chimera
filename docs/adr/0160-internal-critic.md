@@ -91,8 +91,36 @@ adjudicated correctly. The gate said PASS; the critic said REJECT; the critic wa
 right. (One favourable case — calibration over many changes is the open work, per
 `mind/research/no-contract-autonomy-state-2026-05-31.md`.)
 
+## Amendment (calibration harness, 2026-05-31)
+
+Trust in the critic must be a measured number, not "it worked once."
+`chimera/core/critic_calibration.py` is the harness: a labelled set of changes
+(faithful and not), an injectable reviewer (real critic or mock), and a confusion
+matrix — foregrounding the **false-APPROVE rate** (the share of unfaithful changes
+waved through, the dangerous error). Each case's diff + faithfulness report are
+computed from real base/changed source via the actual primitives, so the critic
+sees what it sees in the loop. `chimera critic-calibrate` runs the set live and
+exits non-zero if any unfaithful change was approved.
+
+**First live run (`claude-sonnet-4-6`, 4 cases): 100% accuracy, 0% false-approve,
+0% false-reject** — approved both clean fixes (strcase, adder), rejected both
+unfaithful ones (the `isdigit` silent-regression AND a hardcoded-answer gaming
+case).
+
+**Honest scope: 4 cases is a smoke test, not a calibration.** They are relatively
+obvious; 100% here shows the harness works and the critic clears easy cases — it
+does NOT establish a trustworthy error rate. A real calibration needs ~20–30
+diverse, *subtle* cases (near-faithful changes, plausible-looking regressions,
+multi-file diffs) to find where the critic actually fails. Growing the dataset is
+the next step; the false-approve rate on that larger set is the number that
+gates promoting the in-loop review from advisory to enforcing.
+`tests/test_critic_calibration.py` (8): confusion-matrix math via mock reviewers;
+dataset balance + authentic diffs/faithfulness.
+
 ## Next
 
+- **Grow the calibration set** to ~20–30 cases incl. subtle/near-miss changes;
+  track the false-approve rate as the trust metric.
 - Wire `review_change` into the real-task loop as a post-fix acceptance step:
   assemble the diff + docstring + `chimera faithfulness` output, run the critic,
   and require approval (or surface concerns for the agent to address) before the

@@ -233,6 +233,15 @@ def _build_parser() -> argparse.ArgumentParser:
     review.add_argument("--tier", default="T3",
                         help="Provider rung for the critic (default T3).")
 
+    calib = sub.add_parser(
+        "critic-calibrate",
+        help="Measure the critic's error rates on a labelled change set — esp. "
+             "the false-APPROVE rate (waving an unfaithful change through). "
+             "Turns 'worked once' into a number (ADR 0160).",
+    )
+    calib.add_argument("--model", default="claude-sonnet-4-6",
+                       help="Anthropic model id for the critic.")
+
     cost = sub.add_parser(
         "cost",
         help="Show windowed spend (cycle, 15m, 60m, total) with band classification.",
@@ -1637,6 +1646,36 @@ def _cmd_review(args) -> int:
     return 0 if verdict.approved else 1
 
 
+def _cmd_critic_calibrate(args) -> int:
+    """`chimera critic-calibrate` — measure the critic's error rates on a
+    labelled change set. Prints the confusion matrix + false-approve rate
+    (ADR 0160). Exit 0 if no unfaithful change was approved (false-approve == 0),
+    else 1 — a false approval is the failure that matters."""
+    from ._async_loop import run_on_persistent_loop
+    from .core import ChimeraLoop
+    from .core.critic import review_change
+    from .core.critic_calibration import default_cases, run_calibration
+    from .providers.tiers import Provider as ProviderKind
+
+    loop = ChimeraLoop()
+    providers = loop._act.providers if loop._act is not None else {}
+    provider = providers.get(ProviderKind.ANTHROPIC)
+    if provider is None:
+        print("chimera critic-calibrate: no Anthropic provider available.",
+              file=sys.stderr)
+        return 2
+
+    async def _review(case):
+        return await review_change(
+            case.diff, provider=provider, model_id=args.model, goal=case.goal,
+            docstring=case.docstring, faithfulness=case.faithfulness,
+        )
+
+    result = run_on_persistent_loop(run_calibration(default_cases(), _review))
+    print(result.summary())
+    return 0 if result.false_approve == 0 else 1
+
+
 def _cmd_charter(args) -> int:
     """`chimera charter "<goal>"` — self-author a teeth-validated charter."""
     from .core import ChimeraLoop
@@ -2393,6 +2432,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_faithfulness(args)
     if args.command == "review":
         return _cmd_review(args)
+    if args.command == "critic-calibrate":
+        return _cmd_critic_calibrate(args)
     if args.command == "ping":
         targets = ["anthropic", "openrouter"] if args.provider == "both" else [args.provider]
         print("chimera ping:")
