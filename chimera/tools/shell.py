@@ -94,6 +94,13 @@ _SHELL_WRAPPERS: frozenset[str] = frozenset(
     {"bash", "sh", "zsh", "fish", "dash", "ksh", "csh", "tcsh"}
 )
 
+# Dev tools the project invokes via `uv run <tool>` rather than directly. When an
+# agent reaches for one bare (e.g. `ruff` after dropping a `bash` wrapper), the
+# rejection hints the `uv run` form so it self-corrects in one hop.
+_UV_RUN_TOOLS: frozenset[str] = frozenset(
+    {"ruff", "pytest", "mypy", "black", "pyright", "python", "pip", "chimera"}
+)
+
 
 SHELL_SCHEMA: dict[str, Any] = {
     "type": "function",
@@ -235,6 +242,17 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
                 f'argv=["uv", "run", "ruff", "check", "--fix", "x.py"]. For '
                 f"pipes/redirection/&&, issue each step as a separate shell tool "
                 f"call. Allowed binaries: {sorted(SAFE_COMMANDS)}"
+            )
+        # A dev tool the project runs via `uv run` (ruff, pytest, mypy, …). The
+        # binary isn't on the allow-list, but `uv` is — so reaching for it bare
+        # (the agent's next move after dropping `bash`) still fails. Hint the
+        # `uv run` form so the agent reaches the working invocation in one hop.
+        if program in _UV_RUN_TOOLS:
+            raise PermissionError(
+                f"command {program!r} is not directly allowed, but it runs via "
+                f"`uv`: pass argv=[\"uv\", \"run\", {program!r}, ...] instead of "
+                f"[{program!r}, ...]. E.g. argv=[\"uv\", \"run\", \"ruff\", "
+                f'"check", "--fix", "<file>"]. Allowed binaries: {sorted(SAFE_COMMANDS)}'
             )
         raise PermissionError(
             f"command {program!r} not in shell allow-list "
