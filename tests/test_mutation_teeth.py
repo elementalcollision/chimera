@@ -171,3 +171,29 @@ def test_pytest_imported_module_no_stale_pyc(tmp_path):
     report = verify_test_teeth(tmp_path / "mod.py", cmd, cwd=tmp_path)
     assert report.baseline_passed
     assert report.teeth_score >= 0.8, report.survived
+
+
+# ── AugAssign mutation (closes the stateful `+=` blind spot) ─────────
+
+
+def test_augassign_is_a_mutation_site():
+    """`+=` is now probed — the accumulation site a stateful validation showed
+    was never mutated (so a test that doesn't pin accumulation can't get 1.00)."""
+    src = "def acc(vals):\n    s = 0\n    for v in vals:\n        s += v\n    return s\n"
+    descs = [d for d, _ in _generate_mutants(src, max_mutants=20)]
+    assert any(d.startswith("augassign") for d in descs)
+
+
+def test_augassign_survives_when_accumulation_unpinned(tmp_path):
+    import sys
+
+    mod = "def acc(vals):\n    s = 0\n    for v in vals:\n        s += v\n    return s\n"
+    p = tmp_path / "acc.py"
+    p.write_text(mod)
+    # a WEAK test using only zeros, where `s += v` and `s -= v` AGREE — so the
+    # augassign Add→Sub mutant SURVIVES (the accumulation behaviour is unpinned).
+    weak = "import acc; assert acc.acc([0, 0]) == 0"
+    rep = verify_test_teeth(p, [sys.executable, "-c", weak], cwd=tmp_path,
+                            max_mutants=20, timeout=30)
+    assert rep.baseline_passed
+    assert any("augassign" in s for s in rep.survived)  # blind spot now visible
