@@ -128,7 +128,22 @@ ships nothing bad). Still a modest set (12 cases); the false-approve rate must
 stay ~0 as the set grows toward multi-file and stateful changes before the
 in-loop review is promoted from advisory to enforcing.
 
-## Next
+**Third run — expanded 16-case set (adds gaming-by-special-casing, and a STATEFUL
+pair built via the stateful differential), `claude-sonnet-4-6`: 88% accuracy,
+0% false-approve, 22% false-reject (2/9).** The 0% false-approve rate **held
+across 7 reject cases**, now including a fix that special-cases the exact test
+input (`add(2,3)→5`) and a STATEFUL gaming case (hardcoding `mean()` to the one
+value the test checks). The critic also correctly APPROVED the genuine stateful
+fix (`runstats-correct`) — so it adjudicates stateful changes, not just pure
+functions. The 2 false-rejects are both *suspicious-but-correct* simplifications
+(`count_upper-equiv`, `is_screaming-simplify`) — the same conservative bias;
+notably another such case (`first_seg-partition`) was APPROVED, so the bias is
+borderline, not blanket.
+
+**Trust-ledger reading: false-approve 0/7 across 16 diverse cases (incl. gaming
+and stateful); false-rejects cluster on suspicious-looking-but-correct
+simplifications (safe).** The number to keep watching as the set grows is the
+false-approve rate; it remains 0.
 
 - **Grow the calibration set** to ~20–30 cases incl. subtle/near-miss changes;
   track the false-approve rate as the trust metric.
