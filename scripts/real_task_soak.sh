@@ -138,6 +138,12 @@ ${GATE_VERIFY_CMD}
 Iterate edit → \`chimera verify\` → read failures → fix, until it prints
 \`PASS\`. The structured failure detail on stderr is your signal.
 
+**Shell tool usage (important):** the \`shell\` tool runs ONE binary directly —
+it is NOT a shell. Do NOT wrap commands in \`bash -c "..."\` / \`sh -c "..."\`
+(they are blocked). Call the binary as argv, e.g. argv=["uv","run","ruff",
+"check","--fix","<file>"] or argv=["sed","-i","...","<file>"]. Prefer the
+file-edit tool for code changes; use \`uv run ruff check --fix\` for lint fixes.
+
 ## Phase 1 tasks
 - [ ] **Make the change and prove \`chimera verify\` is green.** Edit ONLY the
   files in SCOPE below. Run \`${GATE_VERIFY_CMD}\` and keep fixing until it

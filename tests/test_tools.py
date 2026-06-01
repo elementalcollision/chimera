@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 
@@ -264,6 +263,33 @@ async def test_shell_runs_safe_command(shell_env):
     )
     assert "hello.txt" in out
     assert "[exit=0]" in out
+
+
+@pytest.mark.asyncio
+async def test_shell_wrapper_rejection_teaches_argv_form():
+    """A `bash -c "..."` attempt (the agent's common mistake in self-determination
+    soaks) is refused with a CORRECTIVE message that shows the right argv form,
+    not a bare 'not in allow-list'."""
+    with pytest.raises(PermissionError) as ei:
+        await shell_handler(
+            {"argv": ["bash", "-c", "ruff check --fix x.py"]}, DispatchContext()
+        )
+    msg = str(ei.value)
+    assert "single binary" in msg
+    assert "argv=" in msg                # shows the correct form
+    assert "uv" in msg and "ruff" in msg  # the worked example
+    # sh is treated the same way.
+    with pytest.raises(PermissionError) as ei2:
+        await shell_handler({"argv": ["sh", "-c", "echo hi"]}, DispatchContext())
+    assert "NOT a shell" in str(ei2.value)
+
+
+@pytest.mark.asyncio
+async def test_shell_non_wrapper_unknown_command_keeps_plain_message():
+    """A non-wrapper unknown binary still gets the plain allow-list refusal."""
+    with pytest.raises(PermissionError) as ei:
+        await shell_handler({"argv": ["curl", "https://x"]}, DispatchContext())
+    assert "not in shell allow-list" in str(ei.value)
 
 
 @pytest.mark.asyncio

@@ -87,6 +87,13 @@ def _resolved_allowlist() -> frozenset[str]:
 # every dispatch is wasted (PATH is effectively static in-process).
 SAFE_COMMANDS: frozenset[str] = _resolved_allowlist()
 
+# Shell wrappers an agent commonly (and wrongly) reaches for — `bash -c "..."`.
+# The shell tool runs ONE binary as argv, so these never work; the rejection
+# path gives a corrective hint instead of a bare refusal.
+_SHELL_WRAPPERS: frozenset[str] = frozenset(
+    {"bash", "sh", "zsh", "fish", "dash", "ksh", "csh", "tcsh"}
+)
+
 
 SHELL_SCHEMA: dict[str, Any] = {
     "type": "function",
@@ -215,6 +222,20 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
 
     program = argv[0]
     if program not in SAFE_COMMANDS and not context.elevated:
+        # Common agent mistake (seen across self-determination soaks): wrapping a
+        # command in `bash -c "..."` / `sh -c "..."`. The shell tool runs ONE
+        # binary directly — teach the correct argv form rather than just refusing,
+        # so the agent self-corrects instead of burning rounds on blocked retries.
+        if program in _SHELL_WRAPPERS:
+            raise PermissionError(
+                f"command {program!r} is not allowed: the shell tool executes a "
+                f"single binary directly — it is NOT a shell, so `{program} -c "
+                f'"..."` never works. Call the target binary as argv instead. '
+                f'E.g. instead of {program} -c "ruff check --fix x.py", pass '
+                f'argv=["uv", "run", "ruff", "check", "--fix", "x.py"]. For '
+                f"pipes/redirection/&&, issue each step as a separate shell tool "
+                f"call. Allowed binaries: {sorted(SAFE_COMMANDS)}"
+            )
         raise PermissionError(
             f"command {program!r} not in shell allow-list "
             f"(set context.elevated=True to bypass; allow-list: {sorted(SAFE_COMMANDS)})"
