@@ -703,6 +703,29 @@ def _check_soak_runner_liveness(state_dir: Path) -> CheckResult:
     )
 
 
+def _check_critic_enforcement() -> CheckResult:
+    """ADR 0162 calibration-gated activation: when CHIMERA_CRITIC_ENFORCE=1, the
+    in-loop critic gate may only block on the strength of a clean calibration
+    (false-approve == 0). Surface — and on `assert_no_errors`, refuse — an
+    enforce-ON config with a missing or dirty calibration record."""
+    if os.environ.get("CHIMERA_CRITIC_ENFORCE") != "1":
+        return CheckResult("critic_enforcement", "ok", "enforcement off (default)")
+    try:
+        from .critic_gate import calibration_clean
+        clean, why = calibration_clean(Path.cwd())
+    except Exception as exc:  # never let the check itself crash doctor
+        return CheckResult("critic_enforcement", "error",
+                           f"could not read calibration: {exc}")
+    if clean:
+        return CheckResult("critic_enforcement", "ok", f"enforce ON; {why}")
+    return CheckResult(
+        "critic_enforcement", "error",
+        f"enforce ON but calibration NOT clean: {why}. "
+        "Run `chimera critic-calibrate` (false-approve must be 0) or unset "
+        "CHIMERA_CRITIC_ENFORCE.",
+    )
+
+
 def run_checks() -> list[CheckResult]:
     """Run every check. Pure: writes nothing (beyond creating state/mind dirs)."""
     state_dir = Path(os.environ.get("CHIMERA_STATE_DIR", "state"))
@@ -726,6 +749,7 @@ def run_checks() -> list[CheckResult]:
         _check_soak_runner_liveness(state_dir),
         _check_orphan_worktrees(Path.cwd()),
         _check_main_worktree_branch_drift(Path.cwd()),
+        _check_critic_enforcement(),
         *_check_provider_keys(),
     ]
     return results

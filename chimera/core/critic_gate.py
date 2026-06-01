@@ -44,6 +44,8 @@ from .critic import CriticVerdict
 Reviewer = Callable[[str], Awaitable[CriticVerdict]]
 
 _ARTIFACT_PREFIX = "critic-verdict-"
+_CALIB_RECORD = "critic-calibration-latest.json"
+_GATE_LOG = "critic-gate-log.jsonl"
 _ENFORCE_ENV = "CHIMERA_CRITIC_ENFORCE"
 _OVERRIDE_ENV = "CHIMERA_ALLOW_CRITIC_REJECT"
 
@@ -173,6 +175,95 @@ def load_verdict_artifact(repo_root: Path, diff: str) -> CriticVerdict | None:
     )
 
 
+# ── calibration-gated activation (ADR 0162) ─────────────────────────
+#
+# Enforcement's legitimacy is tied to the measured false-approve rate: the gate
+# may only block (i.e. be trusted to auto-refuse) while the latest calibration
+# shows 0 false-approve. `chimera critic-calibrate` records its result; the gate
+# refuses to enforce against a missing or dirty record. This makes the
+# "calibration-gated" invariant mechanical, not just documented.
+
+
+def write_calibration_record(
+    repo_root: Path,
+    *,
+    total: int,
+    false_approve: int,
+    false_reject: int,
+    accuracy: float,
+) -> Path:
+    import json
+
+    d = _artifact_dir(repo_root)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / _CALIB_RECORD
+    p.write_text(json.dumps({
+        "total": int(total),
+        "false_approve": int(false_approve),
+        "false_reject": int(false_reject),
+        "accuracy": float(accuracy),
+    }, indent=2), encoding="utf-8")
+    return p
+
+
+def read_calibration_record(repo_root: Path) -> dict | None:
+    import json
+
+    p = _artifact_dir(repo_root) / _CALIB_RECORD
+    if not p.is_file():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def calibration_clean(repo_root: Path) -> tuple[bool, str]:
+    """(ok, reason). Enforcement is permitted ONLY when the latest calibration
+    record exists and shows false_approve == 0."""
+    rec = read_calibration_record(repo_root)
+    if rec is None:
+        return False, ("no calibration record — run `chimera critic-calibrate` "
+                       "(false-approve must be 0) before enforcing")
+    fa = rec.get("false_approve")
+    if not isinstance(fa, int):
+        return False, "calibration record malformed (no integer false_approve)"
+    if fa > 0:
+        return False, (f"latest calibration has false_approve={fa} (>0) — "
+                       "enforcement is unsafe until that is 0")
+    return True, f"calibration clean (false_approve=0, {rec.get('total')} cases)"
+
+
+# ── decision ledger (ADR 0162) ───────────────────────────────────────
+
+
+def record_gate_decision(repo_root: Path, decision: GateDecision) -> None:
+    """Append a one-line record of each gate decision. The live loop thereby
+    accumulates the verdict-vs-outcome history ADR 0160 asked for — every
+    auto-refused or auto-allowed commit is auditable after the fact. Best-effort:
+    a logging failure must never change the commit outcome."""
+    import json
+
+    try:
+        d = _artifact_dir(repo_root)
+        d.mkdir(parents=True, exist_ok=True)
+        row = {
+            "allowed": decision.allowed,
+            "source": decision.source,
+            "diff_sha": decision.diff_sha,
+            "escalated": decision.escalated,
+            "approved": None if decision.verdict is None else decision.verdict.approved,
+            "escalation_approved": (
+                None if decision.escalation is None else decision.escalation.approved
+            ),
+        }
+        with (d / _GATE_LOG).open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
+
+
 # ── the gate ─────────────────────────────────────────────────────────
 
 
@@ -218,10 +309,27 @@ async def check_commit_critic(
     sha = diff_sha(diff)
 
     if override_active():
-        return GateDecision(
+        d = GateDecision(
             allowed=True, source="override", diff_sha=sha,
             reason=f"{_OVERRIDE_ENV}=1 — operator overrode the critic gate.",
         )
+        record_gate_decision(repo_root, d)
+        return d
+
+    # 0. Calibration-gated activation: enforcement is only legitimate while the
+    #    measured false-approve rate is 0. Refuse (block) against a missing or
+    #    dirty calibration record — the operator override above is the escape.
+    clean, why = calibration_clean(repo_root)
+    if not clean:
+        d = GateDecision(
+            allowed=False, source="calibration-unverified", diff_sha=sha,
+            reason=("git commit blocked: in-loop critic enforcement requires a "
+                    f"clean calibration record first (ADR 0162): {why}.\n"
+                    "Run `chimera critic-calibrate` (false-approve must be 0), "
+                    f"or override: export {_OVERRIDE_ENV}=1"),
+        )
+        record_gate_decision(repo_root, d)
+        return d
 
     # 1. Trust a hash-matched APPROVED artifact; else recompute authoritatively.
     verdict = load_verdict_artifact(repo_root, diff)
@@ -233,7 +341,9 @@ async def check_commit_critic(
         source = "recomputed"
 
     if verdict.approved:
-        return GateDecision(allowed=True, source=source, verdict=verdict, diff_sha=sha)
+        d = GateDecision(allowed=True, source=source, verdict=verdict, diff_sha=sha)
+        record_gate_decision(repo_root, d)
+        return d
 
     # 2. Reject → require confirmation by an INDEPENDENT second reviewer.
     if escalator is None:
@@ -241,18 +351,22 @@ async def check_commit_critic(
     escalation = await escalator(diff) if escalator is not None else None
     if escalation is not None and escalation.approved:
         # A lone over-cautious reject, overruled — the false-reject rescue path.
-        return GateDecision(
+        d = GateDecision(
             allowed=True, source=source, verdict=verdict, escalation=escalation,
             diff_sha=sha, escalated=True,
             reason="critic rejected but an independent second opinion approved "
                    "(false-reject overruled).",
         )
+        record_gate_decision(repo_root, d)
+        return d
 
-    return GateDecision(
+    d = GateDecision(
         allowed=False, source=source, verdict=verdict, escalation=escalation,
         diff_sha=sha, escalated=escalation is not None,
         reason=_block_reason(verdict, escalation),
     )
+    record_gate_decision(repo_root, d)
+    return d
 
 
 # ── default reviewers (real providers; not exercised by unit tests) ──

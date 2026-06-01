@@ -28,6 +28,7 @@ ALREADY_COMMITTED = "already_committed"
 TEST_FAILING = "test_failing"
 NOTHING_TO_COMMIT = "nothing_to_commit"
 COMMITTED = "committed"
+CRITIC_BLOCKED = "critic_blocked"
 ERROR = "error"
 
 
@@ -107,6 +108,18 @@ def autocommit_if_ready(
         staged = _git(root, "diff", "--cached", "--quiet")
         if staged.returncode == 0:
             return NOTHING_TO_COMMIT
+        # ADR 0162: the in-loop critic gate also guards the harness autocommit
+        # path, so enforce-ON covers BOTH commit routes (the agent's git_commit
+        # and this fallback). Inert unless CHIMERA_CRITIC_ENFORCE=1.
+        import os as _os
+
+        from chimera.core.critic_gate import check_commit_critic, enforce_enabled
+        if enforce_enabled():
+            import asyncio as _asyncio
+            decision = _asyncio.run(check_commit_critic(
+                root, goal=_os.environ.get("CHIMERA_TASK_GOAL")))
+            if not decision.allowed:
+                return CRITIC_BLOCKED
         commit = _git(root, "commit", "-m", message)
         if commit.returncode != 0:
             return ERROR

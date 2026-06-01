@@ -34,6 +34,13 @@ def staged(monkeypatch):
     monkeypatch.setattr(cg, "staged_files", lambda _root: ["x.py"])
 
 
+@pytest.fixture
+def calib_ok(tmp_path):
+    """Provision a clean calibration record so enforcement is permitted."""
+    cg.write_calibration_record(tmp_path, total=27, false_approve=0,
+                                false_reject=3, accuracy=0.89)
+
+
 # ── enforcement switch ───────────────────────────────────────────────
 
 
@@ -68,14 +75,14 @@ def test_override_allows_despite_reject(tmp_path, monkeypatch, staged):
 # ── recompute path (no artifact) ─────────────────────────────────────
 
 
-def test_recompute_approve_allows(tmp_path, monkeypatch, staged):
+def test_recompute_approve_allows(tmp_path, monkeypatch, staged, calib_ok):
     monkeypatch.setenv(cg._ENFORCE_ENV, "1")
     d = _run(cg.check_commit_critic(tmp_path, reviewer=_mock(True)))
     assert d.allowed and d.source == "recomputed"
     assert d.escalation is None
 
 
-def test_recompute_reject_then_escalation_approves_overrules(tmp_path, monkeypatch, staged):
+def test_recompute_reject_then_escalation_approves_overrules(tmp_path, monkeypatch, staged, calib_ok):
     monkeypatch.setenv(cg._ENFORCE_ENV, "1")
     d = _run(cg.check_commit_critic(
         tmp_path, reviewer=_mock(False), escalator=_mock(True)))
@@ -84,7 +91,7 @@ def test_recompute_reject_then_escalation_approves_overrules(tmp_path, monkeypat
     assert d.verdict.approved is False and d.escalation.approved is True
 
 
-def test_recompute_reject_confirmed_blocks(tmp_path, monkeypatch, staged):
+def test_recompute_reject_confirmed_blocks(tmp_path, monkeypatch, staged, calib_ok):
     monkeypatch.setenv(cg._ENFORCE_ENV, "1")
     d = _run(cg.check_commit_critic(
         tmp_path, reviewer=_mock(False, concerns=["drops the digit case"]),
@@ -94,7 +101,7 @@ def test_recompute_reject_confirmed_blocks(tmp_path, monkeypatch, staged):
     assert cg._OVERRIDE_ENV in d.reason    # the escape valve is surfaced
 
 
-def test_failclosed_unparseable_then_no_escalation_blocks(tmp_path, monkeypatch, staged):
+def test_failclosed_unparseable_then_no_escalation_blocks(tmp_path, monkeypatch, staged, calib_ok):
     monkeypatch.setenv(cg._ENFORCE_ENV, "1")
     # reviewer fails to parse (provider garbage) and no escalator available.
     d = _run(cg.check_commit_critic(
@@ -106,7 +113,7 @@ def test_failclosed_unparseable_then_no_escalation_blocks(tmp_path, monkeypatch,
 # ── artifact path (hash-bound) ───────────────────────────────────────
 
 
-def test_artifact_approved_allows_without_reviewer(tmp_path, monkeypatch, staged):
+def test_artifact_approved_allows_without_reviewer(tmp_path, monkeypatch, staged, calib_ok):
     monkeypatch.setenv(cg._ENFORCE_ENV, "1")
     cg.write_verdict_artifact(tmp_path, _DIFF, CriticVerdict(True, [], "ok"),
                               goal="g", model_id="m")
@@ -118,7 +125,7 @@ def test_artifact_approved_allows_without_reviewer(tmp_path, monkeypatch, staged
     assert d.allowed and d.source == "artifact"
 
 
-def test_artifact_rejected_still_escalates(tmp_path, monkeypatch, staged):
+def test_artifact_rejected_still_escalates(tmp_path, monkeypatch, staged, calib_ok):
     monkeypatch.setenv(cg._ENFORCE_ENV, "1")
     cg.write_verdict_artifact(tmp_path, _DIFF, CriticVerdict(False, ["bad"]))
     d = _run(cg.check_commit_critic(
@@ -165,3 +172,58 @@ def test_staged_diff_reads_the_index(tmp_path):
     diff = cg.staged_diff(tmp_path)
     assert "f.py" in diff and "+x = 1" in diff
     assert cg.staged_files(tmp_path) == ["f.py"]
+
+
+# ── calibration-gated activation (ADR 0162) ─────────────────────────
+
+
+def test_enforce_blocks_when_no_calibration_record(tmp_path, monkeypatch, staged):
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    # No calibration record written → enforcement is not legitimate.
+    d = _run(cg.check_commit_critic(tmp_path, reviewer=_mock(True)))
+    assert d.allowed is False and d.source == "calibration-unverified"
+    assert "critic-calibrate" in d.reason
+
+
+def test_enforce_blocks_when_calibration_dirty(tmp_path, monkeypatch, staged):
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    cg.write_calibration_record(tmp_path, total=27, false_approve=1,
+                                false_reject=2, accuracy=0.85)  # FA>0 → unsafe
+    d = _run(cg.check_commit_critic(tmp_path, reviewer=_mock(True)))
+    assert d.allowed is False and d.source == "calibration-unverified"
+    assert "false_approve=1" in d.reason
+
+
+def test_override_bypasses_dirty_calibration(tmp_path, monkeypatch, staged):
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    monkeypatch.setenv(cg._OVERRIDE_ENV, "1")
+    cg.write_calibration_record(tmp_path, total=27, false_approve=3,
+                                false_reject=2, accuracy=0.8)
+    d = _run(cg.check_commit_critic(tmp_path, reviewer=_mock(False)))
+    assert d.allowed and d.source == "override"  # operator override is absolute
+
+
+def test_calibration_clean_helper(tmp_path):
+    ok, why = cg.calibration_clean(tmp_path)
+    assert ok is False and "no calibration record" in why
+    cg.write_calibration_record(tmp_path, total=27, false_approve=0,
+                                false_reject=3, accuracy=0.89)
+    ok, why = cg.calibration_clean(tmp_path)
+    assert ok is True and "false_approve=0" in why
+
+
+# ── decision ledger (ADR 0162) ───────────────────────────────────────
+
+
+def test_gate_decisions_are_logged(tmp_path, monkeypatch, staged, calib_ok):
+    import json
+
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    _run(cg.check_commit_critic(tmp_path, reviewer=_mock(True)))            # allow
+    _run(cg.check_commit_critic(
+        tmp_path, reviewer=_mock(False), escalator=_mock(False)))          # block
+    log = (tmp_path / "state" / cg._GATE_LOG).read_text().splitlines()
+    rows = [json.loads(ln) for ln in log]
+    assert len(rows) == 2
+    assert rows[0]["allowed"] is True and rows[0]["approved"] is True
+    assert rows[1]["allowed"] is False and rows[1]["escalation_approved"] is False

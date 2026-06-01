@@ -173,6 +173,13 @@ def _no_provider(monkeypatch):
     monkeypatch.setattr(cg, "_build_reviewer", lambda *a, **k: None)
 
 
+def _clean_calibration(tmp_path):
+    # Enforcement requires a clean calibration record (false_approve == 0).
+    import chimera.core.critic_gate as cg
+    cg.write_calibration_record(tmp_path, total=27, false_approve=0,
+                                false_reject=3, accuracy=0.89)
+
+
 def test_critic_gate_blocks_commit_when_enforced_and_failclosed(tmp_path, monkeypatch):
     monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
     monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
@@ -180,12 +187,33 @@ def test_critic_gate_blocks_commit_when_enforced_and_failclosed(tmp_path, monkey
     _scope_roots_to(monkeypatch, tmp_path)
     _no_provider(monkeypatch)
     _init_repo(tmp_path)
+    _clean_calibration(tmp_path)  # calibration OK → reach the fail-closed reviewer
     (tmp_path / "d.py").write_text("x = 1\n")
     out = _run(git_commit_handler(
         {"message": "land it", "paths": ["d.py"]}, DispatchContext(),
     ))
     assert "refused by a commit gate" in out
     assert "ADR 0162" in out and "needs human review" in out
+
+
+def test_critic_gate_blocks_commit_when_calibration_unverified(tmp_path, monkeypatch):
+    # Enforce ON but NO calibration record → blocked before any review.
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.delenv("CHIMERA_ALLOW_CRITIC_REJECT", raising=False)
+    _scope_roots_to(monkeypatch, tmp_path)
+    _init_repo(tmp_path)
+    (tmp_path / "d.py").write_text("x = 1\n")
+    out = _run(git_commit_handler(
+        {"message": "land it", "paths": ["d.py"]}, DispatchContext(),
+    ))
+    assert "refused by a commit gate" in out
+    assert "critic-calibrate" in out
+    n = subprocess.run(
+        ["git", "rev-list", "--count", "HEAD"], cwd=str(tmp_path),
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert n == "1"
     # No commit landed beyond the seed.
     n = subprocess.run(
         ["git", "rev-list", "--count", "HEAD"], cwd=str(tmp_path),
