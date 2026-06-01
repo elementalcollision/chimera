@@ -125,8 +125,33 @@ verification can get you trustworthy *detection* of faithfulness problems, but
 critic (thrust ③) or a human reviewer. The gate surfaces the deltas precisely so
 that judgment has something concrete to act on.
 
+## Amendment (stateful characterization, 2026-06-01)
+
+The stateful fault validation (`mind/research/validation-stateful-2026-06-01.md`)
+proved the pure-function differential is BLIND on a class whose behaviour depends
+on call SEQUENCE. `chimera/core/stateful_diff.py` closes that gap: `stateful_delta`
+drives a class through a corpus of call SEQUENCES (a `Scenario` = an ordered
+`(method, args)` list) and records a behaviour TRACE — each call's return plus a
+snapshot of the auto-discovered zero-arg observer methods — then compares the
+trace between base and changed source. `auto_scenarios` generates the sequences
+automatically (each mutating method called N times with increasing
+type-appropriate args), so it works without hand-written sequences.
+
+Closes the exact case the validation missed: on `RunningStats` (`self._sum = x`
+vs `+=`), `auto_scenarios` → `add(1,2,3)` → `mean=1.0` (buggy) vs `mean=2.0`
+(correct) — a STATEFUL DELTA the pure corpus could not see.
+`tests/test_stateful_diff.py` (11): catches the accumulation bug (sequence reveals
+it, single-call identical); no delta on identical source; observer discovery;
+never-raise; auto-scenario end-to-end. Honest limits: sample args are heuristic
+(not a general fuzzer); observers must be zero-arg readable methods; this is the
+PRIMITIVE — wiring into `chimera faithfulness` (auto-detect a changed class) and
+covering `AugAssign` in the mutator are the next chips.
+
 ## Next
 
+- Wire `stateful_diff` into `chimera faithfulness` (auto-detect a changed class)
+  and extend the mutator to cover `AugAssign` (the validation showed `+=` is never
+  mutated).
 - A live proof run (fallback off) with the faithfulness step in the INBOX: does
   the agent, told to run `chimera faithfulness`, produce a *faithful* fix (keep
   the clause / add the test) instead of the silent regression?
