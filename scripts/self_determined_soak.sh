@@ -76,13 +76,18 @@ fi
 
 # 3. Build it: run the self-selected soak under enforcement, with the capable ACT
 #    model, the test anchor (if any), and the chosen worktree base.
+# Bind THIS invocation to a UNIQUE worktree path (real_task_soak honours $WORKTREE)
+# so the collector reads our own run — not whatever `ls -t` surfaces, which
+# cross-contaminated results when soaks ran concurrently.
+WT="$REPO/../chimera-soak-realtask-selfdet-$$-$(date -u +%Y%m%d-%H%M%S)"
+export WORKTREE="$WT"
 cmd="$(printf '%s' "$cmd" | sed -E "s|TASK_BASE=\"[^\"]*\"|TASK_BASE=\"$SELF_BASE\"|")"
 [ -n "$sel_test" ] && cmd="TASK_TEST=\"$sel_test\" $cmd"
-log "── launching self-determined soak (enforced, ACT=$ACT_DESC, base=$SELF_BASE) ──"
+log "── launching self-determined soak (enforced, ACT=$ACT_DESC, base=$SELF_BASE, wt=$WT) ──"
 eval "$cmd" >/dev/null 2>&1 || true
 
-# 4. Collect.
-wt="$(ls -dt "$REPO"/../chimera-soak-realtask-* 2>/dev/null | head -1)"
+# 4. Collect — bound to OUR worktree, not `ls -t` (no cross-run race).
+wt="$WT"
 committed="no"; gate="?"; touched="-"; gatelog="(none)"; allowed="no"; approved="-"
 if [ -n "$wt" ] && [ -d "$wt" ]; then
     base="$(cd "$wt" && git rev-parse --abbrev-ref HEAD 2>/dev/null)"
@@ -95,6 +100,12 @@ if [ -n "$wt" ] && [ -d "$wt" ]; then
         grep -q '"allowed": true' "$wt/state/critic-gate-log.jsonl" && allowed="yes"
         approved="$(grep -oE '"approved": (true|false|null)' "$wt/state/critic-gate-log.jsonl" | tail -1)"
     fi
+    # finding-#2 instrument: did check_commit_critic actually run on the commit?
+    if [ -f "$wt/state/critic-gate-debug.jsonl" ]; then
+        gate_invoked="yes ($(grep -c '"event": "enter"' "$wt/state/critic-gate-debug.jsonl") enter)"
+    else
+        gate_invoked="NO (gate never invoked → commit bypassed the gated path)"
+    fi
 fi
 log "── result ──"
 log "  self-selected : $sel_goal"
@@ -102,6 +113,7 @@ log "  committed     : $committed"
 log "  gate (ruff)   : $gate"
 log "  touched       : $touched"
 log "  gate log      : $gatelog   allowed-entry=$allowed   last-$approved"
+log "  gate invoked  : ${gate_invoked:-?}"
 log "  review        : cd $wt && git log -p "$SELF_BASE"..HEAD && cat state/critic-gate-log.jsonl"
 echo
 if [ "${committed%% *}" = "yes" ] && [ "$gate" = "PASS" ] && [ "$allowed" = "yes" ]; then

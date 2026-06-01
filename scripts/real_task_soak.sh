@@ -219,7 +219,10 @@ DESIGN_NOTE="$WORKTREE/mind/research/realtask-${RUN_ID}-design.md"
 design_note > "$DESIGN_NOTE"
 log "scope design note written: mind/research/realtask-${RUN_ID}-design.md (allowlist: $TASK_FILES)"
 
-source "$(dirname "$0")/../scripts/soak_lib.sh" 2>/dev/null || source "$REPO_ROOT/scripts/soak_lib.sh"
+# Source soak_lib from the RUNNER checkout (REPO_ROOT, captured pre-cd), NOT a
+# relative path — after `cd "$WORKTREE"` a relative source loads the worktree's
+# (possibly stale) copy, which silently ran an old soak_lib all session.
+source "$REPO_ROOT/scripts/soak_lib.sh"
 log "$(soak_lib_version)"
 
 phase_loop() {
