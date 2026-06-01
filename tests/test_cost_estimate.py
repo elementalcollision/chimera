@@ -35,12 +35,12 @@ def test_no_history_falls_back_to_tier_typical(db):
     # default_tier=haiku, no research keywords → tier="haiku"
     assert est.tier == "haiku"
     # After v4.53 ladder inversion, "haiku" → deepseek-v4-flash.
-    assert est.model_id == "deepseek/deepseek-v4-flash"
+    assert est.model_id == "openai/gpt-5-nano"
     assert est.used_history is False
     assert est.n_historical_cycles == 0
     assert est.estimated_cycles == 1
     # 8000 input × $0.14/Mtok + 1500 output × $0.28/Mtok = $0.00112 + $0.00042
-    assert est.estimated_usd == pytest.approx(0.00154, abs=0.0001)
+    assert est.estimated_usd == pytest.approx(0.0010, abs=0.0002)
 
 
 def test_research_text_floors_to_sonnet(db):
@@ -56,11 +56,11 @@ def test_research_text_floors_to_sonnet(db):
 
 def test_history_overrides_fallback(db):
     """When api_calls has cycles for the target model, use the median."""
-    # Three cycles on deepseek-v4-flash, varying spend.
+    # Three cycles on the haiku rung-0 model, varying spend.
     for cycle, in_tok in zip((1, 2, 3), (1_000_000, 2_000_000, 3_000_000)):
         record_api_call(
             db, cycle=cycle, provider="openrouter",
-            model_id="deepseek/deepseek-v4-flash",
+            model_id="openai/gpt-5-nano",
             input_tokens=in_tok, output_tokens=0,
         )
     db.commit()
@@ -68,7 +68,7 @@ def test_history_overrides_fallback(db):
     assert est.used_history is True
     assert est.n_historical_cycles == 3
     # Median = 2M tokens × $0.14/Mtok = $0.28.
-    assert est.estimated_usd == pytest.approx(0.28, abs=0.001)
+    assert est.estimated_usd == pytest.approx(0.10, abs=0.001)
 
 
 def test_prior_failures_increase_cycles(db):

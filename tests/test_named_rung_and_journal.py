@@ -35,11 +35,11 @@ def test_resolve_rung_tier_name_returns_cheapest():
 
 def test_resolve_rung_per_rung_alias_short_form():
     """Per-rung alias drops the provider prefix."""
-    rung = resolve_rung("gpt-5-pro")
-    assert rung.config.openrouter_model_id == "openai/gpt-5-pro"
+    rung = resolve_rung("gpt-5.1-codex-max")
+    assert rung.config.openrouter_model_id == "openai/gpt-5.1-codex-max"
 
-    rung = resolve_rung("gemini-3-pro")
-    assert rung.config.openrouter_model_id == "google/gemini-3-pro"
+    rung = resolve_rung("gemini-3.1-pro-preview")
+    assert rung.config.openrouter_model_id == "google/gemini-3.1-pro-preview"
 
     rung = resolve_rung("deepseek-v4-pro")
     assert "deepseek-v4-pro" in rung.config.openrouter_model_id
@@ -49,8 +49,8 @@ def test_resolve_rung_full_model_id_works_too():
     rung = resolve_rung("claude-opus-4-7")
     assert rung.config is OPUS
 
-    rung = resolve_rung("openai/gpt-5-pro")
-    assert rung.config.openrouter_model_id == "openai/gpt-5-pro"
+    rung = resolve_rung("openai/gpt-5.1-codex-max")
+    assert rung.config.openrouter_model_id == "openai/gpt-5.1-codex-max"
 
 
 def test_resolve_rung_unknown_raises():
