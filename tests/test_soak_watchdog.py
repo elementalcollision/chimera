@@ -83,7 +83,10 @@ def test_watchdog_clean_exit_returns_zero(tmp_path: Path) -> None:
     """)
     result = _run(script, env=env)
     assert "RC=0" in result.stdout, result.stdout
-    assert "watchdog" not in log_file.read_text()
+    text = log_file.read_text()
+    # v6: the watchdog logs start/exit lines, but must NOT have FIRED (no kill).
+    assert "killed after" not in text and "KILLED BY SIGNAL" not in text
+    assert "exited cleanly (rc=0)" in text
 
 
 def test_watchdog_nonzero_exit_returns_zero(tmp_path: Path) -> None:
@@ -109,12 +112,56 @@ def test_watchdog_nonzero_exit_returns_zero(tmp_path: Path) -> None:
     """)
     result = _run(script, env=env)
     assert "RC=0" in result.stdout, result.stdout
-    assert "non-zero exit (7)" in log_file.read_text()
+    assert "exited rc=7" in log_file.read_text()  # v6 message
 
 
-def test_soak_lib_version_is_v5() -> None:
+def test_watchdog_logs_heartbeat_while_alive(tmp_path: Path) -> None:
+    """v6: a long-running cycle emits timestamped heartbeats so a live-but-quiet
+    process is distinguishable from a dead one (the session's false-death bug)."""
+    shim_dir = tmp_path / "bin"
+    shim_dir.mkdir()
+    uv_shim = shim_dir / "uv"
+    uv_shim.write_text("#!/usr/bin/env bash\nsleep 8\nexit 0\n")
+    uv_shim.chmod(0o755)
+    worktree = tmp_path / "wt"; worktree.mkdir()
+    log_file = tmp_path / "run.log"; log_file.touch()
+    env = os.environ.copy()
+    env["PATH"] = f"{shim_dir}:{env['PATH']}"
+    env["CHIMERA_RUN_HEARTBEAT_SEC"] = "1"
+    script = textwrap.dedent(f"""
+        source {SOAK_LIB}
+        soak_run_chimera_with_watchdog "{worktree}" "{log_file}" 30
+    """)
+    _run(script, env=env)
+    text = log_file.read_text()
+    assert "heartbeat: pid=" in text and "alive at" in text
+
+
+def test_watchdog_decodes_kill_signal(tmp_path: Path) -> None:
+    """v6: a chimera run killed by a signal (external reap) is logged as such,
+    not as a clean exit — the diagnostic that would have caught the false deaths."""
+    shim_dir = tmp_path / "bin"
+    shim_dir.mkdir()
+    uv_shim = shim_dir / "uv"
+    # Self-SIGKILL after a beat → subshell exits 137 (128+9).
+    uv_shim.write_text("#!/usr/bin/env bash\nsleep 1\nkill -KILL $$\n")
+    uv_shim.chmod(0o755)
+    worktree = tmp_path / "wt"; worktree.mkdir()
+    log_file = tmp_path / "run.log"; log_file.touch()
+    env = os.environ.copy()
+    env["PATH"] = f"{shim_dir}:{env['PATH']}"
+    script = textwrap.dedent(f"""
+        source {SOAK_LIB}
+        soak_run_chimera_with_watchdog "{worktree}" "{log_file}" 30
+    """)
+    _run(script, env=env)
+    text = log_file.read_text()
+    assert "KILLED BY SIGNAL 9" in text and "external reap" in text
+
+
+def test_soak_lib_version_is_v6() -> None:
     result = _run(f"source {SOAK_LIB}; soak_lib_version")
-    assert "v5" in result.stdout, result.stdout
+    assert "v6" in result.stdout, result.stdout
     assert "mind/*" in result.stdout
 
 
