@@ -271,8 +271,30 @@ def record_gate_decision(repo_root: Path, decision: GateDecision) -> None:
         }
         with (d / _GATE_LOG).open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row) + "\n")
-    except OSError:
-        pass
+    except OSError as exc:
+        # No longer swallowed: a silent write failure here would look exactly
+        # like "the gate never ran" (finding #2). Surface it to stderr (→ the
+        # soak runner log) so the two cases are distinguishable.
+        import sys
+        print(f"critic-gate: record_gate_decision write FAILED: {exc}", file=sys.stderr)
+
+
+def gate_trace(repo_root: Path, **fields) -> None:
+    """Unconditional invocation trace → state/critic-gate-debug.jsonl. Answers the
+    finding-#2 question 'did the gate even run?': if a commit lands with no debug
+    'enter' row, the commit bypassed the gated path; if 'enter' is present but the
+    decision log is empty, the decision-write failed. Best-effort + stderr on fail."""
+    import json
+    import sys
+    from datetime import datetime
+    try:
+        d = _artifact_dir(repo_root)
+        d.mkdir(parents=True, exist_ok=True)
+        fields["ts"] = datetime.now().isoformat(timespec="seconds")
+        with (d / "critic-gate-debug.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(fields) + "\n")
+    except OSError as exc:
+        print(f"critic-gate: gate_trace write failed: {exc}", file=sys.stderr)
 
 
 # ── the gate ─────────────────────────────────────────────────────────
@@ -318,6 +340,8 @@ async def check_commit_critic(
     ``reviewer``/``escalator`` are injectable (tests pass mocks); when omitted and
     enforcement is on, defaults are built from the configured providers.
     """
+    gate_trace(repo_root, event="enter", enforce=enforce_enabled(),
+               override=override_active())
     if not enforce_enabled():
         return GateDecision(allowed=True, source="disabled")
 
