@@ -145,3 +145,50 @@ def test_multi_target_all_faithful_exits_zero(monkeypatch, capsys):
     rc = _cli.main(["faithfulness", "--target", "chimera/a.py",
                     "--target", "chimera/b.py", "--test", "tests/t.py"])
     assert rc == 0
+
+
+# ── stateful wiring (chip: stateful_diff in chimera faithfulness) ────
+
+
+_RS_FIXED = (
+    "class RunningStats:\n"
+    "    def __init__(self):\n        self._count=0; self._sum=0.0\n"
+    "    def add(self, x: float):\n        self._sum += x; self._count += 1\n"
+    "    def count(self):\n        return self._count\n"
+    "    def mean(self):\n        return 0.0 if self._count==0 else self._sum/self._count\n"
+)
+_RS_BUGGY = _RS_FIXED.replace("self._sum += x", "self._sum = x")
+
+
+def test_faithfulness_surfaces_stateful_delta(monkeypatch, capsys, tmp_path):
+    """A changed CLASS now gets the stateful differential (the pure corpus is
+    blind on it). The fixed file vs the buggy base shows a STATEFUL DELTA."""
+    from chimera.core import faithfulness as _f
+    monkeypatch.setattr(_f, "assess_faithfulness", lambda *a, **k:
+                        _f.FaithfulnessReport(target="x", baseline_passed=True,
+                                              teeth_score=1.0, mutants_applied=4,
+                                              survived=[], threshold=1.0))
+    # the target on disk = the FIXED class
+    (tmp_path / "chimera").mkdir()
+    (tmp_path / "chimera" / "runstats.py").write_text(_RS_FIXED)
+    monkeypatch.chdir(tmp_path)
+    # git show base:target → the BUGGY source
+    import subprocess as _sub
+
+    class _R:
+        returncode = 0
+        stdout = _RS_BUGGY
+    monkeypatch.setattr(_sub, "run", lambda *a, **k: _R())
+
+    rc = _cli.main(["faithfulness", "--target", "chimera/runstats.py",
+                    "--test", "tests/t.py", "--base", "main", "--strict"])
+    err = capsys.readouterr().err
+    assert "STATEFUL DELTA" in err
+    assert "mean=" in err
+    assert rc == 1   # --strict: the unjustified stateful delta fails the gate
+
+
+def test_top_level_classes_detects_classes():
+    assert _cli._top_level_classes(_RS_FIXED) == ["RunningStats"]
+    assert _cli._top_level_classes("def f(): pass\n") == []
+    assert _cli._top_level_classes("bad(:\n") == []

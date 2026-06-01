@@ -1501,6 +1501,17 @@ def _single_string_arg_functions(source: str) -> list[str]:
     return names
 
 
+def _top_level_classes(source: str) -> list[str]:
+    """Top-level class names — the targets for the stateful differential."""
+    import ast
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    return [n.name for n in tree.body if isinstance(n, ast.ClassDef)]
+
+
 def _faithfulness_one(target, args, *, cwd, test_cmd) -> tuple[bool, bool]:
     """Assess one target: returns (mutation_faithful, has_unjustified_delta).
     Prints the mutation summary and any behaviour delta vs --base."""
@@ -1532,6 +1543,17 @@ def _faithfulness_one(target, args, *, cwd, test_cmd) -> tuple[bool, bool]:
                 if delta.behaviour_changed:
                     any_delta = True
                     print(f"[{target}] {delta.summary()}", file=sys.stderr)
+            # Stateful classes: the pure corpus is blind, so drive each changed
+            # class through auto-generated call sequences (ADR 0159 amendment).
+            from .core.stateful_diff import auto_scenarios, stateful_delta
+            for cls in _top_level_classes(changed_src):
+                scenarios = auto_scenarios(changed_src, cls)
+                if not scenarios:
+                    continue
+                sd = stateful_delta(base_src.stdout, changed_src, cls, scenarios)
+                if sd.behaviour_changed:
+                    any_delta = True
+                    print(f"[{target}] {sd.summary()}", file=sys.stderr)
         else:
             print(f"faithfulness: could not read {target} at {args.base!r} "
                   "for the differential (skipped).", file=sys.stderr)
