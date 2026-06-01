@@ -61,12 +61,11 @@ class LadderRung:
 
 # ── Anthropic tiers (safety-net rungs) ─────────────────────
 #
-# TODO: The ``openrouter_model_id`` mirrors below (``anthropic/claude-*``)
-# need format verification against OpenRouter's current model registry.
-# 2026-05-18 live test showed ``anthropic/claude-haiku-4-5-20251001`` is
-# rejected with "not a valid model ID". The date-suffix variant is likely
-# the issue; OpenRouter probably wants ``anthropic/claude-haiku-4.5`` or
-# similar. Verify before relying on the Anthropic-via-OpenRouter fallback.
+# 2026-06 refresh: the ``openrouter_model_id`` mirrors are now the dotted
+# catalog forms (``anthropic/claude-haiku-4.5`` / ``-sonnet-4.6`` / ``-opus-4.7``),
+# live-verified against OpenRouter. The prior date-suffix IDs
+# (``anthropic/claude-haiku-4-5-20251001``) were rejected as invalid — TODO
+# resolved. See mind/research/model-tier-reeval-2026-06-01.md.
 
 HAIKU = ModelConfig(
     model_id="claude-haiku-4-5-20251001",
@@ -75,7 +74,7 @@ HAIKU = ModelConfig(
     max_calls_per_day=10_000,
     input_cost_per_mtok=0.80,
     output_cost_per_mtok=4.00,
-    openrouter_model_id="anthropic/claude-haiku-4-5-20251001",
+    openrouter_model_id="anthropic/claude-haiku-4.5",
 )
 
 SONNET = ModelConfig(
@@ -85,7 +84,7 @@ SONNET = ModelConfig(
     max_calls_per_day=200,
     input_cost_per_mtok=3.00,
     output_cost_per_mtok=15.00,
-    openrouter_model_id="anthropic/claude-sonnet-4-6",
+    openrouter_model_id="anthropic/claude-sonnet-4.6",
 )
 
 OPUS = ModelConfig(
@@ -95,188 +94,112 @@ OPUS = ModelConfig(
     max_calls_per_day=20,
     input_cost_per_mtok=15.00,
     output_cost_per_mtok=75.00,
-    openrouter_model_id="anthropic/claude-opus-4-7",
+    openrouter_model_id="anthropic/claude-opus-4.7",
 )
 
 MODEL_TIERS: dict[str, ModelConfig] = {"haiku": HAIKU, "sonnet": SONNET, "opus": OPUS}
 
 
-# ── OpenRouter ladder rungs (cheapest → safety-net) ────────
+# ── OpenRouter ladder rungs (2026-06 refresh) ──────────────
+#
+# Re-evaluated live against the OpenRouter catalog (mind/research/
+# model-tier-reeval-2026-06-01.md). Replaces the stale set: google/gemini-3-pro
+# (invalid 400), openai/gpt-5-pro (superseded, priciest gpt-5), deepseek-v4-flash
+# / qwen3.6 / qwen3.5-plus. All rungs below are live-verified tool-capable.
+# NOTE: several are reasoning-optimized — callers MUST budget adequate output
+# tokens (a tiny max_tokens starves them to empty output; see the re-eval doc).
 
-LADDER_DEEPSEEK_V4_FLASH = ModelConfig(
-    model_id="deepseek/deepseek-v4-flash",
-    max_calls_per_minute=20,
-    max_calls_per_hour=200,
-    max_calls_per_day=10_000,
-    input_cost_per_mtok=0.14,
-    output_cost_per_mtok=0.28,
-    provider=Provider.OPENROUTER,
-    openrouter_model_id="deepseek/deepseek-v4-flash",
+# Cheap, reliable workhorses (haiku tier).
+LADDER_GPT5_NANO = ModelConfig(
+    model_id="openai/gpt-5-nano", max_calls_per_minute=20, max_calls_per_hour=400,
+    max_calls_per_day=10_000, input_cost_per_mtok=0.05, output_cost_per_mtok=0.40,
+    provider=Provider.OPENROUTER, openrouter_model_id="openai/gpt-5-nano",
+)
+LADDER_QWEN3_235B = ModelConfig(
+    model_id="qwen/qwen3-235b-a22b-2507", max_calls_per_minute=20,
+    max_calls_per_hour=400, max_calls_per_day=10_000, input_cost_per_mtok=0.071,
+    output_cost_per_mtok=0.10, provider=Provider.OPENROUTER,
+    openrouter_model_id="qwen/qwen3-235b-a22b-2507",
 )
 
-LADDER_QWEN36_FLASH = ModelConfig(
-    model_id="qwen/qwen3.6-flash",
-    max_calls_per_minute=20,
-    max_calls_per_hour=200,
-    max_calls_per_day=10_000,
-    input_cost_per_mtok=0.25,
-    output_cost_per_mtok=1.50,
-    provider=Provider.OPENROUTER,
-    openrouter_model_id="qwen/qwen3.6-flash",
-)
-
+# ACT spread (sonnet tier) — operator-selected diverse, cross-vendor build models.
 LADDER_DEEPSEEK_V4_PRO = ModelConfig(
-    model_id="deepseek/deepseek-v4-pro",
-    max_calls_per_minute=10,
-    max_calls_per_hour=100,
-    max_calls_per_day=2_000,
-    input_cost_per_mtok=0.435,
-    output_cost_per_mtok=0.87,
-    provider=Provider.OPENROUTER,
+    model_id="deepseek/deepseek-v4-pro", max_calls_per_minute=10,
+    max_calls_per_hour=100, max_calls_per_day=2_000, input_cost_per_mtok=0.435,
+    output_cost_per_mtok=0.87, provider=Provider.OPENROUTER,
     openrouter_model_id="deepseek/deepseek-v4-pro",
 )
+LADDER_MINIMAX_M3 = ModelConfig(
+    model_id="minimax/minimax-m3", max_calls_per_minute=10, max_calls_per_hour=100,
+    max_calls_per_day=2_000, input_cost_per_mtok=0.30, output_cost_per_mtok=1.20,
+    provider=Provider.OPENROUTER, openrouter_model_id="minimax/minimax-m3",
+)
+LADDER_GLM_5_1 = ModelConfig(
+    model_id="z-ai/glm-5.1", max_calls_per_minute=10, max_calls_per_hour=100,
+    max_calls_per_day=2_000, input_cost_per_mtok=0.98, output_cost_per_mtok=3.08,
+    provider=Provider.OPENROUTER, openrouter_model_id="z-ai/glm-5.1",
+)
+LADDER_QWEN37_MAX = ModelConfig(
+    model_id="qwen/qwen3.7-max", max_calls_per_minute=10, max_calls_per_hour=100,
+    max_calls_per_day=2_000, input_cost_per_mtok=1.25, output_cost_per_mtok=3.75,
+    provider=Provider.OPENROUTER, openrouter_model_id="qwen/qwen3.7-max",
+)
+LADDER_MISTRAL_MEDIUM = ModelConfig(
+    model_id="mistralai/mistral-medium-3-5", max_calls_per_minute=10,
+    max_calls_per_hour=100, max_calls_per_day=2_000, input_cost_per_mtok=1.50,
+    output_cost_per_mtok=7.50, provider=Provider.OPENROUTER,
+    openrouter_model_id="mistralai/mistral-medium-3-5",
+)
+LADDER_GEMINI_31_PRO = ModelConfig(
+    model_id="google/gemini-3.1-pro-preview", max_calls_per_minute=15,
+    max_calls_per_hour=300, max_calls_per_day=3_000, input_cost_per_mtok=2.00,
+    output_cost_per_mtok=12.00, provider=Provider.OPENROUTER,
+    openrouter_model_id="google/gemini-3.1-pro-preview",
+)
 
-LADDER_QWEN35_PLUS = ModelConfig(
-    model_id="qwen/qwen3.5-plus-20260420",
-    max_calls_per_minute=10,
-    max_calls_per_hour=100,
-    max_calls_per_day=2_000,
-    input_cost_per_mtok=0.40,
-    output_cost_per_mtok=2.40,
-    provider=Provider.OPENROUTER,
-    openrouter_model_id="qwen/qwen3.5-plus-20260420",
+# Specialists (opus tier) — code + tool-optimized.
+LADDER_GPT5_CODEX_MAX = ModelConfig(
+    model_id="openai/gpt-5.1-codex-max", max_calls_per_minute=5,
+    max_calls_per_hour=60, max_calls_per_day=500, input_cost_per_mtok=1.25,
+    output_cost_per_mtok=10.00, provider=Provider.OPENROUTER,
+    openrouter_model_id="openai/gpt-5.1-codex-max",
+)
+LADDER_GEMINI_31_CUSTOMTOOLS = ModelConfig(
+    model_id="google/gemini-3.1-pro-preview-customtools", max_calls_per_minute=15,
+    max_calls_per_hour=300, max_calls_per_day=3_000, input_cost_per_mtok=2.00,
+    output_cost_per_mtok=12.00, provider=Provider.OPENROUTER,
+    openrouter_model_id="google/gemini-3.1-pro-preview-customtools",
 )
 
 
-# ── Tier ladders (Leonardo NVIDIA-free shape) ──────────────
+# ── Tier ladders (cheapest → safety-net) ───────────────────
+_REASON = dict(supports_tools=True, supports_json_mode=True, reasoning_optimized=True)
+_REASON_BIG = dict(_REASON, context_tokens=1_048_576)
 
 HAIKU_LADDER: list[LadderRung] = [
-    LadderRung(
-        config=LADDER_DEEPSEEK_V4_FLASH,
-        capabilities=ModelCapabilities(
-            supports_tools=True, supports_json_mode=True, context_tokens=1_048_576
-        ),
-    ),
-    LadderRung(
-        config=LADDER_QWEN36_FLASH,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            supports_vision=True,
-            context_tokens=1_000_000,
-        ),
-    ),
-    LadderRung(
-        config=HAIKU,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            supports_vision=True,
-            context_tokens=200_000,
-        ),
-    ),
+    LadderRung(LADDER_GPT5_NANO, ModelCapabilities(**dict(_REASON, context_tokens=400_000))),
+    LadderRung(LADDER_QWEN3_235B, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=262_144)),
+    LadderRung(HAIKU, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, context_tokens=200_000)),
 ]
 
+# SONNET_LADDER = the ACT build-loop spread (operator-selected, diverse vendors).
 SONNET_LADDER: list[LadderRung] = [
-    LadderRung(
-        config=LADDER_DEEPSEEK_V4_PRO,
-        capabilities=ModelCapabilities(
-            supports_tools=True, supports_json_mode=True, context_tokens=1_048_576
-        ),
-    ),
-    LadderRung(
-        config=LADDER_QWEN35_PLUS,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            supports_vision=True,
-            context_tokens=1_000_000,
-        ),
-    ),
-    LadderRung(
-        config=SONNET,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            supports_vision=True,
-            context_tokens=200_000,
-        ),
-    ),
+    LadderRung(LADDER_DEEPSEEK_V4_PRO, ModelCapabilities(**_REASON_BIG)),
+    LadderRung(LADDER_MINIMAX_M3, ModelCapabilities(**_REASON_BIG)),
+    LadderRung(LADDER_GLM_5_1, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=202_752)),
+    LadderRung(LADDER_QWEN37_MAX, ModelCapabilities(**dict(_REASON, context_tokens=1_000_000))),
+    LadderRung(LADDER_MISTRAL_MEDIUM, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=262_144)),
+    LadderRung(LADDER_GEMINI_31_PRO, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, reasoning_optimized=True, context_tokens=1_048_576)),
+    LadderRung(SONNET, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, context_tokens=1_000_000)),
 ]
 
-LADDER_OPENAI_GPT5_PRO = ModelConfig(
-    model_id="openai/gpt-5-pro",
-    max_calls_per_minute=5,
-    max_calls_per_hour=60,
-    max_calls_per_day=500,
-    input_cost_per_mtok=2.50,
-    output_cost_per_mtok=10.00,
-    provider=Provider.OPENROUTER,
-    openrouter_model_id="openai/gpt-5-pro",
-)
-
-LADDER_GEMINI_3_PRO = ModelConfig(
-    model_id="google/gemini-3-pro",
-    max_calls_per_minute=15,
-    max_calls_per_hour=300,
-    max_calls_per_day=3_000,
-    input_cost_per_mtok=1.25,
-    output_cost_per_mtok=5.00,
-    provider=Provider.OPENROUTER,
-    openrouter_model_id="google/gemini-3-pro",
-)
-
-
-# OPUS_LADDER (v4.53): Deepseek-v4-pro FIRST. Pre-v4.53 had opus first
-# ("strongest baseline for code generation"), but the 2026-05-19 overnight
-# run burned $229 in 2h on 801 opus calls when escalation memory promoted
-# a fanout-heavy task to tier="opus" — which under the old ordering meant
-# claude-opus-4-7 by default. See [ADR 0072](./0072-cost-runaway-guards.md).
-# The new ordering treats opus as a *reasoning capability tier*, not an
-# "always reach for claude-opus" tier. Deepseek-v4-pro at $0.435/$0.87 per
-# Mtok handles 80% of opus-tier work for 1/34th the cost; claude-opus
-# remains the last-rung safety net when cheaper rungs genuinely fail.
-# Cross-witness critique (ADR 0031) still uses per-rung aliases
-# (``witnesses=("claude-opus-4-7", ...)``) so disagreement room is unchanged.
+# OPUS_LADDER = reasoning/specialist tier: code + tool specialists, opus safety-net.
+# (Cost-runaway history: ADR 0072 — keep claude-opus as the LAST rung, not first.)
 OPUS_LADDER: list[LadderRung] = [
-    LadderRung(
-        config=LADDER_DEEPSEEK_V4_PRO,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            reasoning_optimized=True,
-            context_tokens=1_048_576,
-        ),
-    ),
-    LadderRung(
-        config=LADDER_GEMINI_3_PRO,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            supports_vision=True,
-            reasoning_optimized=True,
-            context_tokens=2_000_000,
-        ),
-    ),
-    LadderRung(
-        config=LADDER_OPENAI_GPT5_PRO,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            reasoning_optimized=True,
-            context_tokens=400_000,
-        ),
-    ),
-    LadderRung(
-        config=OPUS,
-        capabilities=ModelCapabilities(
-            supports_tools=True,
-            supports_json_mode=True,
-            supports_vision=True,
-            reasoning_optimized=True,
-            context_tokens=200_000,
-        ),
-    ),
+    LadderRung(LADDER_DEEPSEEK_V4_PRO, ModelCapabilities(**_REASON_BIG)),
+    LadderRung(LADDER_GPT5_CODEX_MAX, ModelCapabilities(**dict(_REASON, context_tokens=400_000))),
+    LadderRung(LADDER_GEMINI_31_CUSTOMTOOLS, ModelCapabilities(supports_tools=True, supports_json_mode=True, reasoning_optimized=True, context_tokens=1_048_576)),
+    LadderRung(OPUS, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, reasoning_optimized=True, context_tokens=200_000)),
 ]
 
 TIER_LADDERS: dict[str, list[LadderRung]] = {
@@ -324,7 +247,7 @@ def resolve_rung(name: str) -> LadderRung:
             return rung
     raise ValueError(
         f"unknown rung name {name!r}; valid tiers: {list(TIER_LADDERS)}; "
-        f"or pass a model alias like 'gpt-5-pro' / 'claude-opus-4-7'"
+        f"or pass a model alias like 'gpt-5.1-codex-max' / 'claude-opus-4-7'"
     )
 
 

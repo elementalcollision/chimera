@@ -184,7 +184,7 @@ def test_build_panel_no_seed_preserves_declaration_order() -> None:
     )
     assert [m.label for m in panel[:2]] == [
         "openrouter:deepseek-v4-pro",
-        "openrouter:gpt-5-pro",
+        "openrouter:gpt-5.1-codex-max",
     ]
 
 
@@ -486,7 +486,7 @@ def test_v10_fixture_all_panel_members_must_flag() -> None:
     panel = [
         PanelMember("anthropic:sonnet", ProviderKind.ANTHROPIC, "m1"),
         PanelMember("openrouter:deepseek-v4-pro", ProviderKind.OPENROUTER, "m2"),
-        PanelMember("openrouter:gpt-5-pro", ProviderKind.OPENROUTER, "m3"),
+        PanelMember("openrouter:gpt-5.1-codex-max", ProviderKind.OPENROUTER, "m3"),
     ]
     # All three witnesses (simulated) flag the structural defect.
     rejection = (

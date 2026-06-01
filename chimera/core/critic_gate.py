@@ -433,7 +433,7 @@ def _build_reviewer(
 
     ``anthropic_model`` pins the Anthropic provider + that exact model (used for
     the primary, so it matches the calibrated model). ``rung_alias`` resolves a
-    SPECIFIC rung by name/alias (e.g. a cross-vendor ``"gemini-3-pro"``), used by
+    SPECIFIC rung by name/alias (e.g. a cross-vendor ``"gemini-3.1-pro-preview"``), used by
     the escalator to pin a genuinely-different model rather than a tier's cheapest
     (the tier-cheapest rung is what returned empty text in ADR 0162 item-7).
     ``tier`` resolves a tier ladder's cheapest rung (legacy escalator path).
@@ -509,8 +509,8 @@ def _default_reviewer(repo_root: Path, goal: str | None) -> Reviewer:
 #
 # Default now: a different Anthropic model than the sonnet primary, on the
 # proven-reliable provider — so the rescue genuinely fires. Operators wanting
-# true cross-vendor independence can pin a rung alias (e.g. "gemini-3-pro",
-# "gpt-5-pro") via CHIMERA_CRITIC_ESCALATOR_MODEL once they've verified it
+# true cross-vendor independence can pin a rung alias (e.g. "gemini-3.1-pro-preview",
+# "gpt-5.1-codex-max") via CHIMERA_CRITIC_ESCALATOR_MODEL once they've verified it
 # returns parseable text in their config; the PARSEABLE guard in
 # check_commit_critic keeps an empty/unreadable escalation fail-closed either way.
 ESCALATOR_MODEL_ENV = "CHIMERA_CRITIC_ESCALATOR_MODEL"

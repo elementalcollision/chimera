@@ -91,7 +91,7 @@ async def cross_critique(
     db: sqlite3.Connection,
     cycle: int,
     witnesses: Sequence[str] = (
-        "claude-opus-4-7", "gpt-5-pro", "gemini-3-pro",
+        "claude-opus-4-7", "gpt-5.1-codex-max", "gemini-3.1-pro-preview",
     ),
     max_tokens: int = 2048,
 ) -> CrossCritiqueResult:

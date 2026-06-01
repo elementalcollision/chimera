@@ -138,8 +138,8 @@ _DEFAULT_PANEL: tuple[PanelMember, ...] = (
         "deepseek/deepseek-v4-pro", context_tokens=1_048_576,
     ),
     PanelMember(
-        "openrouter:gpt-5-pro", ProviderKind.OPENROUTER,
-        "openai/gpt-5-pro", context_tokens=400_000,
+        "openrouter:gpt-5.1-codex-max", ProviderKind.OPENROUTER,
+        "openai/gpt-5.1-codex-max", context_tokens=400_000,
     ),
     # v4.111 additions — operator-selected for additional gradient
     # diversity across soaks. Same OpenRouter provider kind; rotation

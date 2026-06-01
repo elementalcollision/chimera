@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import sqlite3
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,25 @@ from ..tools import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _forced_anthropic_rung(model_id: str) -> LadderRung:
+    """A synthetic tool-capable rung pinned to the Anthropic provider + ``model_id``
+    (CHIMERA_ACT_FORCE_MODEL). Reuses a known tier's limits/costs when the model
+    matches one; otherwise applies conservative defaults. Always Anthropic, since
+    the OpenRouter rungs are the unreliable ones this knob exists to bypass."""
+    from ..providers.tiers import MODEL_TIERS, ModelCapabilities, ModelConfig
+
+    base = next((c for c in MODEL_TIERS.values() if c.model_id == model_id), None)
+    if base is not None:
+        cfg = replace(base, provider=ProviderKind.ANTHROPIC)
+    else:
+        cfg = ModelConfig(
+            model_id=model_id, max_calls_per_minute=50, max_calls_per_hour=1000,
+            max_calls_per_day=5000, input_cost_per_mtok=3.0,
+            output_cost_per_mtok=15.0, provider=ProviderKind.ANTHROPIC,
+        )
+    return LadderRung(config=cfg, capabilities=ModelCapabilities(supports_tools=True))
 
 
 _CONTINUATION_HEAD = 800
@@ -2280,6 +2300,15 @@ class ActExecutor:
     # ── execution ──────────────────────────────────────────
 
     def _pick_rung(self, *, requires_tools: bool) -> LadderRung:
+        # CHIMERA_ACT_FORCE_MODEL pins ACT to a specific, reliable Anthropic model
+        # instead of the ladder's cheapest-first rung. The self-determination soaks
+        # (create/self-determine roadmap) showed the cheap OpenRouter rungs return
+        # empty/weak completions here, so the agent cannot converge on test-less
+        # targets. This knob lets a soak run ACT on a capable model (e.g. the
+        # critic's claude-sonnet-4-6) without rewiring the whole ladder.
+        forced = os.environ.get("CHIMERA_ACT_FORCE_MODEL")
+        if forced:
+            return _forced_anthropic_rung(forced)
         return select_rung(self._tier, requires_tools=requires_tools)
 
     def _provider_for(self, rung: LadderRung) -> Provider | None:

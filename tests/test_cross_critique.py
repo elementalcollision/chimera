@@ -56,8 +56,8 @@ def test_default_witnesses_span_three_providers():
     assert default is not None
     names = list(default)
     assert "claude-opus-4-7" in names
-    assert "gpt-5-pro" in names
-    assert "gemini-3-pro" in names
+    assert "gpt-5.1-codex-max" in names
+    assert "gemini-3.1-pro-preview" in names
     # Three distinct rungs from three distinct providers.
     from chimera.providers import resolve_rung
     providers = {resolve_rung(n).config.provider for n in names}
