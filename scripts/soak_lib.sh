@@ -234,10 +234,20 @@ soak_run_chimera_with_watchdog() {
         return 2
     fi
 
+    # Diagnostics chip: a long agent cycle (e.g. a slow LLM call) writes nothing
+    # to the log for tens of seconds, which is indistinguishable from a dead
+    # process when an observer can't see the process table (sandboxed `ps`).
+    # Emit a timestamped HEARTBEAT each poll so liveness is unambiguous from the
+    # log alone — and decode the EXIT cause (clean rc vs killed-by-signal) so an
+    # external reap (SIGHUP/SIGTERM/SIGKILL) is distinguishable from a normal
+    # non-zero exit. ``CHIMERA_RUN_HEARTBEAT_SEC`` (default 15) controls cadence.
     ( cd "$worktree" && uv run chimera run ) >> "$log_file" 2>&1 &
     local pid=$!
     local elapsed=0
     local poll_sec=5
+    local hb_sec="${CHIMERA_RUN_HEARTBEAT_SEC:-15}"
+    local next_hb="$hb_sec"
+    echo "  watchdog: chimera run started pid=$pid (idle_timeout=${idle_timeout}s, hb=${hb_sec}s)" >> "$log_file"
 
     while kill -0 "$pid" 2>/dev/null; do
         if [ "$elapsed" -ge "$idle_timeout" ]; then
@@ -249,14 +259,26 @@ soak_run_chimera_with_watchdog() {
             echo "$msg" | tee -a "$log_file"
             return 1
         fi
+        if [ "$elapsed" -ge "$next_hb" ]; then
+            echo "  watchdog heartbeat: pid=$pid alive at ${elapsed}s ($(date -u +%H:%M:%S))" >> "$log_file"
+            next_hb=$((next_hb + hb_sec))
+        fi
         sleep "$poll_sec"
         elapsed=$((elapsed + poll_sec))
     done
 
     wait "$pid" 2>/dev/null
     local rc=$?
-    if [ "$rc" -ne 0 ]; then
-        echo "  chimera run non-zero exit ($rc) (engine skips and gate denials are normal)" >> "$log_file"
+    if [ "$rc" -gt 128 ]; then
+        local sig=$((rc - 128))
+        local nm="SIG${sig}"
+        case "$sig" in 1) nm="SIGHUP";; 2) nm="SIGINT";; 9) nm="SIGKILL";;
+            15) nm="SIGTERM";; esac
+        echo "  watchdog: chimera run pid=$pid KILLED BY SIGNAL ${sig} (${nm}) at ${elapsed}s — external reap, NOT a clean exit" >> "$log_file"
+    elif [ "$rc" -ne 0 ]; then
+        echo "  watchdog: chimera run exited rc=$rc at ${elapsed}s (engine skips and gate denials are normal)" >> "$log_file"
+    else
+        echo "  watchdog: chimera run exited cleanly (rc=0) at ${elapsed}s" >> "$log_file"
     fi
     return 0
 }
@@ -267,5 +289,5 @@ soak_run_chimera_with_watchdog() {
 # Print the lib version. Runners log this so post-mortems can correlate
 # soak behavior with the lib revision when the lib changes shape.
 soak_lib_version() {
-    echo "soak_lib.sh v5 — phase1 verify-green sentinel for real-task soak (B1 Chip 3); mind/* journal auto-allow (v19-v25)"
+    echo "soak_lib.sh v6 — watchdog heartbeat + signal-decoded exit (early-death diagnostics); phase1 verify-green sentinel; mind/* journal auto-allow"
 }
