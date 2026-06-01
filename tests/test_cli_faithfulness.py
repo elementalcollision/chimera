@@ -105,3 +105,43 @@ def test_real_strcase_is_under_verified_via_verb(capsys):
     out = capsys.readouterr().out
     assert rc == 1  # the green suite under-verifies strcase
     assert "UNDER-VERIFIED" in out
+
+
+# ── multi-file (chip: multi-target faithfulness) ─────────────────────
+
+
+def test_multi_target_faithful_only_if_all_pass(monkeypatch, capsys):
+    """A multi-file change is faithful only if EVERY target is mutation-clean."""
+    from chimera.core import faithfulness as _f
+
+    calls = {}
+
+    def fake(path, *a, **k):
+        # first target faithful, second not
+        name = str(path)
+        good = "good.py" in name
+        calls[name] = good
+        return _f.FaithfulnessReport(
+            target=name, baseline_passed=True,
+            teeth_score=1.0 if good else 0.4, mutants_applied=4,
+            survived=[] if good else ["binop Sub→Add"], threshold=1.0,
+        )
+
+    monkeypatch.setattr(_f, "assess_faithfulness", fake)
+    rc = _cli.main(["faithfulness", "--target", "chimera/good.py",
+                    "--target", "chimera/bad.py", "--test", "tests/t.py"])
+    out = capsys.readouterr().out
+    assert "[chimera/good.py]" in out and "[chimera/bad.py]" in out
+    assert rc == 1                       # one bad → whole change unfaithful
+    assert len(calls) == 2               # both files assessed
+
+
+def test_multi_target_all_faithful_exits_zero(monkeypatch, capsys):
+    from chimera.core import faithfulness as _f
+    monkeypatch.setattr(_f, "assess_faithfulness", lambda path, *a, **k:
+                        _f.FaithfulnessReport(target=str(path), baseline_passed=True,
+                                              teeth_score=1.0, mutants_applied=3,
+                                              survived=[], threshold=1.0))
+    rc = _cli.main(["faithfulness", "--target", "chimera/a.py",
+                    "--target", "chimera/b.py", "--test", "tests/t.py"])
+    assert rc == 0
