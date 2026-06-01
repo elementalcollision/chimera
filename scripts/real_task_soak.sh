@@ -66,13 +66,18 @@ GATE_VERIFY_CMD="uv run chimera verify${GATE_RUFF} ${GATE_TEST_ARG}"
 # FIRST changed file. Toward no-contract verification — the agent must not pass
 # the suite by leaving behaviour unpinned or silently deleting untested branches.
 # Only meaningful with a TASK_TEST; targets one file (single-file maintenance).
-FAITH_TARGET="$(printf '%s\n' $TASK_FILES | head -1)"
+# Faithfulness + critic cover EVERY changed file (multi-file changes are
+# faithful only if all files are). Build --target args over all TASK_FILES.
+TARGET_ARGS=""
+for f in $TASK_FILES; do TARGET_ARGS="$TARGET_ARGS --target $f"; done
 FAITH_CMD=""
-[ -n "$TASK_TEST" ] && FAITH_CMD="uv run chimera faithfulness --target ${FAITH_TARGET} --test ${TASK_TEST} --base ${TASK_BASE}"
-# Cross-model critic (ADR 0160): adjudicates faithfulness before the commit —
-# the judgment the gates can't make. Advisory in-loop (fail-closed), surfaced
-# so the agent addresses concerns; the operator sees the verdict at review.
-REVIEW_CMD="uv run chimera review --target ${FAITH_TARGET} --base ${TASK_BASE} --goal \"${TASK_GOAL}\""
+# shellcheck disable=SC2086
+[ -n "$TASK_TEST" ] && FAITH_CMD="uv run chimera faithfulness${TARGET_ARGS} --test ${TASK_TEST} --base ${TASK_BASE}"
+# Cross-model critic (ADR 0160): adjudicates faithfulness across all files before
+# the commit — the judgment the gates can't make. Advisory in-loop (fail-closed),
+# surfaced so the agent addresses concerns; the operator sees the verdict.
+# shellcheck disable=SC2086
+REVIEW_CMD="uv run chimera review${TARGET_ARGS} --base ${TASK_BASE} --goal \"${TASK_GOAL}\""
 [ -n "$TASK_TEST" ] && REVIEW_CMD="${REVIEW_CMD} --test ${TASK_TEST}"
 
 PHASE1_CAP_USD="${PHASE1_CAP_USD:-2.50}"
@@ -138,7 +143,7 @@ Iterate edit → \`chimera verify\` → read failures → fix, until it prints
   files in SCOPE below. Run \`${GATE_VERIFY_CMD}\` and keep fixing until it
   exits 0 (\`PASS\`).
 - [ ] **Prove the change is FAITHFUL, not just green.** Run
-  \`${FAITH_CMD:-uv run chimera faithfulness --target $FAITH_TARGET --test <test>}\`.
+  \`${FAITH_CMD:-uv run chimera faithfulness --target <file> --test <test>}\`.
   A passing suite is not enough: (a) kill every surviving mutant it reports by
   adding a discriminating test (the behaviour is otherwise unpinned), and (b)
   for every behaviour delta vs the base, confirm a failing test DEMANDED it —

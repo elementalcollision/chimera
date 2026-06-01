@@ -184,8 +184,9 @@ def _build_parser() -> argparse.ArgumentParser:
                "--strict. Blind spots are derived from the code, not a spec.",
     )
     faith.add_argument(
-        "--target", required=True, metavar="FILE",
-        help="The changed source file to assess (e.g. chimera/strcase.py).",
+        "--target", required=True, action="append", metavar="FILE",
+        help="A changed source file to assess; repeatable. A multi-file change "
+             "is faithful only if EVERY target is.",
     )
     faith.add_argument(
         "--test", required=True, metavar="TARGET",
@@ -222,8 +223,9 @@ def _build_parser() -> argparse.ArgumentParser:
                "unreadable verdict, or no provider. Feeds the critic the diff, "
                "the touched code's docstring, and the faithfulness report.",
     )
-    review.add_argument("--target", required=True, metavar="FILE",
-                        help="The changed source file.")
+    review.add_argument("--target", required=True, action="append", metavar="FILE",
+                        help="A changed source file; repeatable. The critic "
+                             "reviews the diff across ALL targets.")
     review.add_argument("--base", required=True, metavar="REF",
                         help="Git ref the diff/behaviour is measured against.")
     review.add_argument("--test", default=None, metavar="TARGET",
@@ -1499,64 +1501,71 @@ def _single_string_arg_functions(source: str) -> list[str]:
     return names
 
 
-def _cmd_faithfulness(args) -> int:
-    """`chimera faithfulness` — is a change's behaviour pinned by the suite?
-
-    Mutation teeth (under-tested logic) is exit-affecting; the differential vs
-    --base (deleted behaviour) is advisory unless --strict. Both signals are
-    derived from the code, not a human contract (ADR 0159).
-    """
+def _faithfulness_one(target, args, *, cwd, test_cmd) -> tuple[bool, bool]:
+    """Assess one target: returns (mutation_faithful, has_unjustified_delta).
+    Prints the mutation summary and any behaviour delta vs --base."""
     import subprocess
-    from pathlib import Path
 
     from .core.differential import behavioral_delta, default_string_corpus
     from .core.faithfulness import assess_faithfulness
 
-    cwd = Path.cwd()
-    test_cmd = ["uv", "run", "--extra", "dev", "pytest", "-q", args.test]
-
     report = assess_faithfulness(
-        cwd / args.target, test_cmd, cwd=cwd,
-        threshold=args.threshold, max_mutants=args.max_mutants,
-        timeout=args.timeout,
+        cwd / target, test_cmd, cwd=cwd, threshold=args.threshold,
+        max_mutants=args.max_mutants, timeout=args.timeout,
     )
-    print(report.summary())
-    exit_code = 0 if report.faithful else 1
-
+    print(f"[{target}] {report.summary()}")
+    any_delta = False
     if args.base:
         try:
             base_src = subprocess.run(
-                ["git", "show", f"{args.base}:{args.target}"],
+                ["git", "show", f"{args.base}:{target}"],
                 cwd=str(cwd), capture_output=True, text=True, timeout=30,
             )
         except (subprocess.TimeoutExpired, OSError):
             base_src = None
-        changed_src = (cwd / args.target).read_text(encoding="utf-8")
         if base_src is not None and base_src.returncode == 0:
-            any_delta = False
+            changed_src = (cwd / target).read_text(encoding="utf-8")
             for fn in _single_string_arg_functions(changed_src):
                 delta = behavioral_delta(
                     base_src.stdout, changed_src, fn, default_string_corpus(),
                 )
                 if delta.behaviour_changed:
                     any_delta = True
-                    print(delta.summary(), file=sys.stderr)
-            if any_delta:
-                print(
-                    "\nNote: each behaviour delta must be a change a failing "
-                    "test demanded — otherwise it is a silent regression to "
-                    "revert or pin with a test.",
-                    file=sys.stderr,
-                )
-                if args.strict:
-                    exit_code = 1
+                    print(f"[{target}] {delta.summary()}", file=sys.stderr)
         else:
-            print(
-                f"faithfulness: could not read {args.target} at {args.base!r} "
-                "for the differential (skipped).",
-                file=sys.stderr,
-            )
+            print(f"faithfulness: could not read {target} at {args.base!r} "
+                  "for the differential (skipped).", file=sys.stderr)
+    return report.faithful, any_delta
 
+
+def _cmd_faithfulness(args) -> int:
+    """`chimera faithfulness` — is a change's behaviour pinned by the suite?
+
+    Accepts one or more --target files (a multi-file change is faithful only if
+    EVERY file is). Mutation teeth (under-tested logic) is exit-affecting; the
+    differential vs --base (deleted behaviour) is advisory unless --strict. Both
+    signals are derived from the code, not a human contract (ADR 0159).
+    """
+    from pathlib import Path
+
+    cwd = Path.cwd()
+    test_cmd = ["uv", "run", "--extra", "dev", "pytest", "-q", args.test]
+    targets = args.target if isinstance(args.target, list) else [args.target]
+
+    all_faithful = True
+    any_delta = False
+    for target in targets:
+        faithful, delta = _faithfulness_one(target, args, cwd=cwd, test_cmd=test_cmd)
+        all_faithful = all_faithful and faithful
+        any_delta = any_delta or delta
+
+    if any_delta:
+        print("\nNote: each behaviour delta must be a change a failing test "
+              "demanded — otherwise it is a silent regression to revert or pin "
+              "with a test.", file=sys.stderr)
+    exit_code = 0 if all_faithful else 1
+    if any_delta and args.strict:
+        exit_code = 1
     return exit_code
 
 
@@ -1581,9 +1590,9 @@ def _function_docstrings(source: str) -> str:
     return "\n\n".join(out)
 
 
-def _faithfulness_context(target: str, base: str, test: str | None) -> str:
+def _faithfulness_context(targets: list[str], base: str, test: str | None) -> str:
     """Assemble the machine-derived faithfulness report (mutation + differential)
-    as text for the critic."""
+    across ALL changed files, as text for the critic."""
     import subprocess
     from pathlib import Path
 
@@ -1592,27 +1601,29 @@ def _faithfulness_context(target: str, base: str, test: str | None) -> str:
 
     cwd = Path.cwd()
     lines: list[str] = []
-    if test:
-        rep = assess_faithfulness(
-            cwd / target, ["uv", "run", "--extra", "dev", "pytest", "-q", test],
-            cwd=cwd, threshold=1.0, max_mutants=40,
-        )
-        lines.append(rep.summary())
-    try:
-        base_src = subprocess.run(
-            ["git", "show", f"{base}:{target}"], cwd=str(cwd),
-            capture_output=True, text=True, timeout=30,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        base_src = None
-    changed_src = (cwd / target).read_text(encoding="utf-8")
-    if base_src is not None and base_src.returncode == 0:
-        for fn in _single_string_arg_functions(changed_src):
-            delta = behavioral_delta(
-                base_src.stdout, changed_src, fn, default_string_corpus(),
+    for target in targets:
+        if test:
+            rep = assess_faithfulness(
+                cwd / target,
+                ["uv", "run", "--extra", "dev", "pytest", "-q", test],
+                cwd=cwd, threshold=1.0, max_mutants=40,
             )
-            if delta.behaviour_changed:
-                lines.append(delta.summary())
+            lines.append(f"[{target}] {rep.summary()}")
+        try:
+            base_src = subprocess.run(
+                ["git", "show", f"{base}:{target}"], cwd=str(cwd),
+                capture_output=True, text=True, timeout=30,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            base_src = None
+        if base_src is not None and base_src.returncode == 0:
+            changed_src = (cwd / target).read_text(encoding="utf-8")
+            for fn in _single_string_arg_functions(changed_src):
+                delta = behavioral_delta(
+                    base_src.stdout, changed_src, fn, default_string_corpus(),
+                )
+                if delta.behaviour_changed:
+                    lines.append(f"[{target}] {delta.summary()}")
     return "\n".join(lines) or "(no faithfulness signals)"
 
 
@@ -1633,15 +1644,18 @@ def _cmd_review(args) -> int:
     from .providers.tiers import select_rung
 
     cwd = Path.cwd()
+    targets = args.target if isinstance(args.target, list) else [args.target]
     diff = subprocess.run(
-        ["git", "diff", args.base, "--", args.target], cwd=str(cwd),
+        ["git", "diff", args.base, "--", *targets], cwd=str(cwd),
         capture_output=True, text=True, timeout=30,
     ).stdout
     if not diff.strip():
         print("chimera review: empty diff — nothing to adjudicate.", file=sys.stderr)
         return 1
-    docstring = _function_docstrings((cwd / args.target).read_text(encoding="utf-8"))
-    faithfulness = _faithfulness_context(args.target, args.base, args.test)
+    docstring = "\n\n".join(
+        _function_docstrings((cwd / t).read_text(encoding="utf-8")) for t in targets
+    )
+    faithfulness = _faithfulness_context(targets, args.base, args.test)
 
     loop = ChimeraLoop()
     providers = loop._act.providers if loop._act is not None else {}
