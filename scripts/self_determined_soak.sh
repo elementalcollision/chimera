@@ -44,14 +44,20 @@ done
 [ -n "$sel_test" ] && log "  test anchor: $sel_test" \
     || log "  test anchor: (none — verify --ruff is the only anchor)"
 
-# Worktree base: must contain a capable ACT loop. Default main; override with
-# SELF_BASE to a branch carrying CHIMERA_ACT_FORCE_MODEL support before it lands.
+# Worktree base for the soak (default main, which now carries the refreshed
+# tier ladders). Override with SELF_BASE to test an unmerged branch.
 SELF_BASE="${SELF_BASE:-main}"
 
-# 2. Enforcement ON + a CAPABLE ACT model (the cheap ladder rung returns empty
-#    here, so the agent can't converge). Genuine self-commit only.
+# 2. Enforcement ON. ACT model: by DEFAULT use the refreshed `sonnet` spread
+#    ladder (deepseek-v4-pro → minimax → glm → qwen → mistral → gemini → claude),
+#    so the build loop exercises the operator-selected diverse models. Pin a
+#    single model only if the operator explicitly sets CHIMERA_ACT_FORCE_MODEL.
 export CHIMERA_CRITIC_ENFORCE=1
-export CHIMERA_ACT_FORCE_MODEL="${CHIMERA_ACT_FORCE_MODEL:-claude-sonnet-4-6}"
+ACT_DESC="spread ladder (sonnet tier)"
+if [ -n "${CHIMERA_ACT_FORCE_MODEL:-}" ]; then
+    export CHIMERA_ACT_FORCE_MODEL
+    ACT_DESC="pinned $CHIMERA_ACT_FORCE_MODEL"
+fi
 export CHIMERA_SOAK_AUTOCOMMIT="0"
 export PHASE1_CAP_USD="${PHASE1_CAP_USD:-3.00}"
 export PHASE2_CAP_USD="${PHASE2_CAP_USD:-1.50}"
@@ -72,7 +78,7 @@ fi
 #    model, the test anchor (if any), and the chosen worktree base.
 cmd="$(printf '%s' "$cmd" | sed -E "s|TASK_BASE=\"[^\"]*\"|TASK_BASE=\"$SELF_BASE\"|")"
 [ -n "$sel_test" ] && cmd="TASK_TEST=\"$sel_test\" $cmd"
-log "── launching self-determined soak (enforced, ACT=$CHIMERA_ACT_FORCE_MODEL, base=$SELF_BASE) ──"
+log "── launching self-determined soak (enforced, ACT=$ACT_DESC, base=$SELF_BASE) ──"
 eval "$cmd" >/dev/null 2>&1 || true
 
 # 4. Collect.

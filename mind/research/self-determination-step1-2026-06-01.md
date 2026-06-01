@@ -63,3 +63,42 @@ real work) and the **enforcement** layer (the gate, proven separately), but the
 **end-to-end self-directed BUILD** is not yet demonstrated on test-less tasks in
 this config — ACT cannot converge. No result was fabricated; the failed runs are
 recorded here. Nothing reached `main`.
+
+## Update (post model-tier refresh, 2026-06-01 PM) — the REAL bottleneck
+
+After the model-tier refresh (#236) + the harness tweak (default to the ACT
+spread, no force-pin), a re-run on a tractable, TEST-ANCHORED self-pick
+(`chimera/server/kfm_tool.py`, 2 ruff findings, `tests/test_kfm_tool.py`) finally
+surfaced the actual blocker in the runner log:
+
+```
+tool dispatch failed: shell
+PermissionError: command 'bash' not in shell allow-list
+  (allow-list: awk cat comm date diff du echo file find git grep head ls mkdir
+   pwd python3 sed sort stat tail test uniq uv wc which — NO bash/sh)
+```
+
+**The build loop stalls because the agent reaches for `bash`/`sh` to run commands,
+and the shell allow-list blocks it** — it burns ACT rounds on blocked dispatches
+(consistent with the earlier $0.02/600s, 0-completed stalls). The first cli.py run
+hit the identical thing with `sh`. This reproduces across different models and
+tasks, so it is NOT model identity, NOT token starvation, NOT file size. The
+`percent()` soak passed precisely because that fix was edit-based + `uv run`,
+never tempting a shell wrapper.
+
+**Determination on Workstream A (max_tokens floor): NOT the fix.** ACT already
+budgets 8192 tokens (sonnet tier) — far above the starvation threshold — and the
+critic runs on non-reasoning Claude. Token starvation was a red herring for the
+ACT loop. Workstream A is at most a low-priority *preventive* floor for future
+low-budget callers; it does not unblock self-determined builds.
+
+**The real fix direction (next):** the `bash`/`sh` allow-list mismatch. Options:
+1. Prompt/guide the agent to use allowed binaries directly (`uv run ruff …`,
+   `sed`, …) rather than wrapping in `bash -c`.
+2. Allow `bash`/`sh` for the soak ACT under the existing scope/critic guards
+   (weakens the allow-list — needs care).
+3. Prefer edit-based self-selected tasks (the proven `percent()` shape) over
+   shell-heavy ruff cleanups.
+
+**Soak-infra caveat:** some background-launched soaks also die in early setup in
+this detached environment; the validation is more reliable run interactively.
