@@ -101,8 +101,8 @@ if [ -n "$wt" ] && [ -d "$wt" ]; then
     [ -n "$sha" ] && committed="yes ($sha)"
     touched="$(cd "$wt" && git diff --name-only "$base"..HEAD 2>/dev/null | grep -E 'chimera/' | tr '\n' ' ')"
     gate="$(cd "$wt" && uv run chimera verify --ruff "$MOD_A" --ruff "$MOD_B" --test "$TEST" 2>&1 | tail -1 | grep -oE 'PASS|FAIL' || echo '?')"
-    (cd "$wt" && git show "HEAD:$MOD_A" 2>/dev/null | grep -qE '\+ 32|\* 9 / 5 \+ 32') && a_ok="yes" || a_ok="NO"
-    (cd "$wt" && git show "HEAD:$MOD_B" 2>/dev/null | grep -qE '- 32') && b_ok="yes" || b_ok="NO"
+    (cd "$wt" && git show "HEAD:$MOD_A" 2>/dev/null | grep -qE -- '\+ ?32') && a_ok="yes" || a_ok="NO"
+    (cd "$wt" && git show "HEAD:$MOD_B" 2>/dev/null | grep -qE -- '- ?32') && b_ok="yes" || b_ok="NO"
 fi
 log "── result: committed=$committed gate=$gate tempc_fixed=$a_ok tempf_fixed=$b_ok ──"
 log "   touched: $touched"
