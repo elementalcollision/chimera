@@ -301,6 +301,9 @@ Manual-handoff: after the commit the runner stops with the branch in the
 worktree — NO auto-push/PR/merge.
 INBOX_EOF
 log "phase-2 INBOX seeded"
+# Diagnostic (finding #2): record whether the in-loop critic gate will actually
+# engage on the agent's commit — its two preconditions, visible in the log.
+log "  critic-gate state: CHIMERA_CRITIC_ENFORCE=${CHIMERA_CRITIC_ENFORCE:-<unset>}  calibration_record=$([ -f "$WORKTREE_STATE/critic-calibration-latest.json" ] && echo present || echo MISSING)"
 phase_loop "phase2" "$PHASE2_CAP_USD" "$P2_ISO" "1"
 
 log "── branch commits (expect 1 [agent] commit) ──"
