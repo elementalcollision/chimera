@@ -145,6 +145,42 @@ and stateful); false-rejects cluster on suspicious-looking-but-correct
 simplifications (safe).** The number to keep watching as the set grows is the
 false-approve rate; it remains 0.
 
+## Amendment (fourth run — near-miss expansion to 27 cases, 2026-06-01)
+
+The set grew to **27 cases** specifically to hunt the *first false-approve*. The
+11 new cases target the critic's hardest region: regressions whose wrongness the
+differential CANNOT see. The CamelCase corpus has no whitespace, no `u_`
+prefixes, and only single-`_` strings, so a near-miss regression produces a
+faithfulness report **byte-identical to its correct sibling** — verified for 4 of
+the 5 new reject pairs (`last_seg-firstsplit`, `palindrome-dropcase`,
+`strip_prefix-lstrip`, and the stateful `movingmax-last`, whose increasing-arg
+scenario can't distinguish last-from-max). On those cases the critic has *only*
+the diff + docstring to go on; a false-approve would surface here first.
+
+**Result (`claude-sonnet-4-6`): 89% accuracy, 0% false-approve (0/12), 20%
+false-reject (3/15).** The 0% false-approve rate **held across all 12 reject
+cases**, including all 5 new near-misses and the 4 differential-blind ones — the
+critic adjudicated every one correctly from intent alone. **No first
+false-approve appeared, even on the hardest probes we could construct.**
+
+**Honest new finding — the conservative bias has a measurable cost.** The third
+false-reject is `last_seg-correct`, a *clean fix* (`s.rsplit('_', 1)[-1]`), not
+merely a suspicious simplification — and it is differential-blind, so the critic
+rejected a correct change it could not corroborate. The two prior false-rejects
+(`count_upper-equiv`, `is_screaming-simplify`) recurred. Reading: when the
+differential gives no signal, the critic defaults toward rejection — safe for a
+gate (ships nothing bad) but it **will block some correct work**. This is the
+key input to in-loop enforcement design: a *blocking* gate must pair the
+critic's reject with an escape hatch (escalate / second-opinion / agent-revise),
+not a hard stop, or it will waste correct fixes whenever the differential is
+blind.
+
+**Trust-ledger reading: false-approve 0/12 across 27 diverse cases (gaming,
+stateful, and 4 differential-blind pure-judgment near-misses); false-rejects are
+all on the safe side but now include one clean fix, confirming a real
+conservative cost.** The false-approve rate remains 0 — the trust number to gate
+on; the false-reject cost is the design constraint enforcement must absorb.
+
 - **Grow the calibration set** to ~20–30 cases incl. subtle/near-miss changes;
   track the false-approve rate as the trust metric.
 - Wire `review_change` into the real-task loop as a post-fix acceptance step:
