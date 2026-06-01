@@ -218,17 +218,82 @@ Landed:
 
 **Deferred to a follow-up chip (honest scope):**
 
-- **Item 4 — `soak_autocommit.py` gating.** The ADR 0148 autocommit fallback is
-  NOT yet gated. This is acceptable for the genuine-self-commit enforcement
-  scenario (those soaks run `CHIMERA_SOAK_AUTOCOMMIT=0`, so there is no autocommit
-  path), but enforce-ON + autocommit-ON is currently a hole. Must close before
-  enforce is used with autocommit.
-- **Item 5 — ledger record + `chimera doctor` preflight.** Decisions are not yet
-  persisted to the soak ledger, and `doctor` does not yet refuse enforce when the
-  latest calibration false-approve > 0. The calibration-gated-activation
-  invariant is documented but not yet mechanically enforced.
-- **Item 7 — the live operator validation run** (enforce ON vs the `isdigit`
-  regression) remains the falsification step, pending operator authorization.
+- ~~Item 7 — the live operator validation run.~~ **Done — see the amendment below.**
+
+## Amendment (follow-up — both commit paths gated, calibration-gated activation made mechanical, 2026-06-01)
+
+Items 4 and 5 are now closed; the implemented surface is whole except the live run.
+
+- **Item 4 — autocommit path gated.** `soak_autocommit.autocommit_if_ready` now
+  runs `check_commit_critic` before the fallback `git commit` (new
+  `CRITIC_BLOCKED` status), inert unless `CHIMERA_CRITIC_ENFORCE=1`. **Both**
+  commit routes — the agent's `git_commit` tool AND the ADR 0148 harness
+  autocommit — are now gated, so enforce-ON has no path around the critic.
+- **Item 5a — calibration-gated activation is now mechanical.** `chimera
+  critic-calibrate` persists its result to `state/critic-calibration-latest.json`
+  (`write_calibration_record`); `check_commit_critic` refuses to enforce (blocks
+  with `source="calibration-unverified"`) against a missing or dirty record
+  (`calibration_clean`); and `chimera doctor` carries a `critic_enforcement`
+  check that is an **error** (so `assert_no_errors` / boot validation refuses)
+  when enforce is ON but the latest calibration has false-approve > 0 or no
+  record. The operator override (`CHIMERA_ALLOW_CRITIC_REJECT=1`) bypasses the
+  calibration gate too — it is the absolute escape.
+- **Item 5b — decision ledger.** Every gate decision (allow/block, source,
+  diff-hash, escalation outcome) is appended to `state/critic-gate-log.jsonl`
+  (`record_gate_decision`, best-effort), so the live loop accumulates the
+  verdict-vs-outcome history ADR 0160 asked for.
+
+Tests added: `test_critic_gate.py` (+8: calibration-gated activation, override
+bypass, the `calibration_clean` helper, decision logging); `test_soak_autocommit.py`
+(+3: autocommit blocked / override-allowed / inert-when-off);
+`test_doctor.py` (+4: the `critic_enforcement` check across off / on-without /
+on-clean / on-dirty). Full suite green (2046 passed).
+
+## Amendment (item 7 — live validation PASS + the model-mismatch it caught, 2026-06-01)
+
+`scripts/validation_enforcement.sh` drives the canonical silent regression and a
+faithful fix through the REAL gate with the LIVE critic (temp repo; never touches
+main). Record: `mind/research/validation-enforcement-2026-06-01.md`.
+
+**Result — PASS.** With enforce ON + a clean calibration record, on
+`claude-sonnet-4-6`:
+
+- the `isdigit`-dropped `to_snake` (the gate-PASSING regression the first soak
+  accepted) was **BLOCKED** — *"the new condition only triggers on
+  `s[i-1].islower()`, silently dropping the digit branch … explicitly called out
+  in the docstring as intended behaviour";*
+- the faithful `(islower() or isdigit())` fix was **ALLOWED** — *"aligns the
+  implementation exactly with the documented intent … no behaviour … is removed
+  or regressed."*
+
+So the falsifiable claim holds: **enforcement stops the canonical silent
+regression from landing autonomously, and passes a faithful fix** — the first
+time the loop refuses its own commit.
+
+**The run earned its keep by FAILING first.** The gate's default reviewer
+resolved via `select_rung("sonnet")` to an OpenRouter model that returns empty
+text — **not** the `claude-sonnet-4-6` the calibration's 0%-false-approve was
+measured on. So the calibration-gated-activation invariant was bound to the wrong
+model, and empty responses fail-closed-rejected the clean fix. **Fix:** the gate's
+PRIMARY reviewer now pins the Anthropic provider + `CALIBRATED_MODEL =
+claude-sonnet-4-6` (the model `chimera critic-calibrate --model` defaults to);
+the calibration record stores the model id. Re-run → PASS. *Lesson worth keeping:
+"the critic" is a specific model; the trust number and the gate must name the
+same one, or the gate is running on unvalidated judgment.*
+
+**Escalator hardening (follow-up, now in this chip).** The item-7 run showed the
+escalator rung returning empty text. Two things are now true: (1) the rescue path
+has a **load-bearing PARSEABLE guard** — `escalation.approved AND escalation.parsed`
+— so an empty/unreadable escalation can never rescue a reject (fail-closed can
+never silently become fail-open); and (2) the consulted escalator model is
+recorded in the gate-log (`escalator_model`, `escalation_parsed`) for audit.
+Tests: `test_unparseable_escalation_does_not_rescue_reject`,
+`test_parseable_escalation_approve_rescues_reject`,
+`test_escalator_model_recorded_in_log`. **Remaining honest residual:** in *this*
+provider config the escalator rung still returns empty, so the rescue is inert
+(safe — a primary reject just stands); realising the false-reject rescue needs a
+reliable cross-vendor model wired to the escalator. The guard ensures that until
+then, the gate degrades to "primary reject = block", never to a false-approve.
 
 ## References
 

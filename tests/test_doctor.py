@@ -803,3 +803,41 @@ def test_worktree_branch_drift_ok_and_warn(tmp_path, monkeypatch, branch, expect
     from pathlib import Path
     r = _check_main_worktree_branch_drift(tmp_path)
     assert r.status == expected_status
+
+
+# ── ADR 0162: critic-enforcement calibration-gated activation ────────
+
+
+def test_critic_enforcement_ok_when_off(monkeypatch):
+    monkeypatch.delenv("CHIMERA_CRITIC_ENFORCE", raising=False)
+    r = _by_name(run_checks(), "critic_enforcement")
+    assert r.status == "ok" and "off" in r.message
+
+
+def test_critic_enforcement_error_when_on_without_calibration(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.chdir(tmp_path)  # no state/critic-calibration-latest.json here
+    r = _by_name(run_checks(), "critic_enforcement")
+    assert r.status == "error" and "critic-calibrate" in r.message
+    with pytest.raises(ConfigError):
+        assert_no_errors(run_checks())
+
+
+def test_critic_enforcement_ok_when_on_with_clean_calibration(monkeypatch, tmp_path):
+    from chimera.core.critic_gate import write_calibration_record
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.chdir(tmp_path)
+    write_calibration_record(tmp_path, total=27, false_approve=0,
+                             false_reject=3, accuracy=0.89)
+    r = _by_name(run_checks(), "critic_enforcement")
+    assert r.status == "ok" and "false_approve=0" in r.message
+
+
+def test_critic_enforcement_error_when_calibration_dirty(monkeypatch, tmp_path):
+    from chimera.core.critic_gate import write_calibration_record
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.chdir(tmp_path)
+    write_calibration_record(tmp_path, total=27, false_approve=2,
+                             false_reject=1, accuracy=0.8)
+    r = _by_name(run_checks(), "critic_enforcement")
+    assert r.status == "error" and "false_approve=2" in r.message

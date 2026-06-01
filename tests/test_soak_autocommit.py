@@ -136,3 +136,45 @@ def test_fail_safe_on_non_repo(tmp_path):
     (tmp_path / "deliverable.py").write_text("x = 1\n")
     status = autocommit_if_ready(tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD)
     assert status in {"error", NOTHING_TO_COMMIT}
+
+
+# ── ADR 0162: the critic gate also guards the harness autocommit path ──
+
+
+def test_autocommit_blocked_by_critic_gate_when_enforced(tmp_path, monkeypatch):
+    import chimera.core.critic_gate as cg
+    from chimera.soak_autocommit import CRITIC_BLOCKED
+
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.delenv("CHIMERA_ALLOW_CRITIC_REJECT", raising=False)
+    monkeypatch.setattr(cg, "_build_reviewer", lambda *a, **k: None)  # fail-closed
+    cg.write_calibration_record(tmp_path, total=27, false_approve=0,
+                                false_reject=3, accuracy=0.89)
+    _init_repo(tmp_path)
+    (tmp_path / "deliverable.py").write_text("x = 1\n")
+    status = autocommit_if_ready(tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD)
+    assert status == CRITIC_BLOCKED
+    assert _agent_subjects(tmp_path) == []  # no commit landed
+
+
+def test_autocommit_proceeds_with_override(tmp_path, monkeypatch):
+    import chimera.core.critic_gate as cg
+
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.setenv("CHIMERA_ALLOW_CRITIC_REJECT", "1")  # operator override
+    monkeypatch.setattr(cg, "_build_reviewer", lambda *a, **k: None)
+    _init_repo(tmp_path)
+    (tmp_path / "deliverable.py").write_text("x = 1\n")
+    assert autocommit_if_ready(
+        tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD) == COMMITTED
+
+
+def test_autocommit_inert_when_not_enforced(tmp_path, monkeypatch):
+    import chimera.core.critic_gate as cg
+
+    monkeypatch.delenv("CHIMERA_CRITIC_ENFORCE", raising=False)
+    monkeypatch.setattr(cg, "_build_reviewer", lambda *a, **k: None)
+    _init_repo(tmp_path)
+    (tmp_path / "deliverable.py").write_text("x = 1\n")
+    assert autocommit_if_ready(
+        tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD) == COMMITTED

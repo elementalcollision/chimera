@@ -1806,6 +1806,22 @@ def _cmd_critic_calibrate(args) -> int:
 
     result = run_on_persistent_loop(run_calibration(default_cases(), _review))
     print(result.summary())
+
+    # ADR 0162: persist the result so the in-loop critic gate can verify the
+    # calibration-gated-activation invariant (enforce only while false-approve==0)
+    # and `chimera doctor` can surface it. Best-effort — never fail the verb.
+    try:
+        from pathlib import Path as _Path
+
+        from .core.critic_gate import write_calibration_record
+        write_calibration_record(
+            _Path.cwd(), total=result.total, false_approve=result.false_approve,
+            false_reject=result.false_reject, accuracy=result.accuracy,
+            model=args.model,
+        )
+    except Exception:
+        pass
+
     return 0 if result.false_approve == 0 else 1
 
 

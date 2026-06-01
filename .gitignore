@@ -42,3 +42,6 @@ state/*
 
 # Scenario-spawned peer Chimera state
 peer_chimera/
+
+# CodeGraph local index (machine-local SQLite knowledge graph)
+.codegraph/
