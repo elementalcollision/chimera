@@ -326,6 +326,21 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
                 "export CHIMERA_ALLOW_OFF_CHARTER_COMMIT=1"
             ) from exc
 
+        # ADR 0162: in-loop critic gate — the LAST commit gate, judgment on top
+        # of the deterministic scope/trust gates above. OFF unless
+        # CHIMERA_CRITIC_ENFORCE=1 (so this is inert by default). It adjudicates
+        # the staged change faithful before letting the commit land; a block
+        # raises PermissionError with the concerns + the operator override, the
+        # same shape as the scope-check refusal above.
+        from chimera.core.critic_gate import check_commit_critic, enforce_enabled
+        if enforce_enabled():
+            decision = await check_commit_critic(
+                resolve_repo_root(_resolve_cwd(args.get("cwd"))),
+                goal=os.environ.get("CHIMERA_TASK_GOAL"),
+            )
+            if not decision.allowed:
+                raise PermissionError(decision.reason)
+
     # Resolve the program to a real path; reject if not found.
     resolved = shutil.which(program)
     if resolved is None:
