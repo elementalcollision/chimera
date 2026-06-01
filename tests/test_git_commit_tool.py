@@ -161,3 +161,64 @@ def test_register_core_tools_includes_git_commit():
     schemas = {s["function"]["name"] for s in reg.schemas()}
     assert "git_commit" in schemas
     assert "shell" in schemas  # sanity: core set still present
+
+
+# ── ADR 0162: the in-loop critic gate, through the real commit path ──
+
+
+def _no_provider(monkeypatch):
+    # Force the gate's reviewer/escalator builder to find no provider, so the
+    # fail-closed path is exercised hermetically (no live LLM).
+    import chimera.core.critic_gate as cg
+    monkeypatch.setattr(cg, "_build_reviewer", lambda *a, **k: None)
+
+
+def test_critic_gate_blocks_commit_when_enforced_and_failclosed(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.delenv("CHIMERA_ALLOW_CRITIC_REJECT", raising=False)
+    _scope_roots_to(monkeypatch, tmp_path)
+    _no_provider(monkeypatch)
+    _init_repo(tmp_path)
+    (tmp_path / "d.py").write_text("x = 1\n")
+    out = _run(git_commit_handler(
+        {"message": "land it", "paths": ["d.py"]}, DispatchContext(),
+    ))
+    assert "refused by a commit gate" in out
+    assert "ADR 0162" in out and "needs human review" in out
+    # No commit landed beyond the seed.
+    n = subprocess.run(
+        ["git", "rev-list", "--count", "HEAD"], cwd=str(tmp_path),
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert n == "1"
+
+
+def test_critic_gate_override_allows_commit(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.setenv("CHIMERA_CRITIC_ENFORCE", "1")
+    monkeypatch.setenv("CHIMERA_ALLOW_CRITIC_REJECT", "1")  # operator escape valve
+    _scope_roots_to(monkeypatch, tmp_path)
+    _no_provider(monkeypatch)
+    _init_repo(tmp_path)
+    (tmp_path / "d.py").write_text("x = 1\n")
+    out = _run(git_commit_handler(
+        {"message": "land it", "paths": ["d.py"]}, DispatchContext(),
+    ))
+    assert out.startswith("committed:")
+    assert _head_subject(tmp_path) == "[agent] land it"
+
+
+def test_critic_gate_inert_when_not_enforced(tmp_path, monkeypatch):
+    # Default (no CHIMERA_CRITIC_ENFORCE): the gate must not touch the commit,
+    # even with no provider — proves the feature is off-by-default.
+    monkeypatch.setenv("CHIMERA_ENGINES_ENABLED", "1")
+    monkeypatch.delenv("CHIMERA_CRITIC_ENFORCE", raising=False)
+    _scope_roots_to(monkeypatch, tmp_path)
+    _no_provider(monkeypatch)
+    _init_repo(tmp_path)
+    (tmp_path / "d.py").write_text("x = 1\n")
+    out = _run(git_commit_handler(
+        {"message": "land it", "paths": ["d.py"]}, DispatchContext(),
+    ))
+    assert out.startswith("committed:")

@@ -186,6 +186,50 @@ flags) becomes a recorded, reviewable event rather than a silent miss.
    a clean fix — which must pass. The falsifiable claim is "enforcement stops the
    canonical silent regression from landing autonomously."
 
+## Amendment (implementation — gate primitive + self-commit path, 2026-06-01)
+
+**Status → Accepted** for the implemented surface; two items deferred (below).
+
+Landed:
+
+- **`chimera/core/critic_gate.py`** — `check_commit_critic(repo_root, *, goal,
+  reviewer=None, escalator=None)` with the full decision logic: enforce switch
+  (off by default), operator override short-circuit, staged-diff hashing,
+  hash-bound verdict-artifact load (`load_verdict_artifact` —
+  absent/mismatch/corrupt → recompute), authoritative recompute fallback
+  (diff + docstrings, no faithfulness report — which the calibration showed the
+  critic does not need), and **reject-requires-confirmation** via an independent
+  escalator. `reviewer`/`escalator` are injectable (sync tests use mocks; the
+  defaults build real cross-model reviewers — sonnet for the primary, opus for
+  the independent second opinion). Fail-closed throughout: no provider / unparsed
+  verdict / no escalation → block with "needs human review", never a silent pass.
+- **`chimera review`** writes the hash-keyed verdict artifact (item 2), bound to
+  `git diff --cached` so the gate can accept it without recomputing; a no-op when
+  nothing is staged (so `git add` before `chimera review` to hit the fast path).
+- **`shell.py`** calls the gate as the LAST commit gate, after the ADR 0146 scope
+  check, behind `CHIMERA_CRITIC_ENFORCE` (item 3) — covering the agent's
+  `git_commit` tool (genuine self-commit) path.
+- **Tests** (item 6): `tests/test_critic_gate.py` (13) — every decision branch
+  with injected reviewers + the artifact roundtrip/mismatch/corruption + a
+  real-index `staged_diff`; `tests/test_git_commit_tool.py` (+3) — the gate
+  through the real commit path: fail-closed **block**, operator-override
+  **allow**, and **inert when not enforced** (proves off-by-default). Full suite
+  green (2033 passed).
+
+**Deferred to a follow-up chip (honest scope):**
+
+- **Item 4 — `soak_autocommit.py` gating.** The ADR 0148 autocommit fallback is
+  NOT yet gated. This is acceptable for the genuine-self-commit enforcement
+  scenario (those soaks run `CHIMERA_SOAK_AUTOCOMMIT=0`, so there is no autocommit
+  path), but enforce-ON + autocommit-ON is currently a hole. Must close before
+  enforce is used with autocommit.
+- **Item 5 — ledger record + `chimera doctor` preflight.** Decisions are not yet
+  persisted to the soak ledger, and `doctor` does not yet refuse enforce when the
+  latest calibration false-approve > 0. The calibration-gated-activation
+  invariant is documented but not yet mechanically enforced.
+- **Item 7 — the live operator validation run** (enforce ON vs the `isdigit`
+  regression) remains the falsification step, pending operator authorization.
+
 ## References
 
 - [ADR 0160](./0160-internal-critic.md) — the internal critic + the calibration

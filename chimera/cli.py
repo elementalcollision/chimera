@@ -1701,6 +1701,20 @@ def _cmd_review(args) -> int:
     print(verdict.summary())
     if verdict.rationale and verdict.approved:
         print(verdict.rationale)
+
+    # ADR 0162: persist a verdict artifact bound to the STAGED diff hash, so the
+    # in-loop critic gate can accept it at commit time without recomputing. Keyed
+    # by `git diff --cached` (what the gate checks) — so `git add` your change
+    # before `chimera review` to hit the fast path; otherwise the gate recomputes
+    # authoritatively at commit. A no-op when nothing is staged.
+    try:
+        from .core.critic_gate import staged_diff, write_verdict_artifact
+        sd = staged_diff(cwd)
+        if sd.strip():
+            write_verdict_artifact(cwd, sd, verdict, goal=args.goal, model_id=model_id)
+    except Exception:  # artifact is an optimization — never fail the verb over it
+        pass
+
     return 0 if verdict.approved else 1
 
 
