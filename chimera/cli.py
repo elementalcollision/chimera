@@ -1817,6 +1817,7 @@ def _cmd_critic_calibrate(args) -> int:
         write_calibration_record(
             _Path.cwd(), total=result.total, false_approve=result.false_approve,
             false_reject=result.false_reject, accuracy=result.accuracy,
+            model=args.model,
         )
     except Exception:
         pass

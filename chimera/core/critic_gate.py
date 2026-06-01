@@ -191,6 +191,7 @@ def write_calibration_record(
     false_approve: int,
     false_reject: int,
     accuracy: float,
+    model: str = "",
 ) -> Path:
     import json
 
@@ -202,6 +203,7 @@ def write_calibration_record(
         "false_approve": int(false_approve),
         "false_reject": int(false_reject),
         "accuracy": float(accuracy),
+        "model": model,
     }, indent=2), encoding="utf-8")
     return p
 
@@ -232,7 +234,9 @@ def calibration_clean(repo_root: Path) -> tuple[bool, str]:
     if fa > 0:
         return False, (f"latest calibration has false_approve={fa} (>0) — "
                        "enforcement is unsafe until that is 0")
-    return True, f"calibration clean (false_approve=0, {rec.get('total')} cases)"
+    model = rec.get("model") or "?"
+    return True, (f"calibration clean (false_approve=0, {rec.get('total')} cases, "
+                  f"model={model})")
 
 
 # ── decision ledger (ADR 0162) ───────────────────────────────────────
@@ -389,9 +393,29 @@ def _docstrings_for_staged(repo_root: Path) -> str:
     return "\n\n".join(out)
 
 
-def _build_reviewer(repo_root: Path, goal: str | None, tier: str) -> Reviewer | None:
-    """Build a reviewer at the given tier from the configured providers, or None
-    if none is available (the gate treats None as 'no second opinion')."""
+# The model the calibration ledger (ADR 0160) actually measures — `chimera
+# critic-calibrate --model` defaults to it. The gate's PRIMARY reviewer MUST use
+# this same model, or the calibration-gated-activation invariant is meaningless
+# (we would be gating on a false-approve rate measured for a different model).
+# The live validation (ADR 0162 item 7) caught exactly this: select_rung("sonnet")
+# resolved to an OpenRouter model that returns empty text, so the gate was both
+# off-model and fail-closing clean fixes.
+CALIBRATED_MODEL = "claude-sonnet-4-6"
+
+
+def _build_reviewer(
+    repo_root: Path,
+    goal: str | None,
+    *,
+    anthropic_model: str | None = None,
+    tier: str | None = None,
+) -> Reviewer | None:
+    """Build a reviewer from the configured providers, or None if unavailable.
+
+    ``anthropic_model`` pins the Anthropic provider + that exact model (used for
+    the primary, so it matches the calibrated model). ``tier`` instead resolves a
+    ladder rung (used for the escalator, to get a genuinely different model).
+    """
     from .critic import review_change
 
     try:
@@ -403,14 +427,20 @@ def _build_reviewer(repo_root: Path, goal: str | None, tier: str) -> Reviewer | 
         providers = loop._act.providers if loop._act is not None else {}
         if not providers:
             return None
-        rung = select_rung(tier)
-        provider = providers.get(rung.config.provider)
-        if provider is None:
-            return None
-        model_id = (
-            rung.config.model_id if rung.config.provider is ProviderKind.ANTHROPIC
-            else rung.config.openrouter_model_id
-        )
+        if anthropic_model is not None:
+            provider = providers.get(ProviderKind.ANTHROPIC)
+            if provider is None:
+                return None
+            model_id = anthropic_model
+        else:
+            rung = select_rung(tier or "sonnet")
+            provider = providers.get(rung.config.provider)
+            if provider is None:
+                return None
+            model_id = (
+                rung.config.model_id if rung.config.provider is ProviderKind.ANTHROPIC
+                else rung.config.openrouter_model_id
+            )
     except Exception:
         return None
 
@@ -426,7 +456,11 @@ def _build_reviewer(repo_root: Path, goal: str | None, tier: str) -> Reviewer | 
 
 
 def _default_reviewer(repo_root: Path, goal: str | None) -> Reviewer:
-    r = _build_reviewer(repo_root, goal, "sonnet")
+    # Primary = the SAME model the calibration validated (Anthropic), so the
+    # measured false-approve rate actually applies to what the gate runs.
+    r = _build_reviewer(repo_root, goal, anthropic_model=CALIBRATED_MODEL)
+    if r is None:  # no Anthropic provider → fall back to a ladder rung
+        r = _build_reviewer(repo_root, goal, tier="sonnet")
     if r is not None:
         return r
 
@@ -441,7 +475,7 @@ def _default_reviewer(repo_root: Path, goal: str | None) -> Reviewer:
 
 
 def _default_escalator(repo_root: Path, goal: str | None) -> Reviewer | None:
-    # Independent second opinion: a different tier (opus) for cross-checking a
-    # reject. With a single provider this is a weaker independence than a
-    # different vendor — disclosed in ADR 0162.
-    return _build_reviewer(repo_root, goal, "opus")
+    # Independent second opinion for a REJECT: a genuinely different model than
+    # the primary — prefer a cross-vendor ladder rung. If none is available the
+    # gate has no rescue path and a primary reject stands (fail-closed, safe).
+    return _build_reviewer(repo_root, goal, tier="opus")

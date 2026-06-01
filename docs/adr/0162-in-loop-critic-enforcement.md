@@ -218,8 +218,7 @@ Landed:
 
 **Deferred to a follow-up chip (honest scope):**
 
-- **Item 7 — the live operator validation run** (enforce ON vs the `isdigit`
-  regression) remains the falsification step, pending operator authorization.
+- ~~Item 7 — the live operator validation run.~~ **Done — see the amendment below.**
 
 ## Amendment (follow-up — both commit paths gated, calibration-gated activation made mechanical, 2026-06-01)
 
@@ -249,6 +248,47 @@ bypass, the `calibration_clean` helper, decision logging); `test_soak_autocommit
 (+3: autocommit blocked / override-allowed / inert-when-off);
 `test_doctor.py` (+4: the `critic_enforcement` check across off / on-without /
 on-clean / on-dirty). Full suite green (2046 passed).
+
+## Amendment (item 7 — live validation PASS + the model-mismatch it caught, 2026-06-01)
+
+`scripts/validation_enforcement.sh` drives the canonical silent regression and a
+faithful fix through the REAL gate with the LIVE critic (temp repo; never touches
+main). Record: `mind/research/validation-enforcement-2026-06-01.md`.
+
+**Result — PASS.** With enforce ON + a clean calibration record, on
+`claude-sonnet-4-6`:
+
+- the `isdigit`-dropped `to_snake` (the gate-PASSING regression the first soak
+  accepted) was **BLOCKED** — *"the new condition only triggers on
+  `s[i-1].islower()`, silently dropping the digit branch … explicitly called out
+  in the docstring as intended behaviour";*
+- the faithful `(islower() or isdigit())` fix was **ALLOWED** — *"aligns the
+  implementation exactly with the documented intent … no behaviour … is removed
+  or regressed."*
+
+So the falsifiable claim holds: **enforcement stops the canonical silent
+regression from landing autonomously, and passes a faithful fix** — the first
+time the loop refuses its own commit.
+
+**The run earned its keep by FAILING first.** The gate's default reviewer
+resolved via `select_rung("sonnet")` to an OpenRouter model that returns empty
+text — **not** the `claude-sonnet-4-6` the calibration's 0%-false-approve was
+measured on. So the calibration-gated-activation invariant was bound to the wrong
+model, and empty responses fail-closed-rejected the clean fix. **Fix:** the gate's
+PRIMARY reviewer now pins the Anthropic provider + `CALIBRATED_MODEL =
+claude-sonnet-4-6` (the model `chimera critic-calibrate --model` defaults to);
+the calibration record stores the model id. Re-run → PASS. *Lesson worth keeping:
+"the critic" is a specific model; the trust number and the gate must name the
+same one, or the gate is running on unvalidated judgment.*
+
+**Honest residual.** The ESCALATOR (independent second opinion for a reject)
+still resolves to the OpenRouter rung, which returns empty here → fail-closed.
+That is SAFE (a primary reject stands; never a false-approve), but the
+**false-reject *rescue* path is inert** in this provider config — a lone
+over-cautious reject is not actually overruled until a reliable, genuinely
+cross-vendor escalator is wired and asserted to return parseable text. Follow-up
+work; it does not affect the two validated cases (A: primary rejects; B: primary
+approves).
 
 ## References
 
