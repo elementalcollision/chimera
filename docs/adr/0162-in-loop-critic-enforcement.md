@@ -281,14 +281,19 @@ the calibration record stores the model id. Re-run → PASS. *Lesson worth keepi
 "the critic" is a specific model; the trust number and the gate must name the
 same one, or the gate is running on unvalidated judgment.*
 
-**Honest residual.** The ESCALATOR (independent second opinion for a reject)
-still resolves to the OpenRouter rung, which returns empty here → fail-closed.
-That is SAFE (a primary reject stands; never a false-approve), but the
-**false-reject *rescue* path is inert** in this provider config — a lone
-over-cautious reject is not actually overruled until a reliable, genuinely
-cross-vendor escalator is wired and asserted to return parseable text. Follow-up
-work; it does not affect the two validated cases (A: primary rejects; B: primary
-approves).
+**Escalator hardening (follow-up, now in this chip).** The item-7 run showed the
+escalator rung returning empty text. Two things are now true: (1) the rescue path
+has a **load-bearing PARSEABLE guard** — `escalation.approved AND escalation.parsed`
+— so an empty/unreadable escalation can never rescue a reject (fail-closed can
+never silently become fail-open); and (2) the consulted escalator model is
+recorded in the gate-log (`escalator_model`, `escalation_parsed`) for audit.
+Tests: `test_unparseable_escalation_does_not_rescue_reject`,
+`test_parseable_escalation_approve_rescues_reject`,
+`test_escalator_model_recorded_in_log`. **Remaining honest residual:** in *this*
+provider config the escalator rung still returns empty, so the rescue is inert
+(safe — a primary reject just stands); realising the false-reject rescue needs a
+reliable cross-vendor model wired to the escalator. The guard ensures that until
+then, the gate degrades to "primary reject = block", never to a false-approve.
 
 ## References
 

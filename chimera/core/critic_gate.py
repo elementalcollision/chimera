@@ -18,8 +18,10 @@ Design (see ADR 0162):
   showed the critic does not need: it caught every differential-blind near-miss
   on diff+docstring alone). The commit is never allowed on an unreviewed diff.
 - **Reject-requires-confirmation.** A REJECT is not a hard stop: an independent
-  second reviewer is consulted, and the commit is blocked ONLY if it also
-  rejects. This absorbs the measured ~20% false-reject (incl. a clean fix the
+  second reviewer (a different, reliable model — see ``_default_escalator``) is
+  consulted, and the commit is blocked unless that escalator returns a PARSEABLE
+  approval. An empty/unreadable escalation cannot rescue (fail-closed holds).
+  This absorbs the measured ~20% false-reject (incl. a clean fix the
   differential couldn't corroborate) without moving the 0% false-approve side.
 - **Fail-closed.** An unparseable/errored verdict is NOT approval → it routes to
   the reject/escalate path, ending in a block-with-handoff, never a silent pass.
@@ -61,6 +63,7 @@ class GateDecision:
     escalation: CriticVerdict | None = None
     diff_sha: str = ""
     escalated: bool = field(default=False)
+    escalator_model: str = ""      # the model id consulted on the rescue path (auditability)
 
 
 # ── enforcement switches ─────────────────────────────────────────────
@@ -261,6 +264,10 @@ def record_gate_decision(repo_root: Path, decision: GateDecision) -> None:
             "escalation_approved": (
                 None if decision.escalation is None else decision.escalation.approved
             ),
+            "escalation_parsed": (
+                None if decision.escalation is None else decision.escalation.parsed
+            ),
+            "escalator_model": decision.escalator_model or None,
         }
         with (d / _GATE_LOG).open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row) + "\n")
@@ -277,11 +284,18 @@ def _block_reason(verdict: CriticVerdict, escalation: CriticVerdict | None) -> s
         "was adjudicated NOT faithful.",
         f"  critic: {verdict.summary()}",
     ]
-    if escalation is not None:
+    if escalation is not None and escalation.parsed:
         parts.append(f"  second opinion (independent): {escalation.summary()}")
         parts.append("  Both reviewers rejected — this is very likely a real "
                      "regression. Address the concern (restore the behaviour or "
                      "pin it with a test), then re-commit.")
+    elif escalation is not None:
+        # Escalation ran but returned empty/unparseable text: per the fail-closed
+        # charter it cannot rescue a reject (only a PARSEABLE approve overrules).
+        parts.append(f"  second opinion (independent): {escalation.summary()}")
+        parts.append("  The independent escalation could not be read (empty or "
+                     "unparseable), so it cannot overrule the reject — the "
+                     "fail-closed default holds: needs human review.")
     else:
         parts.append("  No independent second opinion was available, so the "
                      "fail-closed default holds: needs human review.")
@@ -352,12 +366,16 @@ async def check_commit_critic(
     # 2. Reject → require confirmation by an INDEPENDENT second reviewer.
     if escalator is None:
         escalator = _default_escalator(repo_root, goal)
+    escalator_model = getattr(escalator, "model_id", "") if escalator is not None else ""
     escalation = await escalator(diff) if escalator is not None else None
-    if escalation is not None and escalation.approved:
+    if escalation is not None and escalation.approved and escalation.parsed:
         # A lone over-cautious reject, overruled — the false-reject rescue path.
+        # The PARSEABLE guard is load-bearing: an empty/unreadable escalation
+        # (ADR 0162 item-7 surfaced an OpenRouter rung returning empty text)
+        # must NOT rescue, or fail-closed would silently become fail-open.
         d = GateDecision(
             allowed=True, source=source, verdict=verdict, escalation=escalation,
-            diff_sha=sha, escalated=True,
+            diff_sha=sha, escalated=True, escalator_model=escalator_model,
             reason="critic rejected but an independent second opinion approved "
                    "(false-reject overruled).",
         )
@@ -366,7 +384,7 @@ async def check_commit_critic(
 
     d = GateDecision(
         allowed=False, source=source, verdict=verdict, escalation=escalation,
-        diff_sha=sha, escalated=escalation is not None,
+        diff_sha=sha, escalated=escalation is not None, escalator_model=escalator_model,
         reason=_block_reason(verdict, escalation),
     )
     record_gate_decision(repo_root, d)
@@ -409,19 +427,26 @@ def _build_reviewer(
     *,
     anthropic_model: str | None = None,
     tier: str | None = None,
+    rung_alias: str | None = None,
 ) -> Reviewer | None:
     """Build a reviewer from the configured providers, or None if unavailable.
 
     ``anthropic_model`` pins the Anthropic provider + that exact model (used for
-    the primary, so it matches the calibrated model). ``tier`` instead resolves a
-    ladder rung (used for the escalator, to get a genuinely different model).
+    the primary, so it matches the calibrated model). ``rung_alias`` resolves a
+    SPECIFIC rung by name/alias (e.g. a cross-vendor ``"gemini-3-pro"``), used by
+    the escalator to pin a genuinely-different model rather than a tier's cheapest
+    (the tier-cheapest rung is what returned empty text in ADR 0162 item-7).
+    ``tier`` resolves a tier ladder's cheapest rung (legacy escalator path).
+
+    The returned callable carries the chosen model id on a ``.model_id`` attribute
+    so the gate can record which model was consulted (auditability).
     """
     from .critic import review_change
 
     try:
         from chimera.core import ChimeraLoop
         from chimera.providers.tiers import Provider as ProviderKind
-        from chimera.providers.tiers import select_rung
+        from chimera.providers.tiers import resolve_rung, select_rung
 
         loop = ChimeraLoop()
         providers = loop._act.providers if loop._act is not None else {}
@@ -433,7 +458,7 @@ def _build_reviewer(
                 return None
             model_id = anthropic_model
         else:
-            rung = select_rung(tier or "sonnet")
+            rung = resolve_rung(rung_alias) if rung_alias is not None else select_rung(tier or "sonnet")
             provider = providers.get(rung.config.provider)
             if provider is None:
                 return None
@@ -452,6 +477,7 @@ def _build_reviewer(
             docstring=docstring, faithfulness=None,
         )
 
+    _review.model_id = model_id  # surfaced into the gate-log record
     return _review
 
 
@@ -474,8 +500,36 @@ def _default_reviewer(repo_root: Path, goal: str | None) -> Reviewer:
     return _unavailable
 
 
+# The escalator's job is to RESCUE a lone over-cautious reject, so it must be
+# both (a) a genuinely different model than the primary (CALIBRATED_MODEL) for
+# real independence, and (b) RELIABLE — actually return parseable text. ADR 0162
+# item-7's live validation found the old `tier="opus"` resolved (via select_rung,
+# cheapest-first) to OpenRouter `deepseek-v4-pro`, which returns EMPTY text in
+# this env → every escalation fail-closed → the rescue path was inert.
+#
+# Default now: a different Anthropic model than the sonnet primary, on the
+# proven-reliable provider — so the rescue genuinely fires. Operators wanting
+# true cross-vendor independence can pin a rung alias (e.g. "gemini-3-pro",
+# "gpt-5-pro") via CHIMERA_CRITIC_ESCALATOR_MODEL once they've verified it
+# returns parseable text in their config; the PARSEABLE guard in
+# check_commit_critic keeps an empty/unreadable escalation fail-closed either way.
+ESCALATOR_MODEL_ENV = "CHIMERA_CRITIC_ESCALATOR_MODEL"
+ESCALATOR_DEFAULT_MODEL = "claude-opus-4-7"  # ≠ CALIBRATED_MODEL → independent
+
+
 def _default_escalator(repo_root: Path, goal: str | None) -> Reviewer | None:
-    # Independent second opinion for a REJECT: a genuinely different model than
-    # the primary — prefer a cross-vendor ladder rung. If none is available the
-    # gate has no rescue path and a primary reject stands (fail-closed, safe).
-    return _build_reviewer(repo_root, goal, tier="opus")
+    pinned = os.environ.get(ESCALATOR_MODEL_ENV)
+    if pinned:
+        # A tier name or per-rung alias (may be cross-vendor). Ignore a pin that
+        # collapses to the primary's model — that would not be independent.
+        if pinned != CALIBRATED_MODEL:
+            r = _build_reviewer(repo_root, goal, rung_alias=pinned)
+            if r is not None:
+                return r
+    # Default: a reliable, genuinely-different model than the calibrated primary.
+    # If the Anthropic provider is unavailable, fall back to the (cross-vendor)
+    # opus ladder rung — last resort; the parseable guard still protects it.
+    r = _build_reviewer(repo_root, goal, anthropic_model=ESCALATOR_DEFAULT_MODEL)
+    if r is None:
+        r = _build_reviewer(repo_root, goal, tier="opus")
+    return r

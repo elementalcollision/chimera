@@ -91,6 +91,47 @@ def test_recompute_reject_then_escalation_approves_overrules(tmp_path, monkeypat
     assert d.verdict.approved is False and d.escalation.approved is True
 
 
+def test_unparseable_escalation_does_not_rescue_reject(tmp_path, monkeypatch, staged, calib_ok):
+    # The escalator returns an "approve" but with parsed=False (empty/garbled
+    # text, e.g. the OpenRouter rung that returned empty in ADR 0162 item-7).
+    # The PARSEABLE guard must keep it fail-closed: an unreadable escalation
+    # cannot overrule a reject, so the commit is BLOCKED.
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    d = _run(cg.check_commit_critic(
+        tmp_path, reviewer=_mock(False, concerns=["drops a branch"]),
+        escalator=_mock(True, parsed=False)))
+    assert d.allowed is False
+    assert d.escalated is True               # escalation ran...
+    assert d.escalation.approved is True     # ...and even "approved"...
+    assert d.escalation.parsed is False      # ...but was unparseable → no rescue
+    assert "could not be read" in d.reason   # accurate block messaging
+
+
+def test_parseable_escalation_approve_rescues_reject(tmp_path, monkeypatch, staged, calib_ok):
+    # The mirror case: a PARSEABLE approve from the escalator DOES rescue a lone
+    # over-cautious reject (the false-reject path the gate is meant to absorb).
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    d = _run(cg.check_commit_critic(
+        tmp_path, reviewer=_mock(False), escalator=_mock(True, parsed=True)))
+    assert d.allowed is True
+    assert d.escalated is True
+    assert d.escalation.approved is True and d.escalation.parsed is True
+
+
+def test_escalator_model_recorded_in_log(tmp_path, monkeypatch, staged, calib_ok):
+    # Requirement 4: which escalator model was consulted is surfaced for audit.
+    import json
+
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    esc = _mock(False)
+    esc.model_id = "claude-opus-4-7"  # the gate reads .model_id off the callable
+    d = _run(cg.check_commit_critic(tmp_path, reviewer=_mock(False), escalator=esc))
+    assert d.allowed is False and d.escalator_model == "claude-opus-4-7"
+    row = json.loads((tmp_path / "state" / cg._GATE_LOG).read_text().splitlines()[-1])
+    assert row["escalator_model"] == "claude-opus-4-7"
+    assert row["escalation_parsed"] is True
+
+
 def test_recompute_reject_confirmed_blocks(tmp_path, monkeypatch, staged, calib_ok):
     monkeypatch.setenv(cg._ENFORCE_ENV, "1")
     d = _run(cg.check_commit_critic(
