@@ -305,3 +305,30 @@ then, the gate degrades to "primary reject = block", never to a false-approve.
   gate joins.
 - [ADR 0148](./0148-harness-executed-commit.md) — the autocommit fallback the
   gate must also cover.
+
+## Amendment (first LIVE escalator-rescue + finding-#2 close, 2026-06-01)
+
+A race-free, instrumented self-determined soak (`SELF_BASE=main`, enforce ON)
+gave the first end-to-end proof in the live loop. The agent self-selected a ruff
+cleanup, built it (ruff PASS), and its autonomous commit was adjudicated by the
+gate. The decision log:
+
+```json
+{"allowed": true, "source": "recomputed", "escalated": true,
+ "approved": false, "escalation_approved": true, "escalation_parsed": true,
+ "escalator_model": "claude-opus-4-7"}
+```
+
+- **The gate was invoked** on the agent's commit (`critic-gate-debug.jsonl`:
+  `{"event":"enter","enforce":true}`) and logged a decision — closing the
+  finding-#2 ambiguity (a prior soak's empty gate-log was a stale-`soak_lib` +
+  collector-race artifact, since fixed).
+- **The reject-requires-confirmation rescue fired for real:** primary
+  `claude-sonnet-4-6` rejected (over-cautious on a behaviour-neutral cleanup),
+  the independent `claude-opus-4-7` escalator approved, the lone reject was
+  overruled → the commit landed. This is the first live demonstration of the
+  false-reject rescue path designed here — previously inert because the
+  OpenRouter escalator returned empty (fixed by the 2026-06 model-tier refresh
+  pinning a reliable escalator). The PARSEABLE guard held (`escalation_parsed:
+  true`), and the false-APPROVE direction remains gated by the 0%-calibration
+  invariant. Record: `mind/research/enforcement-live-loop-2026-06-01.md`.
