@@ -268,3 +268,26 @@ def test_gate_decisions_are_logged(tmp_path, monkeypatch, staged, calib_ok):
     assert len(rows) == 2
     assert rows[0]["allowed"] is True and rows[0]["approved"] is True
     assert rows[1]["allowed"] is False and rows[1]["escalation_approved"] is False
+
+
+# ── gate invocation trace (finding #2 instrument) ───────────────────
+
+
+def test_gate_trace_records_invocation(tmp_path, monkeypatch, staged, calib_ok):
+    import json
+    monkeypatch.setenv(cg._ENFORCE_ENV, "1")
+    _run(cg.check_commit_critic(tmp_path, reviewer=_mock(True)))
+    dbg = tmp_path / "state" / "critic-gate-debug.jsonl"
+    assert dbg.is_file(), "gate must leave an invocation trace"
+    rows = [json.loads(ln) for ln in dbg.read_text().splitlines()]
+    assert rows[0]["event"] == "enter" and rows[0]["enforce"] is True
+    assert "ts" in rows[0]
+
+
+def test_gate_trace_records_even_when_disabled(tmp_path, monkeypatch):
+    import json
+    monkeypatch.delenv(cg._ENFORCE_ENV, raising=False)
+    _run(cg.check_commit_critic(tmp_path, reviewer=_mock(True)))
+    rows = [json.loads(ln) for ln in
+            (tmp_path / "state" / "critic-gate-debug.jsonl").read_text().splitlines()]
+    assert rows[0]["event"] == "enter" and rows[0]["enforce"] is False
