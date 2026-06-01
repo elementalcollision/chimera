@@ -122,6 +122,18 @@ class _NthMutator(ast.NodeTransformer):
             node.op = swap()
         return node
 
+    def visit_AugAssign(self, node: ast.AugAssign) -> ast.AST:
+        # Augmented-assignment (`x += y`, `x -= y`, …) — the accumulation site a
+        # stateful validation showed was never probed. Swap the op so e.g.
+        # `self._sum += x` becomes `self._sum -= x`: a test that pins accumulation
+        # kills it, one that doesn't lets it survive (the blind spot surfaced).
+        self.generic_visit(node)
+        swap = _BINOP_SWAP.get(type(node.op))
+        if swap is not None and self._hit():
+            self.applied_desc = f"augassign {type(node.op).__name__}→{swap.__name__}"
+            node.op = swap()
+        return node
+
     def visit_Constant(self, node: ast.Constant) -> ast.AST:
         v = node.value
         # bool BEFORE int (bool is a subclass of int).
