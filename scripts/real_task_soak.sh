@@ -195,6 +195,11 @@ git config --worktree remote.origin.pushurl "no-push://disabled-${RUN_ID}" 2>&1 
 WORKTREE_STATE="$WORKTREE/state"; WORKTREE_DB="$WORKTREE_STATE/chimera.db"
 mkdir -p "$WORKTREE_STATE"
 [ -f "$REPO_ROOT/state/trust_state.json" ] && cp "$REPO_ROOT/state/trust_state.json" "$WORKTREE_STATE/"
+# ADR 0162: carry the calibration record into the worktree so the in-loop critic
+# gate's calibration-gated activation can verify it (enforce-ON soaks need it; a
+# no-op when absent / enforcement off).
+[ -f "$REPO_ROOT/state/critic-calibration-latest.json" ] && \
+    cp "$REPO_ROOT/state/critic-calibration-latest.json" "$WORKTREE_STATE/"
 export CHIMERA_STATE_DIR="$WORKTREE_STATE"
 export CHIMERA_MIND_DIR="$WORKTREE/mind"
 mkdir -p "$WORKTREE/mind/research"
