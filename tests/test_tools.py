@@ -285,8 +285,26 @@ async def test_shell_wrapper_rejection_teaches_argv_form():
 
 
 @pytest.mark.asyncio
+async def test_shell_uv_run_tool_hints_the_uv_run_form():
+    """A bare dev tool (`ruff`) — the agent's next move after dropping `bash` —
+    is refused with a hint to use the `uv run` form, in one hop."""
+    with pytest.raises(PermissionError) as ei:
+        await shell_handler(
+            {"argv": ["ruff", "check", "--fix", "x.py"]}, DispatchContext()
+        )
+    msg = str(ei.value)
+    assert "uv" in msg and "run" in msg
+    assert 'argv=["uv", "run", \'ruff\'' in msg or "uv\", \"run\", 'ruff'" in msg \
+        or "'ruff'" in msg  # hints the uv run <tool> form
+    # pytest gets the same treatment.
+    with pytest.raises(PermissionError) as ei2:
+        await shell_handler({"argv": ["pytest", "-q"]}, DispatchContext())
+    assert "uv" in str(ei2.value) and "runs via" in str(ei2.value)
+
+
+@pytest.mark.asyncio
 async def test_shell_non_wrapper_unknown_command_keeps_plain_message():
-    """A non-wrapper unknown binary still gets the plain allow-list refusal."""
+    """A non-wrapper, non-uv-run unknown binary still gets the plain refusal."""
     with pytest.raises(PermissionError) as ei:
         await shell_handler({"argv": ["curl", "https://x"]}, DispatchContext())
     assert "not in shell allow-list" in str(ei.value)
