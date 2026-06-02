@@ -85,6 +85,13 @@ PHASE2_CAP_USD="${PHASE2_CAP_USD:-1.00}"
 SAFETY_BUFFER_USD="${SAFETY_BUFFER_USD:-0.25}"
 MAX_ITERATIONS_PER_PHASE="${MAX_ITERATIONS_PER_PHASE:-200}"
 MAX_WALL_SECONDS="${MAX_WALL_SECONDS:-7200}"
+# Wall-clock reserved for phase 2 (commit + gate). The global MAX_WALL is measured
+# from START_EPOCH, so a phase-1 that converges late used to consume the ENTIRE
+# wall — phase 2 then started already over-budget and exited in the same second,
+# so the agent reached `ruff ✓ pytest ✓` but never committed and the in-loop gate
+# never fired (char-0602 finding). Cap phase 1 at MAX_WALL − this reserve so the
+# commit phase is always guaranteed time to run.
+PHASE2_RESERVE_SECONDS="${PHASE2_RESERVE_SECONDS:-450}"
 COOLDOWN_SECONDS="${COOLDOWN_SECONDS:-15}"
 
 export CHIMERA_CYCLE_BUDGET_USD="${CHIMERA_CYCLE_BUDGET_USD:-1.50}"
@@ -233,6 +240,10 @@ log "$(soak_lib_version)"
 
 phase_loop() {
     local phase_name="$1" cap_usd="$2" phase_start_iso="$3" engines_enabled="$4"
+    # 5th arg: effective wall (seconds from START_EPOCH) for THIS phase. Phase 1
+    # gets MAX_WALL − PHASE2_RESERVE so it can't starve the commit phase; phase 2
+    # gets the full MAX_WALL. Defaults to the global wall for any other caller.
+    local phase_wall="${5:-$MAX_WALL_SECONDS}"
     local cap_minus_buffer; cap_minus_buffer="$(awk -v c="$cap_usd" -v b="$SAFETY_BUFFER_USD" 'BEGIN { print c - b }')"
     export CHIMERA_ENGINES_ENABLED="$engines_enabled"
     if [ "$engines_enabled" = "1" ]; then
@@ -242,12 +253,12 @@ phase_loop() {
     fi
     local iter=0 exit_reason=""
     soak_reset_forward_progress
-    log "── $phase_name start: cap=\$$cap_usd engines=$engines_enabled ──"
+    log "── $phase_name start: cap=\$$cap_usd engines=$engines_enabled wall=${phase_wall}s ──"
     while : ; do
         iter=$((iter+1))
         [ "$iter" -gt "$MAX_ITERATIONS_PER_PHASE" ] && { exit_reason="max_iterations"; break; }
         local now; now="$(date +%s)"
-        [ $((now - START_EPOCH)) -ge "$MAX_WALL_SECONDS" ] && { exit_reason="max_wall_seconds"; break; }
+        [ $((now - START_EPOCH)) -ge "$phase_wall" ] && { exit_reason="max_wall_seconds"; break; }
         local spend; spend="$(total_spend_in_db "$WORKTREE_DB" "$phase_start_iso")"
         fp_ge "$spend" "$cap_minus_buffer" && { exit_reason="phase_budget_reached spend=\$$spend"; break; }
         local cycle_pre; cycle_pre="$(last_cycle_in_db "$WORKTREE_DB")"
@@ -285,7 +296,11 @@ print(autocommit_if_ready('.', ${files_py}, '''$msg''', test_cmd=['bash','-c',''
 echo "$(phase1_inbox)" > "$WORKTREE/mind/INBOX.md"
 log "phase-1 INBOX seeded ($TASK_GOAL)"
 P1_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
-phase_loop "phase1" "$PHASE1_CAP_USD" "$P1_ISO" "0"
+# Phase 1 stops PHASE2_RESERVE_SECONDS before the global wall, guaranteeing the
+# commit phase a budget even when phase 1 converges late (clamp ≥ 60s).
+PHASE1_WALL=$(( MAX_WALL_SECONDS - PHASE2_RESERVE_SECONDS ))
+[ "$PHASE1_WALL" -lt 60 ] && PHASE1_WALL=60
+phase_loop "phase1" "$PHASE1_CAP_USD" "$P1_ISO" "0" "$PHASE1_WALL"
 
 # Phase 2: commit (engines on).
 P2_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
@@ -313,7 +328,7 @@ log "phase-2 INBOX seeded"
 # Diagnostic (finding #2): record whether the in-loop critic gate will actually
 # engage on the agent's commit — its two preconditions, visible in the log.
 log "  critic-gate state: CHIMERA_CRITIC_ENFORCE=${CHIMERA_CRITIC_ENFORCE:-<unset>}  calibration_record=$([ -f "$WORKTREE_STATE/critic-calibration-latest.json" ] && echo present || echo MISSING)"
-phase_loop "phase2" "$PHASE2_CAP_USD" "$P2_ISO" "1"
+phase_loop "phase2" "$PHASE2_CAP_USD" "$P2_ISO" "1" "$MAX_WALL_SECONDS"
 
 log "── branch commits (expect 1 [agent] commit) ──"
 ( cd "$WORKTREE" && git log --oneline "$TASK_BASE"..HEAD ) 2>&1 | tee -a "$LOG"
