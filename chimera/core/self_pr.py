@@ -120,6 +120,10 @@ def maybe_self_pr(
         base=base,
         draft=True,
         dry_run=dry_run,
+        # mind/* is the soak's operational journal (heartbeat/inbox/session),
+        # written after the agent's commit and never part of the PR — must not
+        # block an otherwise-clean self-PR.
+        ignore_dirty_prefixes=("mind/",),
         gh_runner=gh_runner,
         push_runner=push_runner,
     )

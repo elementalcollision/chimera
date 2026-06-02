@@ -111,3 +111,5 @@ def test_fires_draft_when_all_gates_pass(tmp_path, monkeypatch):
     assert len(spy.calls) == 1
     # The non-negotiable safety invariant: always draft, never merge.
     assert spy.calls[0]["draft"] is True
+    # mind/* journal noise is excluded from the clean-tree check (soak integration).
+    assert spy.calls[0]["ignore_dirty_prefixes"] == ("mind/",)

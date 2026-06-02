@@ -19,7 +19,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-SOAK_BRANCH_PATTERN = re.compile(r"^chimera-soak/v\d+(?:[-_/].+)?$")
+# Charter soaks name branches chimera-soak/v<N>-...; real-task / self-determined
+# soaks name them chimera-soak/realtask-<stamp> (ADR 0158). Accept both.
+SOAK_BRANCH_PATTERN = re.compile(
+    r"^chimera-soak/(?:v\d+(?:[-_/].+)?|realtask-.+)$"
+)
 
 # Files that must never be in an agent-submitted diff.
 SECRET_PATH_BLOCKLIST = (
@@ -234,9 +238,22 @@ def _worktree_branch(worktree: Path) -> str:
     return proc.stdout.strip()
 
 
-def _porcelain_clean(worktree: Path) -> bool:
+def _porcelain_clean(worktree: Path, ignore_prefixes: tuple[str, ...] = ()) -> bool:
+    """True if the worktree is clean. ``ignore_prefixes`` (e.g. ``("mind/",)``)
+    excludes operational-journal noise that is never part of a deliverable PR —
+    the agent's mind/* heartbeat/inbox/session writes happen AFTER its commit and
+    are not pushed, so they must not block an otherwise-clean self-PR."""
     proc = _run_git("status", "--porcelain", cwd=worktree)
-    return proc.stdout.strip() == ""
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    if not ignore_prefixes:
+        return not lines
+    for ln in lines:
+        path = ln[3:].strip()  # porcelain: "XY <path>"
+        if " -> " in path:  # rename: keep the destination
+            path = path.split(" -> ", 1)[1]
+        if not any(path.startswith(p) for p in ignore_prefixes):
+            return False
+    return True
 
 
 def _commits_between(worktree: Path, base: str, head: str) -> list[tuple[str, str]]:
@@ -271,8 +288,13 @@ def validate(
     base: str = "main",
     *,
     allow_entropy: bool = False,
+    ignore_dirty_prefixes: tuple[str, ...] = (),
 ) -> tuple[str, list[tuple[str, str]], list[str]]:
-    """Run all pre-submit checks. Return (branch, commits, errors)."""
+    """Run all pre-submit checks. Return (branch, commits, errors).
+
+    ``ignore_dirty_prefixes`` excludes operational paths (e.g. ``("mind/",)``)
+    from the clean-tree check — see :func:`_porcelain_clean`.
+    """
     errors: list[str] = []
 
     if not (worktree / ".git").exists() and not _looks_like_worktree(worktree):
@@ -286,7 +308,7 @@ def validate(
             f"{SOAK_BRANCH_PATTERN.pattern!r}"
         )
 
-    if not _porcelain_clean(worktree):
+    if not _porcelain_clean(worktree, ignore_prefixes=ignore_dirty_prefixes):
         errors.append("worktree has uncommitted changes (git status not clean)")
 
     commits = _commits_between(worktree, base, "HEAD")
@@ -531,6 +553,7 @@ def submit_pr(
     draft: bool = True,
     dry_run: bool = False,
     allow_entropy: bool = False,
+    ignore_dirty_prefixes: tuple[str, ...] = (),
     audit_path: Path | None = None,
     gh_runner=None,
     push_runner=None,
@@ -538,13 +561,15 @@ def submit_pr(
     """Run validations, push from `repo_root`, open PR via `gh`.
 
     `gh_runner` / `push_runner` are seams for tests. Each is a callable;
-    if None we shell out for real.
+    if None we shell out for real. `ignore_dirty_prefixes` forwards to
+    :func:`validate` (e.g. ``("mind/",)`` for self-PR journal noise).
     """
     audit_path = audit_path or (repo_root / "state" / "submit_pr_log.jsonl")
     result = SubmitPrResult(dry_run=dry_run, audit_path=audit_path)
 
     branch, commits, errors = validate(
         worktree, base=base, allow_entropy=allow_entropy,
+        ignore_dirty_prefixes=ignore_dirty_prefixes,
     )
     result.branch = branch
     result.commits = commits
