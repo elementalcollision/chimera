@@ -332,3 +332,50 @@ gate. The decision log:
   pinning a reliable escalator). The PARSEABLE guard held (`escalation_parsed:
   true`), and the false-APPROVE direction remains gated by the 0%-calibration
   invariant. Record: `mind/research/enforcement-live-loop-2026-06-01.md`.
+
+## Amendment (characterization arc — reproducibility + measured escalator load, 2026-06-02)
+
+The single live rescue above was hardened into a **reproducible characterization**
+across four soak batches. Getting there required removing four confounds that had
+masked the loop's real behaviour (each a separate fix, all on main):
+
+1. **Enforcement env leaked into the acceptance gate.** The soak exports
+   `CHIMERA_CRITIC_ENFORCE=1`; `chimera verify` ran the *whole* pytest suite, which
+   inherited it, failing 7 commit-path tests (`committed` → `critic_blocked`) — so
+   verify could *never* go green and nothing ever reached the gate. Fixed: a
+   `tests/conftest.py` autouse fixture scrubs the enforcement knobs (the suite is
+   hermetic; production reads the live env at commit time). 7 failed → 0.
+2. **The verify gate ran unscoped pytest**, exposing acceptance to unrelated/flaky
+   tests. Scoped to the task's own `--test` anchor (a self-selected test file is now
+   its own anchor).
+3. **Phase 1 consumed the entire wall**, starving the commit phase: the agent
+   reached `ruff ✓ pytest ✓` but had zero budget left to commit. Fixed by reserving
+   `PHASE2_RESERVE_SECONDS` (default 450) for phase 2.
+4. **The spread-ladder rung-0 builder churned** (hand-editing, breaking pytest)
+   instead of running `ruff check --fix`. Pinning a reliable ACT model
+   (`claude-sonnet-4-6`) converged cleanly.
+
+**Result — batch `characterization-2026-06-02-1714` (N=3, pinned builder, enforce
+ON): 2/3 PASS** (the third reached green but converged too late to commit in its
+phase-2 window). The characterization that opened the session at 0/3 closed at 2/3.
+
+**Two findings that sharpen this ADR's risk model:**
+
+- **The primary→escalator rescue is reproducible, not a one-off.** *Every* live
+  commit across batches 3–4 showed the identical decision shape:
+  `{"approved": false, "escalation_approved": true, "escalator_model":
+  "claude-opus-4-7"}` — primary `claude-sonnet-4-6` rejects a clean, minimal,
+  faithful diff; the independent opus escalator approves; the commit lands.
+- **The synthetic calibration ledger UNDER-measures the real false-reject rate.**
+  `chimera critic-calibrate` puts the primary false-reject at **13–20%** (2–3 of 15
+  clean cases), concentrated on `suspicious-but-correct` refactors — false-APPROVE
+  stays 0%. But on the *real* import-removal maintenance diff, the primary
+  false-rejected **3/3 live commits (~100%)**. The escalator caught every one, so
+  the safety floor holds — but on this task class the escalator is **load-bearing,
+  not a backstop**: realistic maintenance work would not land at all without it.
+  Implication: trust-gating that assumes the ledger's ~15% reject rate will
+  under-budget escalator (opus) calls for real diffs; size for the higher live rate
+  and treat the ledger as a floor, not an estimate.
+
+Records: `mind/research/landmark-first-autonomous-gated-commit-2026-06-02.md`,
+`mind/research/characterization-2026-06-02-1714.md`.
