@@ -307,19 +307,21 @@ P2_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
 cat > "$WORKTREE/mind/INBOX.md" <<INBOX_EOF
 # Inbox — real-task soak phase 2 (commit-only, engines on)
 
-Phase 1 made the change and \`chimera verify\` passes. Commit it.
+Phase 1 made the change and \`chimera verify\` passes. Your ONE job now: COMMIT it.
 
-## Phase 2 tasks
-- [ ] Re-run the gate \`${GATE_VERIFY_CMD}\`; confirm it prints \`PASS\`.
-- [ ] **Adjudicate faithfulness with the cross-model critic.** Run
-  \`${REVIEW_CMD}\`. If it REJECTS, read the concerns and fix them (a concern is
-  usually a silent regression — restore the behaviour or pin it with a test),
-  then re-run until it APPROVES. The critic's verdict ships with the branch for
-  the human reviewer regardless.
-- [ ] Commit the change in ONE step with the **\`git_commit\` tool**: call
-  \`git_commit\` with message="${TASK_GOAL}" and paths=[${TASK_FILES}]. That
-  single tool call stages AND commits AND returns the new HEAD — it IS the whole
-  commit step. The \`[agent]\` prefix is added for you. Do NOT stop after staging.
+## Phase 2 — call git_commit FIRST (this is your very first action)
+- [ ] Call the **\`git_commit\` tool** immediately: \`git_commit\` with
+  message="${TASK_GOAL}" and paths=[${TASK_FILES}]. This SINGLE tool call stages
+  AND commits AND returns the new HEAD — it IS the entire commit. The \`[agent]\`
+  prefix is added for you.
+  - Do NOT run \`git add\` yourself, and do NOT stop after staging: raw staging
+    WITHOUT a following commit leaves the change uncommitted and the run FAILS
+    (this is the #1 way this phase fails — staged but never committed).
+  - You do NOT need to run \`chimera review\` or re-run \`chimera verify\` first.
+    The in-loop critic gate adjudicates faithfulness AUTOMATICALLY as part of the
+    \`git_commit\` call — committing IS how the change gets reviewed.
+- [ ] ONLY if \`git_commit\` returns that the gate REJECTED: read the concern, fix
+  it in SCOPE (${TASK_FILES}), then call \`git_commit\` again until HEAD advances.
 
 Manual-handoff: after the commit the runner stops with the branch in the
 worktree — NO auto-push/PR/merge.
