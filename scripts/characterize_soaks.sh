@@ -28,7 +28,7 @@ log() { echo "[$(date -u +%H:%M:%S)] $*"; }
   echo "N=${N} sequential runs, RANK=${RANK}, SELF_BASE=${SELF_BASE}, enforce ON."
   echo "Each run is race-free (own worktree). Per-run wall cap ${MAX_WALL_SECONDS}s."
   echo
-  echo "| run | dur(s) | task | committed | ruff | gate invoked | escalated | primary | escalation | result |"
+  echo "| run | dur(s) | task | committed | verify verdict | gate invoked | escalated | primary | escalation | result |"
   echo "|----|----|----|----|----|----|----|----|----|----|"
 } > "$OUT"
 
@@ -44,6 +44,10 @@ for i in $(seq 1 "$N"); do
     task="$(printf '%s\n' "$out" | grep -oE 'SELF-SELECTED \[rank [0-9]+\]: .*' | sed -E 's/SELF-SELECTED \[[^]]*\]: //' | head -1)"
     committed="$(printf '%s\n' "$out" | grep -oE 'committed     : (yes|no)[^[:space:]]*' | sed 's/.*: //' | head -1)"
     ruff="$(printf '%s\n' "$out" | grep -oE 'gate \(ruff\)   : (PASS|FAIL|\?)' | sed 's/.*: //' | head -1)"
+    # Full verify verdict (ruff/pytest split) — surfaces "ruff ✓, pytest ✗", the
+    # dominant failure mode, instead of a bare PASS/FAIL.
+    verdict="$(printf '%s\n' "$out" | grep -oE 'gate verdict  : .*' | sed 's/gate verdict  : //' | head -1)"
+    [ -z "$verdict" ] && verdict="${ruff:-?}"
     invoked="$(printf '%s\n' "$out" | grep -oE 'gate invoked  : (yes|NO)[^[:space:]]*' | sed 's/.*: //' | head -1)"
     result="PASS"; printf '%s\n' "$out" | grep -q "^INCONCLUSIVE" && result="INCONCLUSIVE"
     [ "$result" = "PASS" ] && pass=$((pass+1))
@@ -55,7 +59,7 @@ for i in $(seq 1 "$N"); do
         primary="$(grep -oE '"approved": (true|false|null)' "$gl" | tail -1 | sed 's/.*: //')"
         escd="$(grep -oE '"escalation_approved": (true|false|null)' "$gl" | tail -1 | sed 's/.*: //')"
     fi
-    echo "| $i | $dur | ${task:-?} | ${committed:-?} | ${ruff:-?} | ${invoked:-?} | $escalated | $primary | $escd | $result |" >> "$OUT"
+    echo "| $i | $dur | ${task:-?} | ${committed:-?} | ${verdict:-?} | ${invoked:-?} | $escalated | $primary | $escd | $result |" >> "$OUT"
     log "  run $i: committed=${committed:-?} ruff=${ruff:-?} invoked=${invoked:-?} escalated=$escalated primary=$primary esc=$escd ($dur s)"
 done
 

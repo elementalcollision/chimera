@@ -88,13 +88,18 @@ eval "$cmd" >/dev/null 2>&1 || true
 
 # 4. Collect — bound to OUR worktree, not `ls -t` (no cross-run race).
 wt="$WT"
-committed="no"; gate="?"; touched="-"; gatelog="(none)"; allowed="no"; approved="-"
+committed="no"; gate="?"; verdict="?"; touched="-"; gatelog="(none)"; allowed="no"; approved="-"
 if [ -n "$wt" ] && [ -d "$wt" ]; then
     base="$(cd "$wt" && git rev-parse --abbrev-ref HEAD 2>/dev/null)"
     sha="$(cd "$wt" && git log --format='%h %s' "$SELF_BASE"..HEAD 2>/dev/null | grep '\[agent\]' | head -1)"
     [ -n "$sha" ] && committed="yes ($sha)"
     touched="$(cd "$wt" && git diff --name-only "$SELF_BASE"..HEAD 2>/dev/null | tr '\n' ' ')"
-    gate="$(cd "$wt" && uv run chimera verify --ruff ${sel_files} 2>&1 | tail -1 | grep -oE 'PASS|FAIL' || echo '?')"
+    # Capture the FULL verify verdict line (e.g. "FAIL — ruff ✓, pytest ✗") so the
+    # ruff/pytest split is visible — a green ruff with broken pytest (the agent
+    # hand-edited and broke the suite) is the dominant failure mode and must not
+    # be hidden behind a bare PASS/FAIL.
+    verdict="$(cd "$wt" && uv run chimera verify --ruff ${sel_files} 2>&1 | tail -1)"
+    gate="$(printf '%s' "$verdict" | grep -oE 'PASS|FAIL' || echo '?')"
     if [ -f "$wt/state/critic-gate-log.jsonl" ]; then
         gatelog="$(wc -l < "$wt/state/critic-gate-log.jsonl" | tr -d ' ') decision(s)"
         grep -q '"allowed": true' "$wt/state/critic-gate-log.jsonl" && allowed="yes"
@@ -111,6 +116,7 @@ log "── result ──"
 log "  self-selected : $sel_goal"
 log "  committed     : $committed"
 log "  gate (ruff)   : $gate"
+log "  gate verdict  : $verdict"
 log "  touched       : $touched"
 log "  gate log      : $gatelog   allowed-entry=$allowed   last-$approved"
 log "  gate invoked  : ${gate_invoked:-?}"

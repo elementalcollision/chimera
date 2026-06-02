@@ -146,8 +146,14 @@ file-edit tool for code changes; use \`uv run ruff check --fix\` for lint fixes.
 
 ## Phase 1 tasks
 - [ ] **Make the change and prove \`chimera verify\` is green.** Edit ONLY the
-  files in SCOPE below. Run \`${GATE_VERIFY_CMD}\` and keep fixing until it
-  exits 0 (\`PASS\`).
+  files in SCOPE below.
+  **FIRST, for any lint/ruff finding, run the auto-fixer — it resolves the
+  whole class in one shot and is behaviour-neutral:**
+  argv=["uv","run","ruff","check","--fix",<each SCOPE file>]. Do NOT hand-edit
+  imports/whitespace ruff can fix itself — hand-edits risk breaking the test
+  suite (\`chimera verify\` gates on BOTH ruff AND pytest, so a green ruff with
+  a broken pytest still FAILS). After \`--fix\`, run \`${GATE_VERIFY_CMD}\` and
+  keep fixing until it exits 0 (\`PASS\`).
 - [ ] **Prove the change is FAITHFUL, not just green.** Run
   \`${FAITH_CMD:-uv run chimera faithfulness --target <file> --test <test>}\`.
   A passing suite is not enough: (a) kill every surviving mutant it reports by

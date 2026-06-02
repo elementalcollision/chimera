@@ -101,6 +101,18 @@ _UV_RUN_TOOLS: frozenset[str] = frozenset(
     {"ruff", "pytest", "mypy", "black", "pyright", "python", "pip", "chimera"}
 )
 
+# Modern search tools an agent reaches for that aren't installed/allow-listed
+# (seen burning rounds in self-determination soaks: `rg` to scan a target file).
+# Map each to its allow-listed POSIX equivalent so the agent self-corrects in
+# one hop instead of retrying the blocked binary.
+_SEARCH_TOOL_ALTERNATIVES: dict[str, str] = {
+    "rg": "grep",
+    "ag": "grep",
+    "ack": "grep",
+    "fd": "find",
+    "fdfind": "find",
+}
+
 
 SHELL_SCHEMA: dict[str, Any] = {
     "type": "function",
@@ -253,6 +265,18 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
                 f"`uv`: pass argv=[\"uv\", \"run\", {program!r}, ...] instead of "
                 f"[{program!r}, ...]. E.g. argv=[\"uv\", \"run\", \"ruff\", "
                 f'"check", "--fix", "<file>"]. Allowed binaries: {sorted(SAFE_COMMANDS)}'
+            )
+        # A modern search/find tool that isn't installed/allow-listed (rg, ag,
+        # fd). The agent burns rounds retrying it; hint the POSIX equivalent that
+        # IS on the allow-list so it self-corrects in one hop.
+        if program in _SEARCH_TOOL_ALTERNATIVES:
+            alt = _SEARCH_TOOL_ALTERNATIVES[program]
+            raise PermissionError(
+                f"command {program!r} is not installed/allowed. Use {alt!r} "
+                f"instead — it IS on the allow-list. E.g. to search a file pass "
+                f'argv=["grep", "-n", "<pattern>", "<file>"]; to find files pass '
+                f'argv=["find", "<dir>", "-name", "<glob>"]. '
+                f"Allowed binaries: {sorted(SAFE_COMMANDS)}"
             )
         raise PermissionError(
             f"command {program!r} not in shell allow-list "

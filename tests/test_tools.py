@@ -303,6 +303,23 @@ async def test_shell_uv_run_tool_hints_the_uv_run_form():
 
 
 @pytest.mark.asyncio
+async def test_shell_search_tool_hints_posix_equivalent():
+    """A modern search tool (`rg`/`fd`) the agent reaches for is refused with a
+    hint to the allow-listed POSIX equivalent (`grep`/`find`), in one hop —
+    instead of burning rounds retrying the blocked binary (soak finding)."""
+    with pytest.raises(PermissionError) as ei:
+        await shell_handler(
+            {"argv": ["rg", "-n", "import", "x.py"]}, DispatchContext()
+        )
+    msg = str(ei.value)
+    assert "'rg'" in msg and "grep" in msg
+    # `fd` maps to `find`.
+    with pytest.raises(PermissionError) as ei2:
+        await shell_handler({"argv": ["fd", "test_"]}, DispatchContext())
+    assert "find" in str(ei2.value)
+
+
+@pytest.mark.asyncio
 async def test_shell_non_wrapper_unknown_command_keeps_plain_message():
     """A non-wrapper, non-uv-run unknown binary still gets the plain refusal."""
     with pytest.raises(PermissionError) as ei:
