@@ -137,6 +137,23 @@ log "  gate log      : $gatelog   allowed-entry=$allowed   last-$approved"
 log "  gate invoked  : ${gate_invoked:-?}"
 log "  review        : cd $wt && git log -p "$SELF_BASE"..HEAD && cat state/critic-gate-log.jsonl"
 echo
+
+# ADR 0163: trust-gated autonomous self-PR. OFF by default — fires only under
+# CHIMERA_SELF_PR=1 AND trust ≥ T4 AND a gate-approved commit. Reuses
+# submit_pr.validate(); opens a DRAFT PR (human marks ready + merges); never
+# merges. With the env unset this whole block is a no-op (manual-handoff status
+# quo). maybe_self_pr re-checks every gate itself — the shell guard is just to
+# avoid the call when plainly inapplicable.
+if [ "${CHIMERA_SELF_PR:-0}" = "1" ] && [ "${committed%% *}" = "yes" ] && [ "$allowed" = "yes" ]; then
+    log "── self-PR (ADR 0163): CHIMERA_SELF_PR=1, attempting trust-gated draft PR ──"
+    selfpr="$(cd "$REPO" && uv run python -c "
+import json
+from chimera.core.self_pr import maybe_self_pr
+r = maybe_self_pr(worktree='$wt', repo_root='$REPO', base='$SELF_BASE')
+print(json.dumps(r.to_dict()))" 2>&1 | tail -1)"
+    log "  self-PR result: $selfpr"
+fi
+
 if [ "${committed%% *}" = "yes" ] && [ "$gate" = "PASS" ] && [ "$allowed" = "yes" ]; then
     echo "PASS — Chimera self-selected a task, built it, and the enforced gate approved its self-commit."
     exit 0
