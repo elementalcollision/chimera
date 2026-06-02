@@ -61,3 +61,40 @@ churned diff, landing a clean one — not rubber-stamping.
 3. **Convergence is still high-variance** for this spread-ladder ACT model: run 3
    converged in 444s; runs 1–2 churned to the wall. Stable convergence (e.g. a
    pinned capable ACT model) remains the lever for a higher commit rate.
+
+## Arc close-out (2026-06-02, later) — the follow-ups, resolved
+
+All three follow-ups above were chased to data the same day.
+
+### Phase-2 wall starvation (the residual after the rescue)
+Batch 2 (post enforce-fix) showed the agent reaching `ruff ✓ pytest ✓` but never
+committing: phase 1 ate the whole global wall, phase 2 started over-budget and
+exited in the same second. Fixed by reserving `PHASE2_RESERVE_SECONDS` (default
+450) for the commit phase.
+
+### Convergence churn = the model, confirmed
+Pinning a reliable builder (`claude-sonnet-4-6`) flipped the result. Batch
+`characterization-2026-06-02-1714` (N=3, enforce ON): **2/3 PASS** — the inverse
+of the session's opening 0/3. Run 1 committed in 465s; run 3 in 2142s (late but
+inside its reserved window); run 2 reached green but converged too late to commit.
+The spread-ladder rung-0 (deepseek-v4-pro) was the convergence bottleneck — not
+the task, not the gate, not the harness.
+
+### Primary false-reject — measured, and worse on real diffs than synthetic
+`chimera critic-calibrate` (claude-sonnet-4-6): **false-approve 0%, false-reject
+13–20%** (2–3 of 15 clean cases), concentrated on `suspicious-but-correct`
+refactors. But on the **real** import-removal diff, the primary false-rejected
+**3/3 live commits (~100%)** — every committed run across batches 3+4 went
+primary-reject → opus-approve → land. **The synthetic ledger under-measures the
+real-world false-reject rate; the escalator is load-bearing for genuine
+maintenance work, not a backstop.** Sizing escalator (opus) call budget off the
+ledger's ~15% would under-provision real diffs.
+
+### Net
+The no-contract enforced autonomy stack — WHAT (self-scan self-selection) → build
+→ CORRECT/GOOD-ENOUGH (faithfulness + calibrated critic) → ENFORCE (commit-gate,
+fail-closed, escalator rescue) — works **reliably and reproducibly** end-to-end
+when paired with a capable builder. Four harness confounds were removed to see it
+(enforce-poison, unscoped verify, wall starvation, collector-verdict artifact),
+each landed as its own chip (#244–#247 + the reserve fix). ADR 0162 amended with
+the reproducibility result and the load-bearing-escalator finding.
