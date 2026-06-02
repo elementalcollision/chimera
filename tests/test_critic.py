@@ -83,6 +83,19 @@ def test_prompt_includes_diff_intent_and_faithfulness():
     assert "```json" in p
 
 
+def test_prompt_distinguishes_maintenance_from_bugfix():
+    """The reframed prompt must teach the critic that behaviour-neutral
+    maintenance (removing genuinely-unused imports / dead code) is faithful and
+    should be approved — not rejected merely for deleting lines (char-0602: the
+    gate critic was false-rejecting clean ruff import-removals ~100%)."""
+    p = build_review_prompt("diff", goal="remove the unused import").lower()
+    assert "maintenance" in p
+    assert "unused" in p
+    # The anti-gaming scrutiny for bug fixes must still be present.
+    assert "bug fix" in p or "bug-fix" in p
+    assert "deleting an untested branch" in p
+
+
 # ── review_change with a mock provider ───────────────────────────────
 
 
