@@ -105,9 +105,15 @@ if [ -n "$wt" ] && [ -d "$wt" ]; then
     touched="$(cd "$wt" && git diff --name-only "$SELF_BASE"..HEAD 2>/dev/null | tr '\n' ' ')"
     # Capture the FULL verify verdict line (e.g. "FAIL — ruff ✓, pytest ✗") so the
     # ruff/pytest split is visible — a green ruff with broken pytest (the agent
-    # hand-edited and broke the suite) is the dominant failure mode and must not
-    # be hidden behind a bare PASS/FAIL.
-    verdict="$(cd "$wt" && uv run chimera verify --ruff ${sel_files} 2>&1 | tail -1)"
+    # hand-edited and broke the suite) is a real failure mode and must not be
+    # hidden behind a bare PASS/FAIL.
+    # SCOPE pytest to the SAME --test anchor the in-loop gate used. Running
+    # whole-suite here diverged from the gate and produced a spurious `pytest ✗`
+    # that mislabeled a genuine success (char-1413 run 3: clean 3-line fix,
+    # committed via escalator rescue, scoped-green) as INCONCLUSIVE.
+    collector_test_arg=""
+    [ -n "$sel_test" ] && collector_test_arg="--test $sel_test"
+    verdict="$(cd "$wt" && uv run chimera verify --ruff ${sel_files} ${collector_test_arg} 2>&1 | tail -1)"
     gate="$(printf '%s' "$verdict" | grep -oE 'PASS|FAIL' || echo '?')"
     if [ -f "$wt/state/critic-gate-log.jsonl" ]; then
         gatelog="$(wc -l < "$wt/state/critic-gate-log.jsonl" | tr -d ' ') decision(s)"
