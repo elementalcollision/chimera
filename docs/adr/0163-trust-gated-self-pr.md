@@ -66,3 +66,29 @@ human marking it ready AND merging. The autonomy granted is "propose," not "ship
 `tests/test_self_pr.py` — each gate exercised via the `submit_fn` seam (no
 git/gh): skips on env-unset, trust < T4, missing gate log, last-decision-blocked;
 fires (draft) only when all four gates pass.
+
+## Amendment (first LIVE self-PR, 2026-06-02)
+
+The capability fired end-to-end against a real gate-approved worktree
+(`chimera-soak/realtask-2026-06-02-1714`, the batch-4 `[agent]` commit `87a979c`
+— a clean 3-import ruff cleanup that landed via primary-reject → opus-escalator-
+rescue). Two integration gaps surfaced first in a **side-effect-free dry-run**
+(branch pattern only matched `chimera-soak/v<N>`; the soak's uncommitted `mind/*`
+journal tripped the clean-tree check) and were fixed before any PR opened.
+
+`maybe_self_pr` then fired for real:
+
+```json
+{"fired": true, "submit_ok": true, "branch": "chimera-soak/realtask-2026-06-02-1714",
+ "pushed": true, "pr_url": "https://github.com/elementalcollision/chimera/pull/254"}
+```
+
+**PR #254 opened as a DRAFT** (`isDraft: true`) — title `[agent] fix the 3 ruff
+lint finding(s) in tests/test_locomo.py`, audit `submit_pr.success`. Every gate
+held: opt-in (`CHIMERA_SELF_PR=1`), trust (T5 ≥ T4 floor), gate-approved commit
+(`allowed:true`), full `submit_pr.validate()` — and the human remained the
+terminal merge authority. The full no-contract chain ran without a human until
+that merge gate: self-scan → build → fail-closed critic gate (escalator rescue) →
+earned trust → autonomous draft PR.
+
+Records: `mind/research/landmark-first-autonomous-self-pr-2026-06-02.md`.
