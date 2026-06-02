@@ -38,6 +38,15 @@ log "  files: $sel_files"
 # signal (verify + faithfulness), not just "ruff clean".
 sel_test=""
 for f in $sel_files; do
+    # A self-selected file that IS a test file (tests/test_*.py) is its OWN
+    # anchor — otherwise the `tests/test_<basename>` lookup yields the nonexistent
+    # `tests/test_test_<name>.py`, TASK_TEST stays empty, and `chimera verify`
+    # runs the WHOLE suite. That whole-suite run is what let the soak's
+    # CHIMERA_CRITIC_ENFORCE=1 poison unrelated commit-path tests (char-0602 root
+    # cause): scoping pytest to the target file avoids them entirely.
+    case "$(basename "$f")" in
+        test_*.py) if [ -f "$f" ]; then sel_test="$f"; break; fi ;;
+    esac
     cand="tests/test_$(basename "$f")"
     if [ -f "$cand" ]; then sel_test="$cand"; break; fi
 done
