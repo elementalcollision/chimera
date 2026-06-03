@@ -12,6 +12,7 @@ rationale on why we did NOT issue agent-side credentials.
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import time
@@ -39,8 +40,23 @@ SECRET_PATH_GLOB_PATTERNS = (
     re.compile(r"credential", re.IGNORECASE),
 )
 
-# High-entropy heuristic: ≥40 chars of base64-ish alphabet.
+# High-entropy heuristic: ≥40 chars of base64-ish alphabet. Length alone
+# false-positives on long snake_case identifiers (e.g. a test function name
+# `test_parse_line_with_tabs_only_in_fields`), so a candidate is only a hit if
+# its Shannon entropy also clears _ENTROPY_MIN_BITS — real base64/hex secrets are
+# near-random (high entropy); English-ish identifiers are not.
 HIGH_ENTROPY_PATTERN = re.compile(r"[A-Za-z0-9+/=_-]{40,}")
+_ENTROPY_MIN_BITS = 4.0
+
+
+def _shannon_entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    counts: dict[str, int] = {}
+    for ch in s:
+        counts[ch] = counts.get(ch, 0) + 1
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 # Allow-listed operator-commit shapes (subject prefixes). Commits in a
 # soak branch that do NOT start with `[agent]` must match one of these
@@ -55,6 +71,9 @@ OPERATOR_COMMIT_PREFIXES = (
     "Merge ",
     "fix:",
     "chore:",
+    "charter",  # self-authored charter materialization (ADR 0153) — the
+                # operator/origination setup commit that precedes a Create build,
+                # analogous to a post-mortem commit landed before kick-off.
 )
 
 
@@ -117,6 +136,8 @@ def _entropy_hits(diff_text: str) -> list[str]:
             continue
         for m in HIGH_ENTROPY_PATTERN.finditer(line):
             tok = m.group(0)
+            if _shannon_entropy(tok) < _ENTROPY_MIN_BITS:
+                continue  # word-like identifier, not a secret
             if tok not in hits:
                 hits.append(tok)
     return hits
