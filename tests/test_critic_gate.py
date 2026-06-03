@@ -291,3 +291,24 @@ def test_gate_trace_records_even_when_disabled(tmp_path, monkeypatch):
     rows = [json.loads(ln) for ln in
             (tmp_path / "state" / "critic-gate-debug.jsonl").read_text().splitlines()]
     assert rows[0]["event"] == "enter" and rows[0]["enforce"] is False
+
+
+def test_gate_cost_prices_primary_and_escalator():
+    """The gate-log now carries the REAL per-commit critic+escalator cost
+    (value-assessment 2026-06-03) — the hidden tax the ACT spend line misses."""
+    from chimera.core.critic import CriticVerdict
+    from chimera.core.critic_gate import GateDecision, _call_cost_usd, _gate_cost
+    # sonnet $3/$15 per M; opus $15/$75 per M.
+    assert _call_cost_usd("claude-sonnet-4-6", 5000, 1000) == pytest.approx(0.03)
+    assert _call_cost_usd("claude-opus-4-7", 8000, 2000) == pytest.approx(0.27)
+    assert _call_cost_usd("unknown-model", 5000, 1000) == 0.0
+    primary = CriticVerdict(approved=False, model_id="claude-sonnet-4-6",
+                            input_tokens=5000, output_tokens=1000)
+    esc = CriticVerdict(approved=True, model_id="claude-opus-4-7",
+                        input_tokens=8000, output_tokens=2000)
+    d = GateDecision(allowed=True, source="recomputed", verdict=primary,
+                     escalation=esc, escalated=True)
+    cost = _gate_cost(d)
+    assert cost["primary"]["usd"] == pytest.approx(0.03)
+    assert cost["escalator"]["usd"] == pytest.approx(0.27)
+    assert cost["total_usd"] == pytest.approx(0.30)
