@@ -314,3 +314,14 @@ def test_submit_pr_no_draft_flag(tmp_path: Path) -> None:
         gh_runner=lambda cmd: (captured.append(cmd) or (True, "url", "")),
     )
     assert "--draft" not in captured[0]
+
+
+def test_entropy_skips_identifiers_flags_secrets():
+    """The entropy heuristic must not false-positive on long snake_case
+    identifiers (e.g. test function names ≥40 chars) while still catching real
+    base64/hex secrets (Create self-PR finding, 2026-06-02)."""
+    from chimera.core.submit_pr import _entropy_hits
+    ident_diff = "+    def test_parse_line_with_tabs_only_in_fields(self):\n"
+    assert _entropy_hits(ident_diff) == []
+    secret_diff = '+    KEY = "AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMIK7MDENGbPxRfiCY"\n'
+    assert _entropy_hits(secret_diff) != []
