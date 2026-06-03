@@ -13,8 +13,6 @@ coordination (e.g., voting, leader election) lands later.
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 from typing import Any
 
 from ..tools import DispatchContext, ToolRegistry
