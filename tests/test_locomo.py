@@ -15,15 +15,12 @@ from pathlib import Path
 import pytest
 
 from chimera.evals.locomo import (
-    CATEGORY_INT_TO_LABEL,
     LoCoMoAdapter,
-    LoCoMoItem,
     canonical_category,
     items_from_sample,
     load_items,
     run_batch,
     summarize_results,
-    write_results,
 )
 
 
