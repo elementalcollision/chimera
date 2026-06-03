@@ -55,6 +55,9 @@ OPERATOR_COMMIT_PREFIXES = (
     "Merge ",
     "fix:",
     "chore:",
+    "charter",  # self-authored charter materialization (ADR 0153) — the
+                # operator/origination setup commit that precedes a Create build,
+                # analogous to a post-mortem commit landed before kick-off.
 )
 
 
