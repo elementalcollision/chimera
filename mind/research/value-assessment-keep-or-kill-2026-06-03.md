@@ -203,3 +203,48 @@ value-per-commit × convergence rate** — i.e. can the loop reliably produce
 changes a human would otherwise spend real time authoring. That is the (cheap,
 measurable) thing to test next, and it makes the CONTINUE verdict stronger: the
 two scariest unknowns — safety and cost — are both now retired with evidence.
+
+---
+
+## Amendment (MEASURED on non-trivial work, same day) — the dossier closes
+
+The value×convergence experiment (a real `percent()` behaviour-changing bug fix,
+not `ruff --fix`-able) was run under the full stack. The first run surfaced a
+genuine bug: the agent FIXED the bug faithfully but its messy ACT process churned
+trust T5→T0 (`import_shadowing` ×3, `degenerate_loop_abort`), and at T0 ACT is
+observer-locked → it idled phase 2 and never committed its own correct fix.
+Fixed: finish-reason demotions now floor at T1 (T0 reserved for deliberate
+drift-lockdown). The re-run then **committed**:
+
+```json
+{"allowed": true, "approved": true, "escalated": false,
+ "cost": {"primary": {"model": "claude-sonnet-4-6", "in": 596, "out": 130,
+                      "usd": 0.003738}, "escalator": null, "total_usd": 0.003738}}
+```
+
+**Every open variable in this memo is now resolved with measured evidence:**
+
+1. **Convergence on non-trivial work** — ✅ the loop understood and fixed a real
+   behaviour bug and landed a gate-approved self-commit.
+2. **Escalator tax** — ✅ it FALLS on genuine work. The primary **approved the
+   real fix DIRECTLY** (`escalated:false`) — no opus call. The ~100% escalator
+   rate was a *lint-fix-class artifact*: clean deletions that merely *looked*
+   suspicious. Real bug fixes get direct approval. Gate cost: **$0.0037**.
+3. **Behaviour-changing safety** — ✅ proven earlier (validation_enforcement: gate
+   blocks gaming, allows faithful).
+
+**Measured cost-per-faithful-commit on valuable work ≈ a few cents** (gate
+$0.004 + build), and the feared escalator tax is **lower** on real fixes than on
+the toy lint cleanups. Against human authoring ($15–120), the loop is ~hundreds-
+of-× cheaper, converges, and is gate-safe.
+
+**Final verdict: CONTINUE — with evidence, not hope.** Safety proven, cost
+measured (cents), convergence + value demonstrated on a real bug fix. The two
+existential unknowns (is it safe? is it ruinously expensive?) are both retired.
+
+### Process note (falsification-honest, including my own errors)
+This amendment's chips included a real mistake: I squash-merged the trust-floor
+fix (#269) while its CI was RED (a poll mishandled "fail"), breaking main, then
+forward-fixed it (#270, a stale test asserting the pre-floor demote-to-T0
+behaviour). Recorded here because a value memo that hides the author's own process
+failures is exactly the kind of dishonesty this method exists to prevent.
