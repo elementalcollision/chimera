@@ -111,13 +111,19 @@ def test_stop_does_not_demote(trust_path):
 # ── floor + multi-tier ──────────────────────────────────────
 
 
-def test_demote_clamps_at_t0(trust_path):
-    """apply_finish_reason cannot wrap below T0."""
+def test_demote_floors_at_t1(trust_path):
+    """apply_finish_reason floors at T1 — process churn must NOT reach T0
+    (full observer-lockdown), which is reserved for the deliberate lockdown()
+    path (value-convergence 2026-06-03: a churned-but-faithful build self-locked
+    out of committing its own correct fix)."""
     tm = TrustManager(trust_path)
-    tm.set_tier(TrustTier.T1, reason="seed")
+    tm.set_tier(TrustTier.T2, reason="seed")
     demoted = tm.apply_finish_reason("scope_evasion")  # delta=2
-    assert demoted == 1  # only 1 actually applied
-    assert tm.tier is TrustTier.T0
+    assert demoted == 1  # only 1 applied: T2→T1, then floored
+    assert tm.tier is TrustTier.T1
+    # From T1, further finish-reason demotion is a no-op (floored).
+    assert tm.apply_finish_reason("scope_evasion") == 0
+    assert tm.tier is TrustTier.T1
 
 
 def test_history_records_each_demote_with_finish_reason(trust_path):
