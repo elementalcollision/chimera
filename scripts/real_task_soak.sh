@@ -337,4 +337,25 @@ log "── branch commits (expect 1 [agent] commit) ──"
 log "── gate (post-fix) ──"
 ( cd "$WORKTREE" && eval "$GATE_VERIFY_CMD" ) 2>&1 | tee -a "$LOG" || true
 log "Review: cd $WORKTREE && git log --oneline $TASK_BASE..HEAD"
+
+# ADR 0163: trust-gated autonomous self-PR. Centralized HERE (the lowest common
+# denominator — both real-task and self-determined/charter runs funnel through
+# this runner) so the originate→build→gate→commit→self-PR chain completes in ONE
+# launch. OFF by default: fires only under CHIMERA_SELF_PR=1, and maybe_self_pr
+# itself re-checks every gate (trust ≥ T4, a gate-approved commit, full
+# submit_pr.validate()) and opens a DRAFT PR that never merges. Inert when unset
+# → the manual-handoff status quo. The PR targets SELF_PR_BASE (default main).
+if [ "${CHIMERA_SELF_PR:-0}" = "1" ]; then
+    has_agent="$(cd "$WORKTREE" && git log --format='%s' "$TASK_BASE"..HEAD 2>/dev/null | grep -c '\[agent\]')"
+    if [ "${has_agent:-0}" -ge 1 ]; then
+        log "── self-PR (ADR 0163): CHIMERA_SELF_PR=1, attempting trust-gated draft PR ──"
+        selfpr="$(cd "$REPO_ROOT" && SELF_PR_BASE="${SELF_PR_BASE:-main}" uv run python -c "
+import json, os
+from chimera.core.self_pr import maybe_self_pr
+r = maybe_self_pr(worktree='$WORKTREE', repo_root='$REPO_ROOT',
+                  base=os.environ.get('SELF_PR_BASE', 'main'))
+print(json.dumps(r.to_dict()))" 2>&1 | tail -1)"
+        log "  self-PR result: $selfpr"
+    fi
+fi
 exit 0
