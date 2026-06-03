@@ -92,3 +92,24 @@ that merge gate: self-scan → build → fail-closed critic gate (escalator resc
 earned trust → autonomous draft PR.
 
 Records: `mind/research/landmark-first-autonomous-self-pr-2026-06-02.md`.
+
+## Amendment (trust earned from gate record, 2026-06-02)
+
+Validation (`mind/research/trust-progression-validation-2026-06-02.md`) found the
+T4 self-PR gate was NOT earned from gate-approved commits: `readiness` keyed only
+on operational health (drift/activity/API-errors), so T4 was reachable with zero
+gate-approved commits. Closed by coupling the two systems:
+
+- `TrustManager.readiness` accepts an optional `gate_approval_rate` (fraction of
+  recent ADR 0162 gate decisions that were `allowed`), blended at `gate_weight`
+  (default 0.3): `composite = (1−gate_weight)·operational + gate_weight·gate_rate`.
+  `None` (no gate history) preserves the prior pure-operational score —
+  backward-compatible.
+- `ChimeraLoop._maybe_autopromote` computes the rate from the last 20
+  `critic-gate-log.jsonl` decisions and passes it.
+
+Effect: a poor gate record now pulls readiness below the promotion threshold even
+with perfect operational signals (`test_readiness_gate_signal_blends_and_is_backward_compatible`),
+so advancing toward T4 / self-PR eligibility requires a demonstrated track record
+of faithful, gate-accepted commits. Open (deferred) policy lever: a HARD minimum
+gate-approved count as a T4 precondition, on top of the weighted contribution.

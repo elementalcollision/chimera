@@ -204,3 +204,21 @@ def test_apply_finish_reason_charter_file_count_clamps_at_t0(trust_path):
     tm = TrustManager(trust_path)
     assert tm.tier is TrustTier.T0
     assert tm.apply_finish_reason("charter_file_count") == 0
+
+
+def test_readiness_gate_signal_blends_and_is_backward_compatible(tmp_path):
+    """ADR 0163 follow-up: a gate-approval track record is earned trust.
+    None preserves the pure operational score; a low gate rate pulls readiness
+    down even when operational signals are perfect, and a high rate lifts it."""
+    tm = TrustManager(tmp_path / "t.json")  # gate_weight default 0.3
+    base = tm.readiness(drift_score=0.0, activity_rate=1.0, failure_rate=0.0)
+    assert base == 1.0  # perfect operational, no gate history → unchanged
+    # All operational signals perfect, but the agent's gate record is poor.
+    low = tm.readiness(drift_score=0.0, activity_rate=1.0, failure_rate=0.0,
+                       gate_approval_rate=0.0)
+    assert low == pytest.approx(0.7)   # (1-0.3)*1.0 + 0.3*0.0
+    # A strong gate record holds readiness high.
+    high = tm.readiness(drift_score=0.0, activity_rate=1.0, failure_rate=0.0,
+                        gate_approval_rate=1.0)
+    assert high == pytest.approx(1.0)
+    assert low < base  # earned-trust gating actually bites

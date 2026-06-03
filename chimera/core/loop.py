@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import logging
 import os
 import signal
@@ -962,10 +963,31 @@ class ChimeraLoop:
         ).fetchone()
         failure_count = (fail_row["n"] if fail_row else 0) or 0
         failure_rate = failure_count / max(1, recent_calls)
+        # gate-approval rate: fraction of recent in-loop critic-gate decisions
+        # (ADR 0162 ledger) that were ALLOWED, so trust is EARNED from a track
+        # record of faithful, gate-accepted commits — not just operational health
+        # (ADR 0163 follow-up). None when there's no gate history → pure
+        # operational readiness (unchanged behaviour).
+        gate_rate: float | None = None
+        gate_log = self.config.state_dir / "critic-gate-log.jsonl"
+        try:
+            recent = [ln for ln in gate_log.read_text().splitlines() if ln.strip()][-20:]
+            decisions = []
+            for ln in recent:
+                try:
+                    decisions.append(json.loads(ln))
+                except (json.JSONDecodeError, ValueError):
+                    continue
+            if decisions:
+                allowed = sum(1 for d in decisions if d.get("allowed") is True)
+                gate_rate = allowed / len(decisions)
+        except OSError:
+            pass
         readiness = self._trust.readiness(
             drift_score=drift_score,
             activity_rate=activity_rate,
             failure_rate=failure_rate,
+            gate_approval_rate=gate_rate,
         )
         before = self._trust.tier.name
         if self._trust.maybe_autopromote(
