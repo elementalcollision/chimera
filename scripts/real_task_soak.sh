@@ -297,9 +297,22 @@ echo "$(phase1_inbox)" > "$WORKTREE/mind/INBOX.md"
 log "phase-1 INBOX seeded ($TASK_GOAL)"
 P1_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
 # Phase 1 stops PHASE2_RESERVE_SECONDS before the global wall, guaranteeing the
-# commit phase a budget even when phase 1 converges late (clamp ≥ 60s).
+# commit phase a budget even when phase 1 converges late.
+#
+# CRITICAL: the per-phase wall is only checked BETWEEN iterations, so a phase-1
+# ACT iteration that starts just under the cap runs a full CHIMERA_ACT_BUDGET and
+# overruns the soft cap by up to one ACT budget. If the reserve ≤ one ACT budget,
+# that overrun blows past the GLOBAL wall and phase 2 starts already over-budget
+# → zero time → the agent reaches green but never commits (e2e single-launch
+# finding 2026-06-03; #246 reserve=450 < ACT budget 600 was a partial fix). Floor
+# the reserve at one ACT budget + cooldown + margin so phase 1's last iteration
+# still ends before the global wall and phase 2's first iteration clears its check
+# (then runs a full ACT iteration to commit, governed by the ACT/watchdog budget).
+_min_reserve=$(( ${CHIMERA_ACT_BUDGET_SECONDS:-600} + COOLDOWN_SECONDS + 60 ))
+[ "$PHASE2_RESERVE_SECONDS" -lt "$_min_reserve" ] && PHASE2_RESERVE_SECONDS="$_min_reserve"
 PHASE1_WALL=$(( MAX_WALL_SECONDS - PHASE2_RESERVE_SECONDS ))
 [ "$PHASE1_WALL" -lt 60 ] && PHASE1_WALL=60
+log "  phase walls: phase1=${PHASE1_WALL}s  phase2-reserve=${PHASE2_RESERVE_SECONDS}s  (act_budget=${CHIMERA_ACT_BUDGET_SECONDS:-600}s, global=${MAX_WALL_SECONDS}s)"
 phase_loop "phase1" "$PHASE1_CAP_USD" "$P1_ISO" "0" "$PHASE1_WALL"
 
 # Phase 2: commit (engines on).
