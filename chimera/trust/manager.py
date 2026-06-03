@@ -210,6 +210,7 @@ class TrustManager:
         stability_weight: float = 0.4,
         activity_weight: float = 0.3,
         hygiene_weight: float = 0.3,
+        gate_weight: float = 0.3,
     ) -> None:
         self.state_path = Path(state_path)
         self.promotion_threshold = promotion_threshold
@@ -217,6 +218,11 @@ class TrustManager:
         self.stability_weight = stability_weight
         self.activity_weight = activity_weight
         self.hygiene_weight = hygiene_weight
+        # How much a demonstrated gate-approval track record (ADR 0162) counts
+        # toward readiness, blended over the operational signals. Only applies
+        # when readiness() is given a gate_approval_rate (trust-earned-from-gate,
+        # ADR 0163 follow-up); 0 reverts to the pure operational score.
+        self.gate_weight = gate_weight
         self._state = self._load()
 
     # ── state I/O ──────────────────────────────────────
@@ -261,18 +267,32 @@ class TrustManager:
         drift_score: float,
         activity_rate: float,
         failure_rate: float,
+        gate_approval_rate: float | None = None,
     ) -> float:
-        """Composite readiness in [0, 1]. Inputs are pre-clamped by caller."""
+        """Composite readiness in [0, 1].
+
+        Operational signals (stability/activity/hygiene) always apply. When
+        ``gate_approval_rate`` is given (the fraction of recent in-loop critic-gate
+        decisions that were allowed, ADR 0162), it is blended in at
+        ``gate_weight`` — so trust is *earned* from a demonstrated track record of
+        faithful, gate-accepted commits, not just operational health (ADR 0163
+        follow-up). ``None`` (no gate history) preserves the pure operational score.
+        """
         def _clamp(x: float) -> float:
             return max(0.0, min(1.0, x))
         stability = 1.0 - _clamp(drift_score)
         activity = _clamp(activity_rate)
         hygiene = 1.0 - _clamp(failure_rate)
-        composite = (
+        base = (
             self.stability_weight * stability
             + self.activity_weight * activity
             + self.hygiene_weight * hygiene
         )
+        if gate_approval_rate is None:
+            composite = base
+        else:
+            gate = _clamp(gate_approval_rate)
+            composite = (1.0 - self.gate_weight) * base + self.gate_weight * gate
         self._state.last_readiness = round(composite, 4)
         return composite
 
