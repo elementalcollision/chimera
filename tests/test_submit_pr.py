@@ -325,3 +325,19 @@ def test_entropy_skips_identifiers_flags_secrets():
     assert _entropy_hits(ident_diff) == []
     secret_diff = '+    KEY = "AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMIK7MDENGbPxRfiCY"\n'
     assert _entropy_hits(secret_diff) != []
+
+
+def test_fix_without_test_accepts_existing_test(tmp_path):
+    """A lint cleanup of source that ALREADY has a test file is covered even with
+    no test change (2026-06-03 e2e: source ruff cleanup blocked the self-PR)."""
+    from chimera.core.submit_pr import _check_fix_without_test
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_kfm_tool.py").write_text("def test_x(): pass\n")
+    changed = ["chimera/server/kfm_tool.py"]
+    assert _check_fix_without_test(changed, tmp_path) == []   # existing test → covered
+    # Net-new source with NO test file is still flagged.
+    assert _check_fix_without_test(["chimera/server/newmod.py"], tmp_path) == \
+        ["chimera/server/newmod.py"]
+    # A changed test still passes everything (original behaviour).
+    assert _check_fix_without_test(
+        ["chimera/server/newmod.py", "tests/test_newmod.py"], tmp_path) == []

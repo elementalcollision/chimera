@@ -192,8 +192,22 @@ def _check_inbox_honesty(
     return invalid
 
 
-def _check_fix_without_test(changed_files: list[str]) -> list[str]:
-    """v4.92 gate, applied across the full branch diff (not just one task)."""
+def _check_fix_without_test(
+    changed_files: list[str], worktree: Path | None = None
+) -> list[str]:
+    """v4.92 gate: chimera/ source must be COVERED by tests. Returns uncovered
+    sources (empty = pass).
+
+    A touched source is covered when EITHER (a) the branch also changed a
+    ``tests/`` file, OR (b) a corresponding ``tests/test_<name>.py`` already
+    EXISTS in the worktree. Case (b) is the precision fix (2026-06-03 e2e
+    finding): a behaviour-neutral lint cleanup of already-tested source adds no
+    new test, and the existing suite (re-run green by ``chimera verify`` /
+    `_validate_tests_actually_pass`) IS its coverage — requiring a *changed* test
+    was a false-positive that blocked the self-PR of gate-approved cleanups.
+    Net-new source with no test file is still flagged. ``worktree=None`` falls
+    back to the original change-based check (conservative).
+    """
     src = [
         p for p in changed_files
         if p.startswith("chimera/")
@@ -202,8 +216,16 @@ def _check_fix_without_test(changed_files: list[str]) -> list[str]:
     ]
     if not src:
         return []
-    has_tests = any(p.startswith("tests/") and p.endswith(".py") for p in changed_files)
-    return [] if has_tests else src
+    if any(p.startswith("tests/") and p.endswith(".py") for p in changed_files):
+        return []
+    if worktree is None:
+        return src
+    uncovered = []
+    for p in src:
+        test_path = worktree / "tests" / f"test_{Path(p).name}"
+        if not test_path.exists():
+            uncovered.append(p)
+    return uncovered
 
 
 def _validate_tests_actually_pass(
@@ -349,7 +371,7 @@ def validate(
         if _has_secret_path(p):
             errors.append(f"diff touches secret-shaped path: {p}")
 
-    untested = _check_fix_without_test(files)
+    untested = _check_fix_without_test(files, worktree)
     if untested:
         errors.append(
             "fix_without_test (v4.92 gate): chimera/ source touched without "
