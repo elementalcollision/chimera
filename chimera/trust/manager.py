@@ -385,6 +385,15 @@ class TrustManager:
             return 0
         demoted = 0
         for _ in range(delta):
+            # Floor finish-reason demotions at T1: messy-process churn must NOT
+            # accumulate down to T0 (full observer-lockdown). T0 disables ALL tool
+            # dispatch (loop.py), so a build that churned through several
+            # import_shadowing/degenerate-loop finish-reasons would self-lock out
+            # of committing its OWN faithful fix (value-convergence 2026-06-03:
+            # T5→T0 in one build, agent fixed the bug but couldn't commit). T0 is
+            # reserved for the DELIBERATE drift `lockdown()` path.
+            if self._state.current_tier <= TrustTier.T1:
+                break
             reason = f"finish_reason={finish_reason} delta={delta}"
             if reason_suffix:
                 reason += f" — {reason_suffix}"
