@@ -161,3 +161,45 @@ remains is economics/engineering — which is exactly the kind of problem that
 yields to iteration. KILL only if, after the escalator-tax and convergence work,
 cost-per-faithful-commit on genuinely valuable tasks still loses to a human — a
 question now answerable with a measured cost ledger, not a guess.
+
+---
+
+## Amendment (MEASURED cost, same day) — the gate tax is cents, not dollars
+
+The gate is now cost-instrumented (`critic-gate-log.jsonl` carries a real
+`cost` block, priced from actual token usage). Direct measurement of the
+primary+escalator on a real reject→rescue diff:
+
+```
+PRIMARY  claude-sonnet-4-6   521 in / 316 out   → $0.0063
+ESCALATOR claude-opus-4-7    760 in / 277 out   → $0.0322   (the escalator tax)
+TOTAL gate cost (reject + escalate):              $0.039 / commit
+  if the primary had approved (sonnet-only):      $0.006 / commit
+```
+
+**Corrections to the estimates above (falsification-honest):**
+
+1. The earlier "~$0.30 per gated commit" estimate was **~8× too high** — it
+   assumed inflated token counts. The real per-commit gate cost on a typical diff
+   is **single-digit cents** (~$0.04 with the escalator, ~$0.006 without). Larger
+   multi-file diffs scale this up, but even a 10× diff is ~$0.40 — still sub-dollar.
+2. The escalator is a **~6× multiplier** on gate cost, not a budget-breaker. The
+   ADR 0163 critic-precision work is a nice-to-have (6× on cents), not make-or-break.
+
+**Total cost-per-faithful-commit ≈ ACT build ($0.00–$0.30 observed) + gate
+($0.006–$0.04) ≈ a few cents to ~$0.35.**
+
+### The break-even, now numeric
+- vs. **free tooling** (`ruff --fix` on lint): Chimera loses at *any* price. Unchanged.
+- vs. **human authoring** a non-trivial change (15–60 min senior time ≈ $15–120
+  loaded): Chimera at ~$0.05–0.35/commit is **~40–300× cheaper** — IF it produces
+  equivalent value and converges.
+
+**Revised economic verdict:** the cost side is NOT the problem. A
+faithful, gate-approved commit costs cents. The loop is economically viable for
+any task where authoring is non-trivial; it loses only where a free deterministic
+tool already exists. The remaining open variable is therefore **not cost but
+value-per-commit × convergence rate** — i.e. can the loop reliably produce
+changes a human would otherwise spend real time authoring. That is the (cheap,
+measurable) thing to test next, and it makes the CONTINUE verdict stronger: the
+two scariest unknowns — safety and cost — are both now retired with evidence.
