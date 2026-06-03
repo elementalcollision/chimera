@@ -222,3 +222,26 @@ def test_readiness_gate_signal_blends_and_is_backward_compatible(tmp_path):
                         gate_approval_rate=1.0)
     assert high == pytest.approx(1.0)
     assert low < base  # earned-trust gating actually bites
+
+
+def test_finish_reason_demotion_floors_at_t1(tmp_path):
+    """Messy-process finish-reason churn must NOT cascade to T0 (observer
+    lockdown) and self-lock the agent out of committing its faithful work
+    (value-convergence 2026-06-03: T5→T0 in one build). T0 is reserved for the
+    deliberate drift lockdown()."""
+    import json
+    p = tmp_path / "t.json"
+    p.write_text(json.dumps({"current_tier": 5}))
+    tm = TrustManager(p)
+    for _ in range(10):
+        tm.apply_finish_reason("import_shadowing")
+    assert tm.tier == TrustTier.T1   # floored, not T0
+    # A higher-delta reason also floors at T1, not below.
+    p.write_text(json.dumps({"current_tier": 5}))
+    tm2 = TrustManager(p)
+    for _ in range(10):
+        tm2.apply_finish_reason("scope_evasion")
+    assert tm2.tier == TrustTier.T1
+    # Deliberate lockdown still reaches T0 (the drift safety path is unaffected).
+    assert tm2.lockdown(reason="drift") is True
+    assert tm2.tier == TrustTier.T0
