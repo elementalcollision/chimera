@@ -34,6 +34,12 @@ class CriticVerdict:
     concerns: list[str] = field(default_factory=list)
     rationale: str = ""
     parsed: bool = True  # False when the model output could not be read
+    # Token usage of the adjudicating call (0 when unknown / call failed), so the
+    # gate can price the REAL per-commit critic+escalator cost (the hidden tax the
+    # ACT spend line misses — value-assessment 2026-06-03).
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model_id: str = ""
 
     def summary(self) -> str:
         head = "APPROVED" if self.approved else "REJECTED"
@@ -157,4 +163,8 @@ async def review_change(
         )
     except Exception as exc:  # provider error → fail-closed
         return CriticVerdict(False, [f"critic provider error: {exc}"], parsed=False)
-    return parse_verdict(getattr(response, "text", "") or "")
+    verdict = parse_verdict(getattr(response, "text", "") or "")
+    verdict.input_tokens = int(getattr(response, "input_tokens", 0) or 0)
+    verdict.output_tokens = int(getattr(response, "output_tokens", 0) or 0)
+    verdict.model_id = getattr(response, "model_id", "") or model_id
+    return verdict

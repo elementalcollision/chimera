@@ -245,6 +245,34 @@ def calibration_clean(repo_root: Path) -> tuple[bool, str]:
 # ── decision ledger (ADR 0162) ───────────────────────────────────────
 
 
+def _call_cost_usd(model_id: str, in_tok: int, out_tok: int) -> float:
+    """Price one critic/escalator call from its REAL token usage. The gate is the
+    per-commit cost the ACT spend line misses (a sonnet primary + ~100% an opus
+    escalator on clean diffs — value-assessment 2026-06-03). Unknown model → 0."""
+    try:
+        from .cost_estimate import _price_table
+        in_price, out_price = _price_table().get(model_id, (0.0, 0.0))
+    except Exception:
+        return 0.0
+    return (in_tok / 1_000_000.0) * in_price + (out_tok / 1_000_000.0) * out_price
+
+
+def _gate_cost(decision: GateDecision) -> dict:
+    """Real $ cost of THIS gate decision: primary critic + (if any) escalator."""
+    v, e = decision.verdict, decision.escalation
+    p_usd = _call_cost_usd(v.model_id, v.input_tokens, v.output_tokens) if v else 0.0
+    e_usd = _call_cost_usd(e.model_id, e.input_tokens, e.output_tokens) if e else 0.0
+    return {
+        "primary": (None if v is None else {
+            "model": v.model_id, "in": v.input_tokens, "out": v.output_tokens,
+            "usd": round(p_usd, 6)}),
+        "escalator": (None if e is None else {
+            "model": e.model_id, "in": e.input_tokens, "out": e.output_tokens,
+            "usd": round(e_usd, 6)}),
+        "total_usd": round(p_usd + e_usd, 6),
+    }
+
+
 def record_gate_decision(repo_root: Path, decision: GateDecision) -> None:
     """Append a one-line record of each gate decision. The live loop thereby
     accumulates the verdict-vs-outcome history ADR 0160 asked for — every
@@ -268,6 +296,7 @@ def record_gate_decision(repo_root: Path, decision: GateDecision) -> None:
                 None if decision.escalation is None else decision.escalation.parsed
             ),
             "escalator_model": decision.escalator_model or None,
+            "cost": _gate_cost(decision),
         }
         with (d / _GATE_LOG).open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row) + "\n")
