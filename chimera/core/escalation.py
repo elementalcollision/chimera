@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import os
 import sqlite3
 from dataclasses import dataclass
 from typing import Literal
@@ -277,6 +278,113 @@ def research_task_floor_tier(task_text: str) -> str | None:
     return None
 
 
+# ── v4.120 (ADR 0166): lexical task-complexity model selection ──────
+#
+# The "model selection" analog of the vLLM Semantic Router's simple→fast
+# / complex→reasoning split (see
+# docs/research/semantic-routing-evaluation-2026-06-06.md §3.2). Where
+# research_task_floor_tier() floors a single SHAPE of task, this scores
+# the GENERAL engineering complexity of the task text and lifts the
+# starting tier accordingly — so a multi-step code/design job starts on
+# a capable model instead of failing at haiku and paying the
+# escalation-memory round-trip on the next cycle. Embedding-free; an
+# embedding classifier slots in behind the same call site once
+# ADR 0134 §#6.b picks the model.
+
+
+def complexity_routing_enabled() -> bool:
+    """Honour ``CHIMERA_COMPLEXITY_ROUTING`` (default: off, ADR 0166)."""
+    raw = os.environ.get("CHIMERA_COMPLEXITY_ROUTING", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+#: Engineering / reasoning verbs whose presence signals design or
+#: multi-step code work that haiku consistently under-delivers on.
+#: Matched as whole words on a lowered copy of the task text.
+_COMPLEXITY_REASONING_VERBS: frozenset[str] = frozenset({
+    "refactor", "implement", "reimplement", "design", "redesign",
+    "architect", "rearchitect", "debug", "diagnose", "optimize",
+    "optimise", "derive", "prove", "migrate", "benchmark",
+    "concurrency", "integrate", "synthesize", "synthesise",
+    "reconcile", "algorithm",
+})
+
+#: Tool-type "breadth" groups: a task spanning many capabilities is a
+#: longer tool chain and benefits from a stronger planner. Each group
+#: counts at most once (distinct breadth), grouped by capability rather
+#: than exact tool name (cf. ``budget._TOOL_KEYWORDS``).
+_COMPLEXITY_BREADTH_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("web_search", "web search", "search the web", "look up", "look-up"),
+    ("http_fetch", "fetch", "download", "https://", "http://"),
+    ("code_exec", "python", "compute", "calculate", "script"),
+    ("shell", "subprocess", "command-line", "command line"),
+    ("write to", "save to", "create file", "persist", "output to", "emit"),
+)
+
+#: Multi-step phrasing the task author spells out. Numbered-list markers
+#: and multiple path-like deliverables are detected separately by regex.
+_COMPLEXITY_MULTISTEP_PHRASES: tuple[str, ...] = (
+    "and then", "then ", "first,", "firstly", "secondly", "thirdly",
+    "next,", "after that", "finally,", "step 1", "step 2", "step one",
+    "step two",
+)
+
+
+def _complexity_signals(task_text: str) -> tuple[int, int, bool]:
+    """Return ``(reasoning_hits, breadth, multistep)`` for ``task_text``.
+
+    Pure, deterministic, no NLP dependency — the same design constraint
+    as :func:`_signature`.
+    """
+    import re
+
+    lower = (task_text or "").lower()
+    if not lower:
+        return (0, 0, False)
+    words = set(re.split(r"[^a-z0-9]+", lower))
+    reasoning_hits = len(words & _COMPLEXITY_REASONING_VERBS)
+    breadth = sum(
+        1 for group in _COMPLEXITY_BREADTH_GROUPS
+        if any(kw in lower for kw in group)
+    )
+    multistep = any(p in lower for p in _COMPLEXITY_MULTISTEP_PHRASES)
+    if not multistep:
+        numbered = re.findall(r"(?m)^\s*\d+[.)]\s", task_text or "")
+        if len(numbered) >= 2:
+            multistep = True
+    if not multistep:
+        paths = re.findall(
+            r"\b[\w./-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b", task_text or "",
+        )
+        if len(set(paths)) >= 2:
+            multistep = True
+    return (reasoning_hits, breadth, multistep)
+
+
+def complexity_floor_tier(task_text: str) -> str | None:
+    """Map a task's lexical complexity to a starting-tier floor.
+
+    Returns:
+      * ``"opus"`` — high bar: an explicit reasoning verb AND multi-step
+        decomposition AND breadth >= 2, OR >= 3 distinct reasoning verbs.
+        The opus bar is deliberately steep given the cost-runaway history
+        ([ADR 0072](../../docs/adr/0072-cost-runaway-guards.md)).
+      * ``"sonnet"`` — medium: any reasoning verb, breadth >= 2, or
+        multi-step phrasing.
+      * ``None`` — no complexity signal; the caller keeps its default.
+
+    The function is always computable (so it can be unit-tested and
+    previewed); integration into :func:`recommended_tier` is gated by
+    :func:`complexity_routing_enabled`.
+    """
+    reasoning, breadth, multistep = _complexity_signals(task_text)
+    if (reasoning >= 1 and multistep and breadth >= 2) or reasoning >= 3:
+        return "opus"
+    if reasoning >= 1 or breadth >= 2 or multistep:
+        return "sonnet"
+    return None
+
+
 def recommended_tier(
     conn: sqlite3.Connection,
     *,
@@ -308,6 +416,15 @@ def recommended_tier(
     rank = {t: i for i, t in enumerate(_TIER_ORDER)}
     if floor is not None and rank.get(floor, -1) > rank.get(default_tier, -1):
         default_tier = floor
+
+    # v4.120 (ADR 0166): opt-in lexical complexity floor. Lifts the
+    # starting tier for multi-step / design / broad-tool-chain tasks the
+    # default tier would under-serve. Off by default → byte-identical to
+    # the v4.119 routing path until CHIMERA_COMPLEXITY_ROUTING is set.
+    if complexity_routing_enabled():
+        cfloor = complexity_floor_tier(task_text)
+        if cfloor is not None and rank.get(cfloor, -1) > rank.get(default_tier, -1):
+            default_tier = cfloor
 
     incoming = _signature(task_text)
     if not incoming:
