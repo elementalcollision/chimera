@@ -9,6 +9,65 @@ Earlier releases (v1.0 → v4.113.0) are documented through the ADR series and
 git tags; this changelog is introduced at v4.114.0 as the load-bearing
 public record for releases going forward.
 
+## v4.120.0 — 2026-06-06 — Lexical task-complexity model selection
+
+The **model selection** slice of the vLLM Semantic Router evaluation
+([docs/research/semantic-routing-evaluation-2026-06-06.md](docs/research/semantic-routing-evaluation-2026-06-06.md)
+§3.2, [ADR 0166](docs/adr/0166-lexical-complexity-model-selection.md)),
+following the tool-selection slice in v4.119.0. `recommended_tier` chose
+the starting tier from a Jaccard history walk + a single research-keyword
+floor; a genuinely complex engineering task (e.g. *"refactor the parser,
+then run the suite and write the report"*) matched neither and started at
+haiku, failing once before escalation memory promoted it on the next cycle.
+
+No changes to v4.0-stable surfaces (SQLite schema, graph store, mind
+layout, HTTP endpoints, CLI verbs) per [ADR 0025](docs/adr/0025-v4-stability.md).
+The new env knob (`CHIMERA_COMPLEXITY_ROUTING`) is **default OFF** —
+routing is byte-identical to v4.119.0 unless explicitly enabled.
+
+### Complexity floor for the starting tier ([ADR 0166](docs/adr/0166-lexical-complexity-model-selection.md))
+
+`chimera/core/escalation.py::complexity_floor_tier` scores a task's
+lexical complexity — whole-word reasoning/engineering verbs, distinct
+tool-type breadth, and multi-step decomposition (spelled-out phrasing,
+numbered lists, or multiple path-like deliverables) — and lifts the
+starting tier: `sonnet` on any single signal, `opus` on a deliberately
+steep high bar (reasoning verb AND multi-step AND breadth ≥ 2, or ≥ 3
+reasoning verbs). Wired into `recommended_tier` as a floor **only** when
+the flag is set: it can lift the tier but never demote below the caller's
+default, and the escalation-memory promotion stays as the cross-cycle net.
+The classifier is the drop-in seam for an embedding-based scorer once
+[ADR 0134](docs/adr/0134-hybrid-search-eval.md) §#6.b picks the model.
+Covered by `tests/test_complexity_routing.py`.
+
+## v4.119.0 — 2026-06-06 — Semantic tool pre-filter (lexical v0)
+
+The first slice of the vLLM Semantic Router evaluation
+([docs/research/semantic-routing-evaluation-2026-06-06.md](docs/research/semantic-routing-evaluation-2026-06-06.md),
+[ADR 0165](docs/adr/0165-semantic-tool-prefilter.md)). The ACT executor
+previously handed the model **every** registered tool schema on every
+round; as the unbounded `dynamic` skills and `mcp-<peer>` peer toolsets
+grow, that catalog bloat is a known accuracy + token tax on every round of
+every tool chain.
+
+No changes to v4.0-stable surfaces (SQLite schema, graph store, mind
+layout, HTTP endpoints, CLI verbs) per [ADR 0025](docs/adr/0025-v4-stability.md).
+The new env knob (`CHIMERA_TOOL_PREFILTER`) is **default OFF** — behaviour
+is byte-identical to `registry.schemas()` unless explicitly enabled.
+
+### Per-task tool catalog scoping ([ADR 0165](docs/adr/0165-semantic-tool-prefilter.md))
+
+`chimera/tools/tool_selection.py::select_tool_schemas` replaces the single
+unconditional `registry.schemas()` call site in `core/act.py`. With the
+flag on, the per-task catalog is scoped to the always-on `core` floor plus
+any `dynamic`/`mcp-*` tool whose signal tokens (name + description +
+parameter names) lexically overlap the task. Safety rails: the `core` floor
+is never pruned, an empty/token-less task falls back to the full catalog,
+and availability is honoured exactly as before. The `select_tool_schemas`
+seam is designed as a drop-in point for an embedding-backed classifier once
+[ADR 0134](docs/adr/0134-hybrid-search-eval.md) §#6.b picks the embedding
+model. Covered by `tests/test_tool_selection.py` (9 cases).
+
 ## v4.118.0 — 2026-05-28 — Adaptive top-k temporal remediation (gate cleared)
 
 The release that ships the first remediation from [ADR 0142](docs/adr/0142-hybrid-retrieval-for-long-horizon.md)'s
