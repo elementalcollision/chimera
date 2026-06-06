@@ -73,6 +73,7 @@ from ..tools import (
     detect_ping_pong,
     extract_target_paths,
     normalize_tool_input,
+    select_tool_schemas,
 )
 
 logger = logging.getLogger(__name__)
@@ -2464,7 +2465,11 @@ class ActExecutor:
             Message.system(system_prompt),
             Message.user(user_message_text),
         ]
-        tools_schema = self._dispatcher.registry.schemas()
+        # v4.119 (ADR 0165): semantic tool pre-filter. With
+        # CHIMERA_TOOL_PREFILTER off (default) this is byte-identical to
+        # registry.schemas(); on, it scopes the per-task catalog to the
+        # core floor + lexically-relevant dynamic/mcp tools.
+        tools_schema = select_tool_schemas(self._dispatcher.registry, task_text)
         history: list[ToolCall] = []
         write_targets: list[str] = []
         api_call_count = 0

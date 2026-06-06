@@ -9,6 +9,34 @@ Earlier releases (v1.0 → v4.113.0) are documented through the ADR series and
 git tags; this changelog is introduced at v4.114.0 as the load-bearing
 public record for releases going forward.
 
+## v4.119.0 — 2026-06-06 — Semantic tool pre-filter (lexical v0)
+
+The first slice of the vLLM Semantic Router evaluation
+([docs/research/semantic-routing-evaluation-2026-06-06.md](docs/research/semantic-routing-evaluation-2026-06-06.md),
+[ADR 0165](docs/adr/0165-semantic-tool-prefilter.md)). The ACT executor
+previously handed the model **every** registered tool schema on every
+round; as the unbounded `dynamic` skills and `mcp-<peer>` peer toolsets
+grow, that catalog bloat is a known accuracy + token tax on every round of
+every tool chain.
+
+No changes to v4.0-stable surfaces (SQLite schema, graph store, mind
+layout, HTTP endpoints, CLI verbs) per [ADR 0025](docs/adr/0025-v4-stability.md).
+The new env knob (`CHIMERA_TOOL_PREFILTER`) is **default OFF** — behaviour
+is byte-identical to `registry.schemas()` unless explicitly enabled.
+
+### Per-task tool catalog scoping ([ADR 0165](docs/adr/0165-semantic-tool-prefilter.md))
+
+`chimera/tools/tool_selection.py::select_tool_schemas` replaces the single
+unconditional `registry.schemas()` call site in `core/act.py`. With the
+flag on, the per-task catalog is scoped to the always-on `core` floor plus
+any `dynamic`/`mcp-*` tool whose signal tokens (name + description +
+parameter names) lexically overlap the task. Safety rails: the `core` floor
+is never pruned, an empty/token-less task falls back to the full catalog,
+and availability is honoured exactly as before. The `select_tool_schemas`
+seam is designed as a drop-in point for an embedding-backed classifier once
+[ADR 0134](docs/adr/0134-hybrid-search-eval.md) §#6.b picks the embedding
+model. Covered by `tests/test_tool_selection.py` (9 cases).
+
 ## v4.118.0 — 2026-05-28 — Adaptive top-k temporal remediation (gate cleared)
 
 The release that ships the first remediation from [ADR 0142](docs/adr/0142-hybrid-retrieval-for-long-horizon.md)'s
