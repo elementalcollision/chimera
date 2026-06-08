@@ -3214,14 +3214,48 @@ class ActExecutor:
                     [tu.name for tu in response.tool_uses],
                 )
 
-            gathered: list[tuple[ToolResultBlock, float]] = list(
+            # ADR 0171: subcriticality fan-out budget. Parallel tool fan-out is
+            # otherwise unbounded (asyncio.gather over whatever the model
+            # emits). When enabled, dispatch the first N (the model's order is
+            # its priority) and defer the rest with a synthetic result that
+            # tells the model to re-issue them in a later round — this keeps
+            # the provider contract (every tool_use gets a tool_result) while
+            # capping the branching width. Off by default → all calls
+            # dispatched, byte-identical.
+            from .branching import fanout_budget_enabled, fanout_max_width, fanout_split
+
+            _pairs = list(zip(response.tool_uses, batch_args))
+            if fanout_budget_enabled():
+                _n_dispatch, _n_skip = fanout_split(len(_pairs), fanout_max_width())
+            else:
+                _n_dispatch, _n_skip = len(_pairs), 0
+            if _n_skip > 0:
+                logger.info(
+                    "act: fan-out budget — dispatching %d of %d tool_uses, "
+                    "deferring %d",
+                    _n_dispatch, len(_pairs), _n_skip,
+                )
+            _dispatched = list(
                 await asyncio.gather(
-                    *[
-                        _run_one(tu.id, tu.name, args)
-                        for tu, args in zip(response.tool_uses, batch_args)
-                    ]
+                    *[_run_one(tu.id, tu.name, args) for tu, args in _pairs[:_n_dispatch]]
                 )
             )
+            _skipped: list[tuple[ToolResultBlock, float]] = [
+                (
+                    ToolResultBlock(
+                        tool_use_id=tu.id,
+                        content=(
+                            "deferred: parallel tool-call fan-out exceeded the "
+                            f"width budget ({fanout_max_width()}). Re-issue this "
+                            "call in a subsequent round."
+                        ),
+                        is_error=True,
+                    ),
+                    0.0,
+                )
+                for tu, _args in _pairs[_n_dispatch:]
+            ]
+            gathered: list[tuple[ToolResultBlock, float]] = _dispatched + _skipped
             tool_results: list[ToolResultBlock] = [g[0] for g in gathered]
             # Annotate this batch's ToolCalls (appended at batch_start_index
             # above, in tool_uses order) with per-call exit + duration for
