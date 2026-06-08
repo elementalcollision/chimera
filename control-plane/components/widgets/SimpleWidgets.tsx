@@ -21,6 +21,7 @@ import {
   AssemblyJournalEntry,
   DriftLogRecord,
   EmergenceCounts,
+  FederationConnectivity,
   GraphSnapshot,
   PeerEntry,
   PhaseTimings,
@@ -271,6 +272,77 @@ export function TrustJournalWidget({ groups }: { groups: TrustGroupRow[] }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Federation connectivity (ADR 0168) ──────────────────────
+
+export function FederationConnectivityWidget({
+  fed,
+}: {
+  fed: FederationConnectivity | null;
+}) {
+  if (!fed) {
+    return (
+      <Empty>
+        No federation gauge. Enable CHIMERA_FEDERATION_METRICS and re-export the
+        graph snapshot.
+      </Empty>
+    );
+  }
+  // Below ⟨k⟩ = 1 the giant component is gone (ER percolation threshold);
+  // a connectivity < 1 means the swarm has fragmented into islands.
+  const fragmented = fed.connectivity < 1;
+  const subcritical = fed.n_nodes > 1 && fed.mean_degree < 1;
+  const hubRisk = fed.hub_concentration >= 0.5 && fed.n_nodes > 2;
+  const pct = (fed.connectivity * 100).toFixed(0);
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 16, alignItems: "center" }}>
+        <div>
+          <div className="label">Connectivity</div>
+          <div
+            className="serif-num"
+            style={{ fontSize: 44, marginTop: 4, color: fragmented ? "var(--mlc-peach-500)" : "var(--fg-1)" }}
+          >
+            {pct}%
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          <div className="muted" style={{ fontSize: 11 }}>
+            largest trust-reachable component {fed.largest_component} / {fed.n_nodes} peers
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {fragmented && <span className="pill" data-tone="warn">fragmented</span>}
+            {subcritical && <span className="pill" data-tone="danger">⟨k⟩ &lt; 1</span>}
+            {hubRisk && <span className="pill" data-tone="warn">hub risk</span>}
+            {!fragmented && !hubRisk && <span className="pill" data-tone="ok">cohesive</span>}
+          </div>
+        </div>
+      </div>
+      <div className="kv-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+        <div className="kv">
+          <div className="kv__label">Mean degree ⟨k⟩</div>
+          <div className="kv__value">{fed.mean_degree.toFixed(2)}</div>
+        </div>
+        <div className="kv">
+          <div className="kv__label">Hub share</div>
+          <div className="kv__value" style={{ color: hubRisk ? "var(--mlc-peach-500)" : "var(--fg-1)" }}>
+            {(fed.hub_concentration * 100).toFixed(0)}%
+          </div>
+        </div>
+        <div className="kv">
+          <div className="kv__label">Isolated</div>
+          <div className="kv__value">{fed.isolated_nodes}</div>
+        </div>
+      </div>
+      {fed.hub_node && hubRisk && (
+        <div className="muted" style={{ fontSize: 11 }}>
+          single-point-of-trust-failure: <span className="mono">{fed.hub_node}</span> carries{" "}
+          {fed.hub_degree} of {fed.n_edges} trust edges
+        </div>
+      )}
     </div>
   );
 }

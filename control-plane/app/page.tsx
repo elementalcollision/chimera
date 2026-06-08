@@ -45,6 +45,7 @@ import {
   ChronicleWidget,
   DriftSparklineWidget,
   EmergenceWidget,
+  FederationConnectivityWidget,
   FragmentationWidget,
   GraphWidget,
   InboxWidget,
@@ -257,8 +258,14 @@ export default async function HomePage() {
       body: <TrustJournalWidget groups={trustGroups} />,
     },
     {
+      id: "federation-connectivity", title: "Federation connectivity", eyebrow: "percolation", icon: "network",
+      group: "federation", layout: { x: 0, y: 36, w: 6, h: 5 },
+      minW: 4, minH: 4,
+      body: <FederationConnectivityWidget fed={graph?.federation ?? null} />,
+    },
+    {
       id: "emergence", title: "Emergence journal", eyebrow: "observations", icon: "sparkles",
-      group: "federation", layout: { x: 0, y: 36, w: 12, h: 5 },
+      group: "federation", layout: { x: 6, y: 36, w: 6, h: 5 },
       minW: 6, minH: 4,
       body: <EmergenceWidget counts={emergence} />,
     },

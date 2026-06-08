@@ -1,6 +1,12 @@
 """Chimera memory: SQLite-backed ontology + activity log (ADR 0002 + ADR 0003)."""
 
 from .graph import GRAPH_SCHEMA_VERSION, GraphQueryResult, GraphStore, default_graph_dir
+from .federation_metrics import (
+    FederationConnectivity,
+    compute_connectivity,
+    federation_metrics_enabled,
+    from_trusted_rows,
+)
 from .entities import (
     EntityAlreadyExists,
     EntityError,
@@ -103,6 +109,10 @@ __all__ = [
     "GraphQueryResult",
     "GraphStore",
     "default_graph_dir",
+    "FederationConnectivity",
+    "compute_connectivity",
+    "federation_metrics_enabled",
+    "from_trusted_rows",
     "SQLITE_SCHEMA_VERSION",
     "schema_version",
 ]
