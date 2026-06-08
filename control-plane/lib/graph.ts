@@ -9,6 +9,25 @@ export interface GraphSnapshot {
   proposed: Array<{ id: number; type: string; status: string; entity_kind: string; entity_name: string }>;
   activated: Array<{ id: number; skill: string }>;
   trusted: Array<{ from: string; to: string; verdict: string; drift_score: number; recorded_at: string }>;
+  // ADR 0168 — percolation/connectivity gauge over the TRUSTED projection.
+  // Present only when CHIMERA_FEDERATION_METRICS was enabled at export time.
+  federation?: FederationConnectivity;
+}
+
+export interface FederationConnectivity {
+  n_nodes: number;
+  n_edges: number;
+  largest_component: number;
+  connectivity: number;
+  mean_degree: number;
+  hub_node: string | null;
+  hub_degree: number;
+  hub_concentration: number;
+  isolated_nodes: number;
+}
+
+export function readFederationConnectivity(): FederationConnectivity | null {
+  return readGraphSnapshot()?.federation ?? null;
 }
 
 export interface TrustJournalRecord {

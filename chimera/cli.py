@@ -3635,6 +3635,19 @@ def main(argv: list[str] | None = None) -> int:
                 "t.verdict AS verdict, t.drift_score AS drift_score, "
                 "t.recorded_at AS recorded_at"
             ))
+            # ADR 0168: percolation/connectivity gauge over the (otherwise
+            # inert) TRUSTED projection. Flag-gated so the snapshot stays
+            # byte-identical until opted in.
+            from .memory import federation_metrics_enabled, from_trusted_rows
+            if federation_metrics_enabled():
+                peer_nodes = [
+                    r[0] for r in store.query(
+                        "MATCH (p:Peer) RETURN p.agent_id"
+                    ).rows
+                ]
+                snapshot["federation"] = from_trusted_rows(
+                    snapshot["trusted"], peer_nodes
+                ).to_dict()
             out_path = Path(args.out) if args.out else (
                 cfg.state_dir / "chimera.graph.snapshot.json"
             )

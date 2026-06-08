@@ -41,6 +41,12 @@ from .emergence import (
     record_observations_from_registry,
 )
 from .peer_dispatch import PeerAwareDispatcher, PeerCallRefused
+from .peer_selection import (
+    PeerCandidate,
+    choose,
+    peer_selection_enabled,
+    select_peer,
+)
 from .peer_trust_journal import (
     TrustDecisionRecord,
     latest_per_peer,
@@ -97,6 +103,10 @@ __all__ = [
     "list_xenocomm_tools",
     "PeerAwareDispatcher",
     "PeerCallRefused",
+    "PeerCandidate",
+    "choose",
+    "peer_selection_enabled",
+    "select_peer",
     "PeerStateCache",
     "PeerTrustPolicy",
     "PolicyDecision",
