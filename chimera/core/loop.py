@@ -53,6 +53,7 @@ from ..tools import (
 )
 from . import mind
 from .act import ActExecutor, ActResult
+from .budget import reasoning_tier_from_env
 from .soak_ledger import record_act_tools
 from .strategy import Planner, PlanResult
 
@@ -300,6 +301,14 @@ class ChimeraLoop:
                     db=self._db,
                     mind_dir=self.config.mind_dir,
                     chronicle=self._chronicle,
+                    # ADR 0127 (amendment 2026-06-08): produce the tier the
+                    # engine already consumes. Unset → None → the engine's
+                    # literal ``tier="sonnet"`` default is preserved exactly
+                    # (zero behavior change). Set CHIMERA_REFLECTION_REASONING_TIER
+                    # to minimal/normal/deep/max to dial reflection cost+quality.
+                    reasoning_tier=reasoning_tier_from_env(
+                        "CHIMERA_REFLECTION_REASONING_TIER"
+                    ),
                 ),
             }
         # v4.75: install signal handlers so SIGTERM checkpoints WAL.
