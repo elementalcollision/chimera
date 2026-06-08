@@ -1,6 +1,6 @@
 # ADR 0127 — Wire `ReasoningTier` to ReflectionEngine
 
-**Status**: Accepted (2026-05-24)
+**Status**: Accepted (2026-05-24); **amended 2026-06-08** — dormant seam activated (see [Amendment](#amendment-2026-06-08--activate-the-dormant-seam)).
 
 **Relationship**: Completes the Phase 2 commitment from [ADR 0123 §"Phase 2"](./0123-honcho-inspired-enhancements.md): "Further `ReasoningTier` wiring as call sites are reviewed."
 
@@ -56,9 +56,60 @@ The original enum table called `MAX` "cross-provider witness panel (existing v4.
 - Per-tier model-id overrides (e.g. routing `MINIMAL` to a specific deepseek-flash rung). The mapping stays at the *tier-string* layer.
 - Wiring `ReasoningTier` to the cost-estimate or cycle-cap machinery — those already key off the resolved tier string.
 
+## Amendment (2026-06-08) — activate the dormant seam
+
+### What was found
+
+A graph-derived review during the 2026-06-08 routing-soak campaign (see
+[`mind/research/routing-soak-campaign-2026-06-08.md`](../../mind/research/routing-soak-campaign-2026-06-08.md))
+found this wiring **dormant at runtime**. The original PR wired the
+*consumer* — `ReflectionEngine.__init__(reasoning_tier=...)` resolving
+via `tier_for_reasoning` — but never a *producer*. The sole construction
+site, [`chimera/core/loop.py`](../../chimera/core/loop.py), did not pass
+`reasoning_tier=`, so it was always `None` and the engine fell back to
+the literal `tier="sonnet"`. The enum's resolution path was exercised
+only by unit tests, never by the live loop.
+
+This was the gap the original "wire ONE call site as proof of life" plan
+left open: a consumer with no producer is not proof of life.
+
+### Decision: activate (not sunset)
+
+The tiering approach is **not** abandoned — it is actively being extended
+(complexity-routing, ADR 0166, was under live soak the same day). So the
+seam is completed rather than removed:
+
+1. **`reasoning_tier_from_env(var) -> ReasoningTier | None`** added to
+   [`chimera/core/budget.py`](../../chimera/core/budget.py) — the
+   producer. Parses the `ReasoningTier` values (`minimal`/`normal`/
+   `deep`/`max`), case-insensitively. Returns `None` when the var is
+   unset, blank, or unrecognized (unrecognized is logged at WARNING).
+
+2. **`loop.py`** now constructs the reflection engine with
+   `reasoning_tier=reasoning_tier_from_env("CHIMERA_REFLECTION_REASONING_TIER")`.
+
+### Fail-safe by construction
+
+With the flag **unset** (the default), the resolver returns `None`,
+`tier_for_reasoning(None, default="sonnet")` returns `"sonnet"`, and
+runtime behavior is **byte-for-byte identical** to before this amendment.
+An operator opts into tier control by setting the flag; a typo'd value
+falls back to `None` (no silent re-routing). This matches the repo's
+`CHIMERA_*` env-flag convention (cf. `CHIMERA_COMPLEXITY_ROUTING`,
+`CHIMERA_REFLECTION_DERIVER`) and the reversible / fail-safe house rule.
+
+### Scope
+
+Still one call site. Discovery/curiosity/witness/dialectic remain on
+literal tier strings (separate chips, as in the original "Out of scope").
+This amendment only adds the missing producer for the one consumer the
+original PR shipped.
+
 ## References
 
 - [ADR 0123 — Honcho-inspired enhancements roadmap](./0123-honcho-inspired-enhancements.md) — Phase 2 commitment.
 - [ADR 0107 — Cross-provider witness panel](./0107-cross-provider-witness-panel-for-code-review.md) — why `MAX` doesn't dispatch a panel here.
-- [`chimera/core/budget.py`](../../chimera/core/budget.py) — `ReasoningTier`, `tier_for_reasoning`.
-- [`chimera/engines/reflection.py`](../../chimera/engines/reflection.py) — first consumer.
+- [`chimera/core/budget.py`](../../chimera/core/budget.py) — `ReasoningTier`, `tier_for_reasoning`, `reasoning_tier_from_env`.
+- [`chimera/engines/reflection.py`](../../chimera/engines/reflection.py) — the consumer.
+- [`chimera/core/loop.py`](../../chimera/core/loop.py) — the construction site that now produces a tier.
+- [`mind/research/routing-soak-campaign-2026-06-08.md`](../../mind/research/routing-soak-campaign-2026-06-08.md) — graph-derived finding that surfaced the dormant seam.

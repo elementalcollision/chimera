@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from chimera.core.budget import ReasoningTier, tier_for_reasoning
+from chimera.core.budget import (
+    ReasoningTier,
+    reasoning_tier_from_env,
+    tier_for_reasoning,
+)
 from chimera.engines import ChronicleManager, ReflectionEngine
 from chimera.memory import open_and_init
 from chimera.providers import ChatChunk, ChatResponse, Provider
@@ -42,6 +46,65 @@ def test_tier_for_reasoning_max_maps_to_opus():
 def test_tier_for_reasoning_ignores_default_when_tier_given():
     """A real ReasoningTier overrides ``default`` entirely."""
     assert tier_for_reasoning(ReasoningTier.MINIMAL, default="opus") == "haiku"
+
+
+# ── reasoning_tier_from_env() resolver (ADR 0127 amendment) ────────
+
+_ENV = "CHIMERA_REFLECTION_REASONING_TIER"
+
+
+def test_reasoning_tier_from_env_unset_returns_none(monkeypatch):
+    monkeypatch.delenv(_ENV, raising=False)
+    assert reasoning_tier_from_env(_ENV) is None
+
+
+def test_reasoning_tier_from_env_blank_returns_none(monkeypatch):
+    monkeypatch.setenv(_ENV, "   ")
+    assert reasoning_tier_from_env(_ENV) is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("minimal", ReasoningTier.MINIMAL),
+        ("normal", ReasoningTier.NORMAL),
+        ("deep", ReasoningTier.DEEP),
+        ("max", ReasoningTier.MAX),
+        ("DEEP", ReasoningTier.DEEP),
+        ("  Minimal  ", ReasoningTier.MINIMAL),
+    ],
+)
+def test_reasoning_tier_from_env_parses_values(monkeypatch, raw, expected):
+    monkeypatch.setenv(_ENV, raw)
+    assert reasoning_tier_from_env(_ENV) is expected
+
+
+def test_reasoning_tier_from_env_unrecognized_returns_none(monkeypatch):
+    """A typo'd value is fail-safe: None, not a crash — so the call site
+    keeps its literal-tier default rather than silently re-routing."""
+    monkeypatch.setenv(_ENV, "ultra")
+    assert reasoning_tier_from_env(_ENV) is None
+
+
+def test_reasoning_tier_from_env_roundtrips_through_tier_for_reasoning(monkeypatch):
+    """The producer feeds the consumer: env → ReasoningTier → tier string."""
+    monkeypatch.setenv(_ENV, "minimal")
+    resolved = reasoning_tier_from_env(_ENV)
+    assert tier_for_reasoning(resolved, default="sonnet") == "haiku"
+
+
+# ── loop.py wires the producer to the engine (ADR 0127 amendment) ──
+
+
+def test_loop_wires_reasoning_tier_from_env():
+    """The sole ReflectionEngine construction site must produce a tier
+    via reasoning_tier_from_env, else the ADR 0127 seam stays dormant."""
+    body = (
+        Path(__file__).parent.parent / "chimera" / "core" / "loop.py"
+    ).read_text()
+    assert "reasoning_tier_from_env" in body
+    assert "CHIMERA_REFLECTION_REASONING_TIER" in body
+    assert "reasoning_tier=reasoning_tier_from_env(" in body
 
 
 # ── ReflectionEngine accepts ReasoningTier ─────────────────────────
@@ -149,3 +212,7 @@ def test_adr_0127_present():
     body = adr.read_text()
     assert "tier_for_reasoning" in body
     assert "0123" in body
+    # Amendment 2026-06-08: the dormant seam was activated by adding a
+    # producer (env resolver) wired at the loop construction site.
+    assert "reasoning_tier_from_env" in body
+    assert "CHIMERA_REFLECTION_REASONING_TIER" in body

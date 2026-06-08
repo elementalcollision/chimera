@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from chimera.engines import ChronicleManager, ReflectionEngine
+from chimera.engines.reflection import _deriver_enabled
 from chimera.memory import open_and_init
 from chimera.providers import ChatChunk, ChatResponse, Provider
 from chimera.providers.tiers import Provider as ProviderKind
@@ -71,6 +72,32 @@ def _deriver_response(payload: dict) -> ChatResponse:
         model_id="sonnet",
         provider="scripted",
     )
+
+
+# ── Default-off invariant guard (ADR 0125 amendment 2026-06-08) ───
+#
+# Decision: keep the deriver OPT-IN. It is fully wired and tested, but
+# flipping the default to on would double per-cycle reflection spend and
+# violate ADR 0125's own promotion gate (requires an enabled-flag soak
+# that has not been run). These guards fail loudly if a future change
+# silently flips the default.
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "nope"])
+def test_deriver_default_off_unless_truthy_flag(value, monkeypatch):
+    monkeypatch.setenv("CHIMERA_REFLECTION_DERIVER", value)
+    assert _deriver_enabled() is False
+
+
+def test_deriver_unset_is_off(monkeypatch):
+    monkeypatch.delenv("CHIMERA_REFLECTION_DERIVER", raising=False)
+    assert _deriver_enabled() is False
+
+
+@pytest.mark.parametrize("value", ["1", "true", "yes", "on", "TRUE", "On"])
+def test_deriver_enabled_only_by_explicit_optin(value, monkeypatch):
+    monkeypatch.setenv("CHIMERA_REFLECTION_DERIVER", value)
+    assert _deriver_enabled() is True
 
 
 # ── Flag off: no behavior change ──────────────────────────────────
@@ -241,3 +268,6 @@ def test_adr_0125_present():
     body = adr.read_text()
     assert "CHIMERA_REFLECTION_DERIVER" in body
     assert "0124" in body
+    # Amendment 2026-06-08: the keep-opt-in decision must be recorded.
+    assert "Amendment" in body
+    assert "opt-in" in body.lower()

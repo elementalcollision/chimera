@@ -22,11 +22,14 @@ and :func:`check_cycle_cost_cap` at the start of each round.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
 from dataclasses import dataclass, field
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 # v4.47: per-tier round-budget multipliers. Higher tiers run more
@@ -480,6 +483,34 @@ def tier_for_reasoning(
     if reasoning_tier is None:
         return default
     return _REASONING_TIER_TO_LADDER.get(reasoning_tier, default)
+
+
+def reasoning_tier_from_env(var: str) -> ReasoningTier | None:
+    """Resolve an env var to a :class:`ReasoningTier`, fail-safe.
+
+    ADR 0127 (amendment 2026-06-08): the enum had a consumer
+    (:class:`chimera.engines.reflection.ReflectionEngine`) but no
+    *producer* — the sole construction site never passed a tier, so the
+    seam was dormant. This resolver is the producer: it lets an operator
+    dial a call site's reasoning tier via an environment variable.
+
+    Accepts the :class:`ReasoningTier` *values* (``minimal``, ``normal``,
+    ``deep``, ``max``), case-insensitively. Returns ``None`` when the var
+    is unset, blank, or unrecognized — so an absent/typo'd flag preserves
+    the call site's existing literal-tier behavior rather than silently
+    re-routing it. The unrecognized-value case is logged at WARNING.
+    """
+    raw = os.environ.get(var, "").strip().lower()
+    if not raw:
+        return None
+    try:
+        return ReasoningTier(raw)
+    except ValueError:
+        logger.warning(
+            "%s=%r is not a valid ReasoningTier (%s); ignoring",
+            var, raw, ", ".join(t.value for t in ReasoningTier),
+        )
+        return None
 
 
 def _estimate_tokens(text: str) -> int:
