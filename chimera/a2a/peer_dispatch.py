@@ -21,7 +21,10 @@ import json
 import logging
 from typing import Any
 
+from ..positioning.circuit import CircuitBreaker
 from ..tools import DispatchContext, Dispatcher, ToolDenied, ToolRegistry
+from .peer_selection import peer_selection_enabled
+from .peer_selection import select_peer as _select_peer
 from .peer_trust_journal import record_decision
 from .trust_policy import (
     PeerStateCache,
@@ -51,6 +54,27 @@ class PeerAwareDispatcher(Dispatcher):
         super().__init__(registry)
         self.policy = policy or PeerTrustPolicy()
         self.cache = cache or PeerStateCache()
+        # Per-peer circuit breakers, consulted by select_peer() for health
+        # (ADR 0167). Populated by callers that track peer-call outcomes; an
+        # absent breaker is treated as healthy.
+        self.breakers: dict[str, CircuitBreaker] = {}
+
+    async def select_peer(self, capability: str | None = None) -> str | None:
+        """Choose a peer to serve ``capability`` via power-of-two-choices.
+
+        ADR 0167. Returns ``None`` (no peer chosen) unless
+        ``CHIMERA_PEER_SELECTION`` is enabled, so the default behaviour is
+        unchanged. Uses this dispatcher's registry, trust policy, and per-peer
+        circuit breakers.
+        """
+        if not peer_selection_enabled():
+            return None
+        return await _select_peer(
+            capability,
+            registry=self._registry,
+            policy=self.policy,
+            breakers=self.breakers,
+        )
 
     async def dispatch(
         self,
