@@ -94,19 +94,45 @@ def test_rank_is_deterministic_and_stable():
     assert out == ["t.py", "a.py", "z.py"]  # score desc, then file name
 
 
-# ── integration: the real ruff finder on this repo ──────────────────
+# ── integration: the real ruff finder on a synthetic fixture repo ────
+#
+# Earlier this test hard-coded that `chimera/cli.py` was lint-dirty and asserted
+# the finder surfaced it. That is self-defeating: the autonomous self-scan loop
+# ranks "fix the ruff debt in chimera/cli.py" as its #1 task, and the moment any
+# commit cleans that debt the assertion fails — the test punished the system for
+# succeeding at its own purpose (surfaced 2026-06-08 during a self_determined_soak).
+# We now pin the finder's BEHAVIOUR against a stable synthetic fixture instead of
+# the transient lint state of a production source file.
+
+_RUFF_FIXTURE = Path(__file__).parent / "fixtures" / "ruff_debt_sample.py.txt"
 
 
-def test_real_ruff_finder_surfaces_cli_debt():
-    """chimera/cli.py carries known pre-existing ruff debt; the real finder must
-    surface it as a candidate (the design's anchor case). Fail-open if ruff is
-    absent in this environment — then we assert only that it did not crash."""
-    counts = default_ruff_finder(REPO)
+def test_real_ruff_finder_surfaces_fixture_debt(tmp_path):
+    """The real ruff finder must surface a file with known lint debt as a
+    correctly-shaped candidate. We materialise a synthetic fixture (three unused
+    imports → three F401 findings) into a temp repo and run the REAL finder over
+    it. Fail-open if ruff is absent in this environment — then nothing to assert."""
+    sample = tmp_path / "ruff_debt_sample.py"
+    sample.write_text(_RUFF_FIXTURE.read_text())
+
+    counts = default_ruff_finder(tmp_path)
     if not counts:
         return  # ruff not installed here → fail-open path; nothing to assert
-    cands = scan_repo(REPO, ruff_finder=default_ruff_finder)
+    assert counts.get("ruff_debt_sample.py", 0) >= 3  # three deliberate F401s
+
+    cands = scan_repo(tmp_path, ruff_finder=default_ruff_finder)
     files = {f for c in cands for f in c.files}
-    assert "chimera/cli.py" in files
-    cli = next(c for c in cands if c.files == ["chimera/cli.py"])
-    assert cli.source == "ruff" and cli.test is None and cli.risk_flag == ""
-    assert "scripts/real_task_soak.sh" in cli.soak_command()
+    assert "ruff_debt_sample.py" in files
+    cand = next(c for c in cands if c.files == ["ruff_debt_sample.py"])
+    assert cand.source == "ruff" and cand.test is None and cand.risk_flag == ""
+    assert "scripts/real_task_soak.sh" in cand.soak_command()
+
+
+def test_real_ruff_finder_over_repo_never_crashes():
+    """Integration smoke over the actual repo: the real finder returns a
+    path→count mapping and scan_repo yields well-shaped ruff candidates without
+    raising — independent of WHICH files happen to carry lint debt today."""
+    counts = default_ruff_finder(REPO)
+    assert isinstance(counts, dict)
+    cands = scan_repo(REPO, ruff_finder=default_ruff_finder)
+    assert all(c.source == "ruff" and c.single_file for c in cands)

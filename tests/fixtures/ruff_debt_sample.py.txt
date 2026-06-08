@@ -1,0 +1,15 @@
+# Synthetic ruff-debt fixture for tests/test_self_scan.py.
+#
+# Stored with a `.py.txt` suffix on purpose: it carries DELIBERATE, stable ruff
+# findings (three unused imports → F401), so it must never be linted by the
+# repo's own `ruff check .` verify gate. The self-scan integration test copies
+# this content into a temp repo as a real `.py` file and points the REAL ruff
+# finder at it, pinning the finder's BEHAVIOUR rather than the transient lint
+# state of a production source file.
+#
+# Rationale: the prior test hard-coded that `chimera/cli.py` was lint-dirty and
+# broke the moment the self-scan loop did its job and cleaned that debt
+# (surfaced 2026-06-08 during a self_determined_soak). See test_self_scan.py.
+import os
+import sys
+import json
