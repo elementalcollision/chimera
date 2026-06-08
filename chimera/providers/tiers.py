@@ -13,6 +13,7 @@ MVP simplifications:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -264,6 +265,60 @@ def eligible_rungs(
     rungs = TIER_LADDERS[tier]
     ordered = rungs if prefer_cheapest else list(reversed(rungs))
     return [r for r in ordered if not requires_tools or r.capabilities.supports_tools]
+
+
+# ── ADR 0169: decorrelated reheat-on-stuck (simulated-annealing restart) ──
+#
+# The tier ladder is a thermal schedule: cheap cross-vendor rungs are "hot"
+# (broad, noisy exploration), opus is "cold" (precise exploitation). Today the
+# within-tier walk is always cheapest-first, so a signature that keeps failing
+# re-tries the SAME lead vendor (e.g. deepseek for sonnet) every cycle —
+# correlated failure. Annealing says: when stuck, *reheat* to a decorrelated
+# restart. Because every rung in a ladder is a distinct vendor (deepseek,
+# minimax, glm, qwen, mistral, gemini, anthropic for sonnet), rotating the
+# cheapest-first order by the prior-failure count lands a DIFFERENT vendor in
+# the lead each stuck cycle — a deepseek→minimax switch decorrelates failure
+# modes far more than deepseek→deepseek-bigger. At reheat_count 0 the order is
+# byte-identical to ``eligible_rungs``.
+
+
+def anneal_reheat_enabled() -> bool:
+    """Honour ``CHIMERA_ANNEAL_REHEAT`` (default: off, ADR 0169).
+
+    Same parsing shape as ``peer_selection_enabled`` (ADR 0167).
+    """
+    raw = os.environ.get("CHIMERA_ANNEAL_REHEAT", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def rung_vendor(rung: LadderRung) -> str:
+    """Vendor namespace for a rung: ``deepseek/...`` → ``deepseek``;
+    a bare ``claude-*`` id (Anthropic safety-net) → ``anthropic``."""
+    mid = rung.config.model_id
+    return mid.split("/", 1)[0] if "/" in mid else "anthropic"
+
+
+def decorrelated_rung_order(
+    tier: str,
+    *,
+    reheat_count: int,
+    requires_tools: bool = False,
+) -> list[LadderRung]:
+    """Cheapest-first eligible rungs, rotated so a fresh vendor leads.
+
+    ``reheat_count`` is the number of prior same-signature failures (the
+    "stuckness"). It rotates the cheapest-first ladder by ``reheat_count``
+    positions; since adjacent rungs are different vendors, each successive
+    stuck cycle starts on a vendor that has not just failed. The full ladder
+    is preserved (rotation wraps), so every rung remains available as a
+    fallback. ``reheat_count <= 0`` returns the unrotated order — byte-identical
+    to :func:`eligible_rungs`.
+    """
+    rungs = eligible_rungs(tier, requires_tools=requires_tools, prefer_cheapest=True)
+    if reheat_count <= 0 or len(rungs) <= 1:
+        return rungs
+    k = reheat_count % len(rungs)
+    return rungs[k:] + rungs[:k]
 
 
 def select_rung(tier: str, *, requires_tools: bool = False, prefer_cheapest: bool = True) -> LadderRung:

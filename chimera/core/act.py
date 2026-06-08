@@ -2479,8 +2479,30 @@ class ActExecutor:
         # v3.11: walk all eligible rungs cheapest-first. We start on the
         # cheapest; on a provider error we record retry_exhausted and
         # escalate to the next rung. Out of rungs → give up.
+        #
+        # ADR 0169: decorrelated reheat-on-stuck. When prior same-signature
+        # failures exist (decision.matched_failures), rotate the cheapest-first
+        # ladder so a DIFFERENT vendor leads this attempt — an annealing reheat
+        # that decorrelates correlated failure modes. Off by default →
+        # byte-identical cheapest-first order.
+        from ..providers.tiers import anneal_reheat_enabled, decorrelated_rung_order
+        if anneal_reheat_enabled() and decision.matched_failures > 0:
+            _base_rungs = decorrelated_rung_order(
+                self._tier,
+                reheat_count=decision.matched_failures,
+                requires_tools=True,
+            )
+            logger.info(
+                "act: annealing reheat — rotating ladder by %d (lead vendor %s) "
+                "after %d prior failures",
+                decision.matched_failures,
+                _base_rungs[0].config.model_id if _base_rungs else "?",
+                decision.matched_failures,
+            )
+        else:
+            _base_rungs = eligible_rungs(self._tier, requires_tools=True)
         rung_list = [
-            r for r in eligible_rungs(self._tier, requires_tools=True)
+            r for r in _base_rungs
             if self._provider_for(r) is not None
         ]
         if not rung_list:
