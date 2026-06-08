@@ -37,6 +37,34 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# ADR 0172 — value proxy for max-entropy sub-task allocation. A declared
+# artifact path under state/* or mind/* is the splitter prompt's own
+# self-containment requirement.
+_ARTIFACT_PATH_RE = re.compile(r"\b(?:state|mind)/[\w./-]+", re.IGNORECASE)
+
+
+def subtask_value(text: str) -> float:
+    """Pure specificity score for a candidate sub-task (ADR 0172).
+
+    Higher ⇒ more self-contained / actionable: names a declared artifact path,
+    carries a recognised action verb, and fits the splitter's < 800-char
+    independence bound. Used only to choose *which* sub-tasks to keep when a
+    batch exceeds ``max_subtasks`` and Boltzmann allocation is enabled.
+    """
+    if not text or not text.strip():
+        return 0.0
+    from ..proposals.dedup import cluster_key
+
+    score = 0.0
+    if _ARTIFACT_PATH_RE.search(text):
+        score += 1.0
+    _, verb = cluster_key(text)
+    if verb:
+        score += 0.5
+    if len(text.strip()) <= 800:
+        score += 0.3
+    return score
+
 
 # Heuristic patterns. Each one captures a multi-section / multi-deliverable
 # / "for each X" shape that historically causes haiku to hit max_rounds.
@@ -275,6 +303,25 @@ async def split_task(
     # is defensive about markdown fences and embedded JSON blocks.
     text = getattr(response, "text", "") or ""
     parsed = parse_splitter_response(text)
+    # ADR 0172: when the model proposes more sub-tasks than the budget, the
+    # default keeps the first N (the model's order). With Boltzmann allocation
+    # enabled, keep the N highest-value (most self-contained) instead — a
+    # max-entropy selection over the candidate set. Off by default ⇒ the flat
+    # parsed[:max_subtasks] cap is byte-identical.
+    if len(parsed) > max_subtasks:
+        from .allocation import (
+            allocation_temperature,
+            boltzmann_allocation_enabled,
+            boltzmann_select,
+        )
+
+        if boltzmann_allocation_enabled():
+            return boltzmann_select(
+                parsed,
+                [subtask_value(s) for s in parsed],
+                max_subtasks,
+                temperature=allocation_temperature(),
+            )
     return parsed[:max_subtasks]
 
 
@@ -285,4 +332,5 @@ __all__ = [
     "is_splittable_shape",
     "parse_splitter_response",
     "split_task",
+    "subtask_value",
 ]
