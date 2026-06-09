@@ -1,5 +1,47 @@
 # ADR 0169 — Decorrelated reheat-on-stuck (annealing restart, v4.120)
 
+**Status:** Proposed (2026-06-08); Amended (2026-06-09) — see "Amendment: NameError non-start" below
+
+## Amendment (2026-06-09) — NameError non-start when the flag is enabled
+
+**Symptom.** The 2026-06-09 routing soak campaign
+([routing-soak-campaign-2026-06-08.md](../../mind/research/routing-soak-campaign-2026-06-08.md),
+§"CRITICAL FINDING") found that the all-flags envelope made **0 LLM calls** in
+6/6 runs — `chimera run` failed *before* ACT's first provider call, so the agent
+never acted, edited, or committed. Every non-all-flags run converged normally.
+
+**Root cause (this ADR's flag).** The "Decision → Code" note below states the
+failure count is "computed just above the ladder-walk site." That was wrong: the
+ladder walk lives in `ActExecutor._execute_inner`, but `decision =
+remediation_decision(...)` is a local of the *separate* outer method
+`ActExecutor.execute`. The wired guard
+
+```python
+if anneal_reheat_enabled() and decision.matched_failures > 0:
+```
+
+therefore raised **`NameError: name 'decision' is not defined`** the moment
+`anneal_reheat_enabled()` returned `True` — `and` short-circuits, so Python only
+evaluated `decision.matched_failures` once the flag was on, and the attribute
+access raised *before* the `> 0` comparison (so it failed on the very first
+attempt, prior failures or not). The exception propagated out of `execute` →
+`_phase_act` → the ACT-budget `wait_for`, aborting ACT with zero provider calls.
+This is **CHIMERA_ANNEAL_REHEAT-attributable alone**; it only stayed hidden
+because every converging soak cell used only TOOL_PREFILTER / COMPLEXITY_ROUTING,
+never ANNEAL_REHEAT, and the full unit suite never exercised the PLAN→ACT setup
+path with the flag on.
+
+**Fix.** Thread the count explicitly: `_execute_inner` takes a new
+`matched_failures: int = 0` parameter, `execute` passes
+`matched_failures=decision.matched_failures`, and the guard/log/`reheat_count`
+inside `_execute_inner` use that parameter instead of the out-of-scope
+`decision`. Behaviour is otherwise unchanged: flag off, or `matched_failures == 0`,
+is byte-identical to the cheapest-first walk.
+
+**Regression coverage.** `tests/test_act.py::test_act_anneal_reheat_reaches_provider`
+sets `CHIMERA_ANNEAL_REHEAT=1` and asserts `execute()` reaches the provider
+(≥1 call) instead of raising — closing the live-loop gap the unit suite missed.
+
 **Status:** Proposed (2026-06-08)
 
 ## Context
