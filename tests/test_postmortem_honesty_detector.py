@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from chimera.core.act import check_postmortem_honesty
 from chimera.core.remediation import derive_remediation_hint

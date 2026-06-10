@@ -6,7 +6,6 @@ Uses scripted FakeProviders to avoid live calls.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -17,7 +16,7 @@ from chimera.engines import (
     ReflectionEngine,
 )
 from chimera.memory import open_and_init
-from chimera.providers import ChatChunk, ChatResponse, Message, Provider, ToolUseBlock
+from chimera.providers import ChatChunk, ChatResponse, Provider
 from chimera.providers.tiers import Provider as ProviderKind
 from chimera.tools import ToolRegistry, register_core_tools
 

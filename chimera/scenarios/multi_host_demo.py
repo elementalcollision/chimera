@@ -15,7 +15,6 @@ The scenario is a pure happy-path smoke test — no provider keys needed.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import socket
 import subprocess

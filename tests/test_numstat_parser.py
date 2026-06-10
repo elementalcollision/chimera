@@ -1,4 +1,3 @@
-import pytest
 from chimera.numstat_parser import parse_numstat
 
 

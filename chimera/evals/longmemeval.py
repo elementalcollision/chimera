@@ -230,7 +230,7 @@ class LongMemEvalAdapter:
         # answerer has an absolute reference for "how many days ago" arithmetic;
         # see mind/research/timestamp-grounding-design-2026-05-25.md.
         self._self_card_path.parent.mkdir(parents=True, exist_ok=True)
-        card_lines: list[str] = [f"# Peer card — self", ""]
+        card_lines: list[str] = ["# Peer card — self", ""]
         if item.question_date:
             card_lines += [f"**Today's date:** {item.question_date}", ""]
         card_lines += ["## History", ""]

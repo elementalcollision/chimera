@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from chimera.tools import MCPServerConfig, ToolRegistry, parse_mcp_config
+from chimera.tools import ToolRegistry, parse_mcp_config
 from chimera.tools.mcp_client import register_mcp_servers_from_env
 
 

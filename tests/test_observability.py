@@ -6,7 +6,6 @@ import json
 import logging
 import time
 
-import pytest
 
 from chimera.core import configure_logging, phase_timer
 

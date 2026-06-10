@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 import httpx
-import pytest
 
 from chimera.a2a.remote_sync import (
     _entry_from_healthz,

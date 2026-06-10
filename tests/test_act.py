@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,6 @@ from chimera.core.act import ActExecutor
 from chimera.memory import open_and_init
 from chimera.providers import (
     ChatChunk,
-    ChatMessage,
     ChatResponse,
     Message,
     Provider,
@@ -21,7 +19,6 @@ from chimera.providers import (
 )
 from chimera.providers.tiers import Provider as ProviderKind
 from chimera.tools import (
-    DispatchContext,
     Dispatcher,
     ToolRegistry,
     register_shell_tool,

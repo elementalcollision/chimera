@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from chimera.core.escalation import HotSignature, hot_signatures, record_failure
+from chimera.core.escalation import hot_signatures, record_failure
 from chimera.memory import open_and_init
 
 

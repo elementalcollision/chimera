@@ -1275,7 +1275,6 @@ def _cmd_evals_locomo(args) -> int:
     from .core import LoopConfig
     from .evals.locomo import (
         LoCoMoAdapter,
-        LoCoMoItem,
         default_results_path,
         items_from_sample,
         load_items,
@@ -2297,7 +2296,6 @@ def main(argv: list[str] | None = None) -> int:
         from .core import LoopConfig
         from .core.proposer_scoring import (
             all_scores,
-            get_status,
             list_statuses,
             pause,
             promote,
@@ -2435,7 +2433,7 @@ def main(argv: list[str] | None = None) -> int:
             hot = hot_signatures(conn, threshold=2)
             if hot:
                 print()
-                print(f"⚠️  HOT SIGNATURES (≥2 failures — review task text, do not just promote tier):")
+                print("⚠️  HOT SIGNATURES (≥2 failures — review task text, do not just promote tier):")
                 for h in hot[:10]:
                     tiers = "/".join(h.tiers) if h.tiers else "?"
                     print(
@@ -3082,10 +3080,7 @@ def main(argv: list[str] | None = None) -> int:
         from .skills import (
             SkillSpec,
             activate_skill,
-            assemble_skill,
-            dynamic_skills_dir,
             load_dynamic_skills,
-            validate_skill,
         )
         from .core.act import ActExecutor
         from .tools import ToolRegistry, register_core_tools
@@ -3372,7 +3367,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg = LoopConfig.from_env()
         if args.name == "drift":
             result = run_drift_scenario(cfg.mind_dir, cfg.state_dir)
-            print(f"chimera scenario drift:")
+            print("chimera scenario drift:")
             print(f"  plan_demoted: {result.plan_demoted}")
             print(f"  final_plan_state: {result.final_plan_state}")
             print(f"  plan_count: {result.plan_count}")
@@ -3380,7 +3375,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result.plan_demoted else 1
         if args.name == "research":
             result = run_research_scenario(cfg.mind_dir, cfg.state_dir)
-            print(f"chimera scenario research:")
+            print("chimera scenario research:")
             if result.skipped:
                 print("  SKIPPED (no provider keys set)")
                 print(f"  transcript: {result.transcript_path}")
@@ -3582,7 +3577,7 @@ def main(argv: list[str] | None = None) -> int:
                 "AND NOT EXISTS { MATCH (s)-[:USES_TOOL]->() } "
                 "RETURN s.name ORDER BY s.name"
             ).rows
-            print(f"chimera graph orphans:")
+            print("chimera graph orphans:")
             print(f"  entities with no transitions: {len(orphan_ents)}")
             for kind, name in orphan_ents:
                 print(f"    [{kind}] {name}")

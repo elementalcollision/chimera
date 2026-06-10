@@ -11,7 +11,6 @@ from chimera.tools.web import (
     HTTP_FETCH_SCHEMA,
     WEB_SEARCH_SCHEMA,
     http_fetch_handler,
-    web_search_available,
     web_search_handler,
 )
 

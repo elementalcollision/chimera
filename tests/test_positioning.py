@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import signal as _signal
-from pathlib import Path
 
 import pytest
 

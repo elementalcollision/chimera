@@ -9,8 +9,8 @@ import mcp.types as mt
 
 from chimera.a2a import AgentIdentity, fetch_peer_identity, list_peer_chimeras
 from chimera.server import IDENTITY_TOOL_NAME, register_identity_tool
-from chimera.server.mcp_server import ChimeraMCPServer, build_server
-from chimera.tools import Dispatcher, DispatchContext, ToolRegistry
+from chimera.server.mcp_server import ChimeraMCPServer
+from chimera.tools import DispatchContext, ToolRegistry
 
 
 # ── server side ─────────────────────────────────────────────

@@ -23,7 +23,6 @@ from chimera.core.remediation import (
     derive_remediation_hint,
 )
 from chimera.core.witness import (
-    WitnessVerdict,
     capture_diff_for_witness,
     parse_verdict,
     should_witness,

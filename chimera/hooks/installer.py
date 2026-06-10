@@ -11,7 +11,6 @@ no-op; an existing foreign hook is never clobbered.
 
 from __future__ import annotations
 
-import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path

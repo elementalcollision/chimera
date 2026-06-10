@@ -6,7 +6,6 @@ import json
 import subprocess
 from pathlib import Path
 
-import pytest
 
 from chimera.core.submit_pr import (
     HIGH_ENTROPY_PATTERN,

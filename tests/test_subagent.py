@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from chimera.core.act import ActExecutor
 from chimera.memory import open_and_init
-from chimera.providers import ChatChunk, ChatResponse, Message, Provider, ToolUseBlock
+from chimera.providers import ChatChunk, ChatResponse, Provider, ToolUseBlock
 from chimera.providers.tiers import Provider as ProviderKind
 from chimera.tools import (
     DispatchContext,
@@ -249,7 +247,6 @@ async def test_sub_agent_failure_raises_structured_error(shell_env, db):
 async def test_sub_agent_failure_propagates_through_dispatcher(shell_env, db):
     """End-to-end: spawn_sub_agent handler raises SubAgentFailed; the
     dispatcher re-raises so ACT's _run_one wraps it as is_error=True."""
-    from chimera.tools import Dispatcher
 
     fake = _ScriptedProvider(
         [

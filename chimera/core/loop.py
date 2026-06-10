@@ -43,7 +43,6 @@ from ..memory import (
 from ..skills import load_dynamic_skills
 from ..trust import TrustManager, TrustTier
 from ..tools import (
-    Dispatcher,
     SubAgentRunner,
     ToolRegistry,
     default_registry,
@@ -55,7 +54,7 @@ from . import mind
 from .act import ActExecutor, ActResult
 from .budget import reasoning_tier_from_env
 from .soak_ledger import record_act_tools
-from .strategy import Planner, PlanResult
+from .strategy import Planner
 
 logger = logging.getLogger(__name__)
 
@@ -1223,7 +1222,6 @@ class ChimeraLoop:
         if self._act is None or not getattr(self._act, "providers", None):
             self._log_phase("ROTATE: peer card narratives skipped (no providers)")
             return
-        import asyncio
 
         from ..engines.peer_cards import apply_narrative, build_narrative_prompt
         from ..providers import Message

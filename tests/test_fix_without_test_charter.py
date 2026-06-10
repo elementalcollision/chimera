@@ -12,7 +12,6 @@ to budget on this). A recorded passing gated test-run now satisfies the
 from __future__ import annotations
 
 from chimera.core.act import check_fix_without_test, check_phase_fix_without_test
-from chimera.tools.loop_guard import ToolCall
 from chimera.core.soak_ledger import record_test_run
 
 _RUN = "CHIMERA_SOAK_RUN_ID"
