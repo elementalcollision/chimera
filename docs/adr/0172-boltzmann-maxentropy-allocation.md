@@ -1,10 +1,14 @@
 # ADR 0172 — Boltzmann max-entropy allocation (v4.120)
 
-**Status:** Proposed (2026-06-08). Compose-safety validated 2026-06-10: the
-post-fix all-flags soak converged with `CHIMERA_BOLTZMANN_ALLOC=1` armed
-throughout (no regression). NOT yet live-fired — the splitter's over-budget
-selection path (>max_subtasks candidates) never triggered live; promotion to
-Accepted awaits an observed value-aware selection on a real split.
+**Status:** Accepted (2026-06-10). Compose-safety validated in the post-fix
+all-flags soak (flag armed throughout, no regression), then **live-fired**: a
+real splitter call (deepseek-v4-pro) returned 9 sub-tasks; with the flag on
+and budget 3, the value-aware selection kept indices [2, 4, 6] — the three
+artifact-naming sub-tasks (`subtask_value` 1.8/1.3/1.8), order preserved —
+where first-N would have kept [0, 1, 2] and dropped both high-value artifact
+tasks. See
+[live-fire-certification-2026-06-10.md](../../mind/research/live-fire-certification-2026-06-10.md).
+Default remains OFF (`CHIMERA_BOLTZMANN_ALLOC`).
 
 ## Context
 
