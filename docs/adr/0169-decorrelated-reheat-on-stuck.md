@@ -1,6 +1,12 @@
 # ADR 0169 — Decorrelated reheat-on-stuck (annealing restart, v4.120)
 
-**Status:** Proposed (2026-06-08); Amended (2026-06-09) — see "Amendment: NameError non-start" below
+**Status:** Accepted (2026-06-10); Amended 2026-06-09 (NameError non-start —
+see below). Fully certified: unit regression
+(`test_act_anneal_reheat_reaches_provider`), post-fix all-flags envelope soak
+(converged, gate PASS), and a controlled live rotation exercise (flag ON with 1
+seeded prior failure routed the real provider call deepseek→minimax with the
+reheat log line; composes with tier promotion). Default remains OFF
+(`CHIMERA_ANNEAL_REHEAT`).
 
 ## Amendment (2026-06-09) — NameError non-start when the flag is enabled
 
@@ -57,8 +63,6 @@ sets `CHIMERA_ANNEAL_REHEAT=1` and asserts `execute()` reaches the provider
    `minimax/minimax-m3`. This also confirms the "Non-goals" composition claim
    live: tier promotion picks the *ladder*, reheat picks the decorrelated
    *lead* within it.
-
-**Status:** Proposed (2026-06-08)
 
 ## Context
 

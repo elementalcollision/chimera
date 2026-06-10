@@ -1,6 +1,11 @@
 # ADR 0166 — Lexical task-complexity model selection (v4.120)
 
-**Status:** Proposed (2026-06-06)
+**Status:** Accepted (2026-06-10) — live-fire validated in the 2026-06-08/10
+routing soak campaign: complexity floor decisions observed live (trivial task →
+floor None, stayed cheap; hard task → floor sonnet) across converging cells and
+the post-fix all-flags envelope; no convergence regression. See
+[routing-soak-campaign-2026-06-08.md](../../mind/research/routing-soak-campaign-2026-06-08.md).
+Default remains OFF (`CHIMERA_COMPLEXITY_ROUTING`).
 
 ## Context
 

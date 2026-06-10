@@ -1,6 +1,10 @@
 # ADR 0167 — Power-of-two-choices peer selection (v4.120)
 
-**Status:** Proposed (2026-06-08)
+**Status:** Proposed (2026-06-08). Compose-safety validated 2026-06-10: the
+post-fix all-flags soak converged with `CHIMERA_PEER_SELECTION=1` armed
+throughout (no regression). NOT yet live-fired — the soak ran with no peer
+federation, so `select_peer` never executed a real two-choice pick; promotion
+to Accepted awaits a multi-peer exercise.
 
 ## Context
 
