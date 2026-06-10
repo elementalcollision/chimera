@@ -144,6 +144,32 @@ def test_mcp_anonymous_allowed_when_token_unset(monkeypatch, tmp_path):
         assert resp.status_code != 401
 
 
+def test_mcp_correct_token_passes_auth(monkeypatch, tmp_path):
+    """The constant-time comparison still ACCEPTS a valid shared token and a
+    valid per-peer token (regression guard for the hmac.compare_digest swap)."""
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(tmp_path / "mind"))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CHIMERA_PEER_TOKEN", "secret-abc")
+    monkeypatch.setenv("CHIMERA_PEER_TOKENS", '{"peer-token-xyz": "peerA"}')
+    cms = ChimeraMCPServer.from_env(name="chimera-test")
+    app = build_http_app(cms)
+    with TestClient(app) as client:
+        # Valid shared token → past the auth gate (not 401).
+        resp = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            headers={"Authorization": "Bearer secret-abc"},
+        )
+        assert resp.status_code != 401
+        # Valid per-peer token → past the auth gate too.
+        resp = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            headers={"Authorization": "Bearer peer-token-xyz"},
+        )
+        assert resp.status_code != 401
+
+
 def test_bearer_middleware_logs_warning_when_constructed_with_empty_token(caplog):
     """Direct middleware instantiation logs the warning immediately."""
     with caplog.at_level("WARNING", logger="chimera.server.http_server"):

@@ -123,8 +123,10 @@ def test_watchdog_logs_heartbeat_while_alive(tmp_path: Path) -> None:
     uv_shim = shim_dir / "uv"
     uv_shim.write_text("#!/usr/bin/env bash\nsleep 8\nexit 0\n")
     uv_shim.chmod(0o755)
-    worktree = tmp_path / "wt"; worktree.mkdir()
-    log_file = tmp_path / "run.log"; log_file.touch()
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    log_file = tmp_path / "run.log"
+    log_file.touch()
     env = os.environ.copy()
     env["PATH"] = f"{shim_dir}:{env['PATH']}"
     env["CHIMERA_RUN_HEARTBEAT_SEC"] = "1"
@@ -146,8 +148,10 @@ def test_watchdog_decodes_kill_signal(tmp_path: Path) -> None:
     # Self-SIGKILL after a beat → subshell exits 137 (128+9).
     uv_shim.write_text("#!/usr/bin/env bash\nsleep 1\nkill -KILL $$\n")
     uv_shim.chmod(0o755)
-    worktree = tmp_path / "wt"; worktree.mkdir()
-    log_file = tmp_path / "run.log"; log_file.touch()
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    log_file = tmp_path / "run.log"
+    log_file.touch()
     env = os.environ.copy()
     env["PATH"] = f"{shim_dir}:{env['PATH']}"
     script = textwrap.dedent(f"""

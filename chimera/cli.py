@@ -1959,9 +1959,12 @@ def main(argv: list[str] | None = None) -> int:
         # Band classification mirrors lib/cost.ts classifyCostRate().
         usd_per_min_15 = spend_15m / 15.0 if spend_15m > 0 else 0.0
         def _band(rate: float) -> str:
-            if rate <= 0: return "off"
-            if rate < 0.10: return "green"
-            if rate <= 0.50: return "amber"
+            if rate <= 0:
+                return "off"
+            if rate < 0.10:
+                return "green"
+            if rate <= 0.50:
+                return "amber"
             return "red"
         band = _band(usd_per_min_15)
 
@@ -2106,7 +2109,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.rebuild:
             counts = update_wiki_index(conn, cfg.mind_dir / "wiki")
             if not args.json:
-                churn = sum(v for k, v in counts.items() if k != "unchanged")
                 print(
                     f"chimera search: index refresh — "
                     f"added={counts.get('added',0)} "
@@ -3593,7 +3595,8 @@ def main(argv: list[str] | None = None) -> int:
             snapshot: dict[str, Any] = {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
-            cols = lambda r: [dict(zip(r.columns, row)) for row in r.rows]
+            def cols(r):
+                return [dict(zip(r.columns, row)) for row in r.rows]
             snapshot["entities"] = cols(store.query(
                 "MATCH (e:Entity) RETURN e.id AS id, e.kind AS kind, "
                 "e.name AS name, e.kfm_state AS kfm_state "

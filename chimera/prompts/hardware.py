@@ -24,7 +24,8 @@ class HardwareSummary:
     env_keys_present: tuple[str, ...]   # names of relevant env vars that are set
 
     def render(self) -> str:
-        gb = lambda n: f"{n / (1024**3):.1f} GB" if n else "?"
+        def gb(n):
+            return f"{n / (1024**3):.1f} GB" if n else "?"
         return (
             f"runtime: {self.platform}, {self.cpu_count} CPU, mem={gb(self.mem_bytes)}, "
             f"disk[state]={gb(self.disk_state_free_bytes)} free, "

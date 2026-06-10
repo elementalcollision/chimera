@@ -105,7 +105,6 @@ class ChronicleManager:
             new_block = block[: section_match.start()] + new_section + block[section_match.end():]
         else:
             # Append the section at the end of the day's block.
-            sep = "\n" if not block.endswith("\n") else ""
             new_block = block.rstrip("\n") + "\n\n" + new_section
         text = text[:day_start] + new_block + text[day_end:]
         self._write(text)

@@ -223,7 +223,6 @@ async def test_act_annotates_toolcall_with_exit_and_duration(shell_env, dispatch
 @pytest.mark.asyncio
 async def test_act_aborts_on_degenerate_loop(shell_env, dispatcher, db):
     """Five identical shell calls in a row → ABORT verdict from the guard."""
-    repeated_call = ToolUseBlock(id="tu", name="shell", input={"argv": ["ls", "."]})
     fake = _FakeProvider(
         [
             ChatResponse(

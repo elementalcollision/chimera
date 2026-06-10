@@ -14,9 +14,12 @@ Promotions are also gated by a minimum dwell time per tier (default
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import logging
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -237,10 +240,29 @@ class TrustManager:
             return TrustState()
 
     def save(self) -> None:
+        # Atomic write: serialise to a temp file in the same directory, fsync,
+        # then ``os.replace`` (atomic on POSIX + Windows). A crash or
+        # concurrent write mid-``save`` previously left a truncated/empty
+        # trust_state.json — which ``_load`` silently reads as a fresh T0
+        # state, collapsing earned trust. The rename makes the update
+        # all-or-nothing: readers see either the old file or the new one.
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.state_path.write_text(
-            json.dumps(self._state.to_dict(), sort_keys=True, indent=2)
+        payload = json.dumps(self._state.to_dict(), sort_keys=True, indent=2)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(self.state_path.parent),
+            prefix=".trust_state.",
+            suffix=".tmp",
         )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_name, self.state_path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_name)
+            raise
 
     # ── introspection ─────────────────────────────────
 

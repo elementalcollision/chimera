@@ -27,6 +27,7 @@ import os
 import re
 import sqlite3
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -2476,7 +2477,6 @@ class ActExecutor:
         write_targets: list[str] = []
         api_call_count = 0
         final_text = ""
-        stop_reason = ""
 
         # v3.11: walk all eligible rungs cheapest-first. We start on the
         # cheapest; on a provider error we record retry_exhausted and
@@ -2695,7 +2695,6 @@ class ActExecutor:
             )
 
             final_text = response.text
-            stop_reason = response.stop_reason
 
             # No tools → done. v4.3: verify any path-shaped artifacts the
             # task asked for actually exist before flipping completed=True.

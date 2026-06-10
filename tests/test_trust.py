@@ -14,6 +14,45 @@ def trust_path(tmp_path: Path) -> Path:
     return tmp_path / "trust_state.json"
 
 
+# ── atomic persistence (2026-06 hardening) ──────────────────
+
+
+def test_save_is_atomic_no_partial_file(trust_path, monkeypatch):
+    """A crash mid-serialise must not truncate trust_state.json. We force
+    os.replace to raise and assert the existing file is left intact and no
+    stray temp file is orphaned in the directory."""
+    import os as _os
+
+    tm = TrustManager(trust_path)
+    tm.promote()
+    tm.save()
+    good = trust_path.read_text()
+
+    def _boom(*_a, **_k):
+        raise OSError("simulated crash during rename")
+
+    monkeypatch.setattr(_os, "replace", _boom)
+    # promote() persists via save(); the failed rename must propagate and
+    # leave the prior file intact.
+    with pytest.raises(OSError):
+        tm.promote()
+
+    # Original file untouched (atomic: old-or-new, never partial).
+    assert trust_path.read_text() == good
+    # No orphaned temp files left behind.
+    leftovers = [p.name for p in trust_path.parent.iterdir() if p.name != trust_path.name]
+    assert leftovers == [], f"orphaned temp files: {leftovers}"
+
+
+def test_save_then_load_roundtrip_via_atomic_path(trust_path):
+    tm = TrustManager(trust_path)
+    tm.promote()
+    tm.promote()
+    tm.save()
+    reloaded = TrustManager(trust_path)
+    assert reloaded.tier is tm.tier
+
+
 # ── basics ──────────────────────────────────────────────────
 
 
