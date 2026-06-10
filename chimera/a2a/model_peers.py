@@ -36,6 +36,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Callable
 
+from ..config import flag_enabled
 from ..providers.tiers import (
     SONNET_LADDER,
     LadderRung,
@@ -67,8 +68,7 @@ def model_peers_enabled() -> bool:
 
     Same parsing shape as ``peer_selection_enabled`` (ADR 0167).
     """
-    raw = os.environ.get("CHIMERA_MODEL_PEERS", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_MODEL_PEERS")
 
 
 def default_vendor_rungs(*, ladder: list[LadderRung] | None = None) -> dict[str, LadderRung]:

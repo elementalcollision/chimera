@@ -27,10 +27,10 @@ until opted in.
 
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping
+from ..config import flag_enabled
 
 # Verdicts that constitute a trust-reachable edge. ``ALLOW`` only by default —
 # DEGRADE proceeds but downgraded, REFUSE never dispatches.
@@ -42,8 +42,7 @@ def federation_metrics_enabled() -> bool:
 
     Same parsing shape as ``peer_selection_enabled`` (ADR 0167).
     """
-    raw = os.environ.get("CHIMERA_FEDERATION_METRICS", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_FEDERATION_METRICS")
 
 
 @dataclass(frozen=True)

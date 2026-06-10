@@ -126,6 +126,17 @@ def test_validate_env_boltzmann_temp_without_alloc():
     assert any("ignored without CHIMERA_BOLTZMANN_ALLOC" in w for w in warnings)
 
 
+def test_validate_env_half_configured_tls_pair():
+    warnings = config.validate_env({"CHIMERA_TLS_CERT": "/x/cert.pem"})
+    assert any("must be set together" in w for w in warnings)
+    warnings = config.validate_env({"CHIMERA_TLS_KEY": "/x/key.pem"})
+    assert any("must be set together" in w for w in warnings)
+    warnings = config.validate_env(
+        {"CHIMERA_TLS_CERT": "/x/cert.pem", "CHIMERA_TLS_KEY": "/x/key.pem"}
+    )
+    assert not any("must be set together" in w for w in warnings)
+
+
 def test_validate_env_bad_int_reported():
     warnings = config.validate_env({"CHIMERA_PLAN_MAX_OPEN_TASKS": "lots"})
     assert any("not an integer" in w for w in warnings)
@@ -145,6 +156,65 @@ def test_validate_env_reads_os_environ_by_default(monkeypatch):
     monkeypatch.setenv("CHIMERA_SOAK_FORCE_STALL", "1")
     monkeypatch.delenv("CHIMERA_SOAK_RUN_ID", raising=False)
     assert any("inert" in w for w in config.validate_env())
+
+
+# ── registry-backed read accessors ──────────────────────────
+
+
+def test_flag_enabled_truthy_spellings(monkeypatch):
+    for raw in ("1", "true", "YES", " on "):
+        monkeypatch.setenv("CHIMERA_FANOUT_BUDGET", raw)
+        assert config.flag_enabled("CHIMERA_FANOUT_BUDGET") is True
+    for raw in ("0", "off", "no", "", "enabled"):
+        monkeypatch.setenv("CHIMERA_FANOUT_BUDGET", raw)
+        assert config.flag_enabled("CHIMERA_FANOUT_BUDGET") is False
+    monkeypatch.delenv("CHIMERA_FANOUT_BUDGET")
+    assert config.flag_enabled("CHIMERA_FANOUT_BUDGET") is False
+
+
+def test_flag_accessors_refuse_undeclared_names():
+    import pytest as _pytest
+
+    with _pytest.raises(KeyError, match="not declared"):
+        config.flag_enabled("CHIMERA_TOTALLY_MADE_UP")
+    with _pytest.raises(KeyError, match="not declared"):
+        config.flag_int("CHIMERA_TOTALLY_MADE_UP", 1)
+    with _pytest.raises(KeyError, match="not declared"):
+        config.flag_float("CHIMERA_TOTALLY_MADE_UP", 1.0)
+
+
+def test_flag_accessors_allow_dynamic_prefixes():
+    # Dynamic family names resolve without an exact registry entry.
+    assert config.flag_int("CHIMERA_ACT_MAX_TOKENS_SONNET", 4096) == 4096
+
+
+def test_flag_int_malformed_and_minimum(monkeypatch):
+    monkeypatch.setenv("CHIMERA_FANOUT_MAX_WIDTH", "lots")
+    assert config.flag_int("CHIMERA_FANOUT_MAX_WIDTH", 8, minimum=1) == 8
+    monkeypatch.setenv("CHIMERA_FANOUT_MAX_WIDTH", "0")
+    assert config.flag_int("CHIMERA_FANOUT_MAX_WIDTH", 8, minimum=1) == 1
+    monkeypatch.setenv("CHIMERA_FANOUT_MAX_WIDTH", "3")
+    assert config.flag_int("CHIMERA_FANOUT_MAX_WIDTH", 8, minimum=1) == 3
+
+
+def test_flag_float_malformed_and_minimum(monkeypatch):
+    monkeypatch.setenv("CHIMERA_BOLTZMANN_TEMP", "warm")
+    assert config.flag_float("CHIMERA_BOLTZMANN_TEMP", 0.0, minimum=0.0) == 0.0
+    monkeypatch.setenv("CHIMERA_BOLTZMANN_TEMP", "-2.5")
+    assert config.flag_float("CHIMERA_BOLTZMANN_TEMP", 0.0, minimum=0.0) == 0.0
+    monkeypatch.setenv("CHIMERA_BOLTZMANN_TEMP", "1.5")
+    assert config.flag_float("CHIMERA_BOLTZMANN_TEMP", 0.0, minimum=0.0) == 1.5
+
+
+def test_migrated_readers_delegate_to_registry(monkeypatch):
+    """The ADR 0165–0174 family readers now resolve through the registry
+    read path — same truthy semantics, same defaults."""
+    from chimera.core.branching import fanout_budget_enabled, fanout_max_width
+
+    monkeypatch.setenv("CHIMERA_FANOUT_BUDGET", "on")
+    assert fanout_budget_enabled() is True
+    monkeypatch.setenv("CHIMERA_FANOUT_MAX_WIDTH", "junk")
+    assert fanout_max_width() == 8  # default survives malformed values
 
 
 def test_loop_startup_logs_flag_warnings(tmp_path, monkeypatch, caplog):

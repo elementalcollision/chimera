@@ -26,12 +26,13 @@ feature velocity to consolidation. Open items, in order:
   modules for budget/escalation/remediation — ADR 0176.
 - [x] Extract act.py guards and cli.py command handlers (pure moves) —
   ADR 0177.
-- [ ] Wire `config.validate_env()` warnings into loop startup.
-- [ ] Incrementally migrate `os.environ` flag reads to the registry.
-- [ ] Word-boundary fix for `remediation._is_commit_task`
-  (xfail-documented in tests/test_remediation.py).
-- [ ] TLS (or documented loopback-only constraint) for the HTTP MCP
-  transport **before** federation leaves loopback — ADR 0175 trigger.
+- [x] Wire `config.validate_env()` warnings into loop startup.
+- [x] Registry read path (`flag_enabled`/`flag_int`/`flag_float`) +
+  first tranche: the 12 ADR 0165–0174 family readers (10 modules).
+  Remaining legacy reads migrate opportunistically.
+- [x] Word-boundary fix for `remediation._is_commit_task` (xfail retired).
+- [x] TLS for the HTTP MCP transport (ADR 0178): fail-closed cert/key
+  pair, non-loopback now requires token **and** TLS.
 - [ ] Evals (LongMemEval/LoCoMo) as a gated nightly, not just unit
   tests in the main suite.
 - [ ] Graduate lexical routing v0 (ADRs 0165/0166) to embedding-based

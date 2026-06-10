@@ -17,6 +17,7 @@ Pure functions — no DB access, no provider calls. ACT wires the lookup.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 
@@ -509,10 +510,13 @@ def _is_commit_task(task_text: str) -> bool:
     lowered = task_text.lower()
     if any(kw in lowered for kw in _COMMIT_TASK_KEYWORDS):
         return True
-    # Standalone "commit" verb at the start of the task or right after a
-    # boundary word — covers "Commit your changes…", "Stage and commit".
-    if "commit" in lowered and ("git" in lowered or "stage" in lowered
-                                or "branch" in lowered):
+    # Standalone "commit" verb plus git/stage/branch context — covers
+    # "Now commit the staged files with git". Word-boundary matched so
+    # incidental prose ("commitment", "branching") doesn't classify a
+    # task as a commit task (the v4.121 fix; previously substring).
+    if re.search(r"\bcommit\b", lowered) and re.search(
+        r"\b(?:git|stage|staged|stages|staging|branch|branches)\b", lowered
+    ):
         return True
     return False
 

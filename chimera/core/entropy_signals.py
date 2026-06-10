@@ -25,11 +25,11 @@ them, keeping behaviour byte-identical until opted in.
 from __future__ import annotations
 
 import math
-import os
 from collections import Counter
 from typing import Hashable, Iterable
 
 from ..proposals.dedup import cluster_key, fingerprint
+from ..config import flag_enabled
 
 
 def entropy_signals_enabled() -> bool:
@@ -38,8 +38,7 @@ def entropy_signals_enabled() -> bool:
     Same parsing shape as ``peer_selection_enabled`` (ADR 0167). The signal
     functions are always computable; this only gates logging/emission.
     """
-    raw = os.environ.get("CHIMERA_ENTROPY_SIGNALS", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_ENTROPY_SIGNALS")
 
 
 def shannon_entropy(counts: Iterable[float]) -> float:

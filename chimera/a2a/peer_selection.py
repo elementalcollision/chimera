@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import random
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping
@@ -38,6 +37,7 @@ from typing import TYPE_CHECKING, Mapping
 from ..positioning.circuit import CircuitBreaker, CircuitState
 from .peers import fetch_peer_identity, fetch_peer_kfm, list_peer_chimeras
 from .trust_policy import PeerTrustPolicy, PolicyDecision
+from ..config import flag_enabled
 
 if TYPE_CHECKING:
     from ..tools import ToolRegistry
@@ -56,8 +56,7 @@ def peer_selection_enabled() -> bool:
 
     Same parsing shape as ``tool_prefilter_enabled`` (ADR 0165).
     """
-    raw = os.environ.get("CHIMERA_PEER_SELECTION", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_PEER_SELECTION")
 
 
 @dataclass(frozen=True)

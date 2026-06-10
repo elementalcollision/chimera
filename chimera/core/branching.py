@@ -18,7 +18,7 @@ flag, so behaviour is byte-identical until opted in.
 
 from __future__ import annotations
 
-import os
+from ..config import flag_enabled, flag_int
 
 #: Default ceiling on simultaneous tool calls in one ACT round. Chosen well
 #: above normal batches (1–3) so it only ever trims pathological fan-out.
@@ -30,8 +30,7 @@ def fanout_budget_enabled() -> bool:
 
     Same parsing shape as ``peer_selection_enabled`` (ADR 0167).
     """
-    raw = os.environ.get("CHIMERA_FANOUT_BUDGET", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_FANOUT_BUDGET")
 
 
 def fanout_max_width() -> int:
@@ -39,11 +38,7 @@ def fanout_max_width() -> int:
 
     Always ≥ 1 so the round can still make progress even on a bad value.
     """
-    raw = os.environ.get("CHIMERA_FANOUT_MAX_WIDTH", str(_DEFAULT_MAX_WIDTH)).strip()
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return _DEFAULT_MAX_WIDTH
+    return flag_int("CHIMERA_FANOUT_MAX_WIDTH", _DEFAULT_MAX_WIDTH, minimum=1)
 
 
 def fanout_split(width: int, max_width: int) -> tuple[int, int]:

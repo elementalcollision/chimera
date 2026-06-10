@@ -29,9 +29,9 @@ Public surface:
 from __future__ import annotations
 
 import logging
-import os
 import re
 from typing import Any
+from ..config import flag_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,7 @@ _STOPWORDS: frozenset[str] = frozenset({
 
 def tool_prefilter_enabled() -> bool:
     """Honour ``CHIMERA_TOOL_PREFILTER`` (default: off, ADR 0165)."""
-    raw = os.environ.get("CHIMERA_TOOL_PREFILTER", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_TOOL_PREFILTER")
 
 
 def _tokens(text: str) -> set[str]:

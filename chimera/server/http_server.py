@@ -186,33 +186,84 @@ def _is_loopback(host: str) -> bool:
 
 class InsecureHttpBindError(RuntimeError):
     """Raised when serve_http is asked to bind to a non-loopback host
-    without an auth token configured. Refuses to start rather than
-    silently accept anonymous peers from the network."""
+    without auth + TLS configured. Refuses to start rather than
+    silently accept anonymous peers or transmit bearer tokens in
+    cleartext on the network."""
 
 
-def _check_bind_security(host: str) -> None:
-    """v4.52 guard, extracted so it's unit-testable without booting
-    uvicorn. Raises InsecureHttpBindError on a non-loopback bind that
-    has no token set and no explicit insecure override."""
+class TlsConfigError(RuntimeError):
+    """Raised when CHIMERA_TLS_CERT / CHIMERA_TLS_KEY are misconfigured
+    (one without the other, or a path that doesn't exist)."""
+
+
+def _tls_config() -> tuple[str | None, str | None]:
+    """Read CHIMERA_TLS_CERT + CHIMERA_TLS_KEY (ADR 0178).
+
+    Returns ``(certfile, keyfile)`` — both ``None`` when TLS is not
+    configured. Raises :class:`TlsConfigError` on a half-configured pair
+    or a missing file, because a typo'd cert path silently falling back
+    to cleartext would defeat the point.
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    cert = (_os.environ.get("CHIMERA_TLS_CERT") or "").strip() or None
+    key = (_os.environ.get("CHIMERA_TLS_KEY") or "").strip() or None
+    if cert is None and key is None:
+        return None, None
+    if cert is None or key is None:
+        raise TlsConfigError(
+            "CHIMERA_TLS_CERT and CHIMERA_TLS_KEY must be set together "
+            f"(got cert={'set' if cert else 'unset'}, "
+            f"key={'set' if key else 'unset'})"
+        )
+    for label, path in (("CHIMERA_TLS_CERT", cert), ("CHIMERA_TLS_KEY", key)):
+        if not _Path(path).is_file():
+            raise TlsConfigError(f"{label}={path!r} does not exist or is not a file")
+    return cert, key
+
+
+def _check_bind_security(host: str, *, tls_enabled: bool | None = None) -> None:
+    """v4.52 guard, tightened by ADR 0178; extracted so it's unit-testable
+    without booting uvicorn.
+
+    Loopback: always allowed (anonymous + cleartext are fine on-host).
+    Non-loopback: requires BOTH a bearer token (CHIMERA_PEER_TOKEN /
+    CHIMERA_PEER_TOKENS) AND TLS (CHIMERA_TLS_CERT + CHIMERA_TLS_KEY) —
+    a token over cleartext HTTP can be sniffed in one request, making the
+    auth requirement theatre. CHIMERA_ALLOW_INSECURE_HTTP=1 overrides
+    both requirements (CI / sandboxed networks).
+    """
     import os as _os
 
     if _is_loopback(host):
+        return
+    allow_insecure = _os.environ.get("CHIMERA_ALLOW_INSECURE_HTTP") in (
+        "1", "true", "yes",
+    )
+    if allow_insecure:
         return
     has_token = bool(
         _os.environ.get("CHIMERA_PEER_TOKEN")
         or _os.environ.get("CHIMERA_PEER_TOKENS")
     )
-    allow_insecure = _os.environ.get("CHIMERA_ALLOW_INSECURE_HTTP") in (
-        "1", "true", "yes",
-    )
-    if has_token or allow_insecure:
+    if tls_enabled is None:
+        cert, _key = _tls_config()
+        tls_enabled = cert is not None
+    if has_token and tls_enabled:
         return
+    missing = []
+    if not has_token:
+        missing.append("a bearer token (CHIMERA_PEER_TOKEN or CHIMERA_PEER_TOKENS)")
+    if not tls_enabled:
+        missing.append("TLS (CHIMERA_TLS_CERT + CHIMERA_TLS_KEY)")
     raise InsecureHttpBindError(
         f"refusing to bind chimera serve --http to non-loopback host "
-        f"{host!r} without auth. Set CHIMERA_PEER_TOKEN (single token) "
-        "or CHIMERA_PEER_TOKENS (JSON map), OR pass --host 127.0.0.1 "
-        "for loopback-only, OR set CHIMERA_ALLOW_INSECURE_HTTP=1 to "
-        "override (not recommended)."
+        f"{host!r} without {' and '.join(missing)}. Bearer tokens over "
+        "cleartext HTTP are sniffable in transit (ADR 0178). Either "
+        "configure what's missing, pass --host 127.0.0.1 for "
+        "loopback-only, or set CHIMERA_ALLOW_INSECURE_HTTP=1 to override "
+        "(not recommended)."
     )
 
 
@@ -233,7 +284,8 @@ async def serve_http(
     Set ``CHIMERA_ALLOW_INSECURE_HTTP=1`` to bypass the guard if you
     truly mean to expose anonymously (rare; CI / sandboxed networks).
     """
-    _check_bind_security(host)
+    certfile, keyfile = _tls_config()
+    _check_bind_security(host, tls_enabled=certfile is not None)
     from ..core import assert_no_errors
     assert_no_errors()
     cms = ChimeraMCPServer.from_env(name=name)
@@ -248,8 +300,11 @@ async def serve_http(
         port=port,
         log_level="info",
         access_log=False,
+        ssl_certfile=certfile,
+        ssl_keyfile=keyfile,
     )
     server = uvicorn.Server(config)
-    logger.info("chimera serve --http listening on http://%s:%d", host, port)
+    scheme = "https" if certfile else "http"
+    logger.info("chimera serve --http listening on %s://%s:%d", scheme, host, port)
     await server.serve()
     return 0
