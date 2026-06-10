@@ -36,9 +36,9 @@ Out of scope (deferred to #6.b):
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 from dataclasses import dataclass
+from ..config import flag_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -67,8 +67,7 @@ class HybridHit:
 
 def hybrid_search_enabled() -> bool:
     """Honor ``CHIMERA_HYBRID_SEARCH`` (default: off, ADR 0134)."""
-    raw = os.environ.get("CHIMERA_HYBRID_SEARCH", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_HYBRID_SEARCH")
 
 
 # ── Stub: vector search ──────────────────────────────────────────

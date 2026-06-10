@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
-import os
 import sqlite3
 from dataclasses import dataclass
 from typing import Literal
+from ..config import flag_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -294,8 +294,7 @@ def research_task_floor_tier(task_text: str) -> str | None:
 
 def complexity_routing_enabled() -> bool:
     """Honour ``CHIMERA_COMPLEXITY_ROUTING`` (default: off, ADR 0166)."""
-    raw = os.environ.get("CHIMERA_COMPLEXITY_ROUTING", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_COMPLEXITY_ROUTING")
 
 
 #: Engineering / reasoning verbs whose presence signals design or

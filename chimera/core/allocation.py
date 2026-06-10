@@ -22,9 +22,9 @@ and tested but left for a deferred caller.
 from __future__ import annotations
 
 import math
-import os
 import random
 from typing import Sequence, TypeVar
+from ..config import flag_enabled, flag_float
 
 T = TypeVar("T")
 
@@ -38,17 +38,12 @@ def boltzmann_allocation_enabled() -> bool:
 
     Same parsing shape as ``peer_selection_enabled`` (ADR 0167).
     """
-    raw = os.environ.get("CHIMERA_BOLTZMANN_ALLOC", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_BOLTZMANN_ALLOC")
 
 
 def allocation_temperature() -> float:
     """Honour ``CHIMERA_BOLTZMANN_TEMP`` (default: 0.0 = deterministic)."""
-    raw = os.environ.get("CHIMERA_BOLTZMANN_TEMP", str(_DEFAULT_TEMP)).strip()
-    try:
-        return max(0.0, float(raw))
-    except ValueError:
-        return _DEFAULT_TEMP
+    return flag_float("CHIMERA_BOLTZMANN_TEMP", _DEFAULT_TEMP, minimum=0.0)
 
 
 def softmax(values: Sequence[float], temperature: float = 1.0) -> list[float]:

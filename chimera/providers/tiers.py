@@ -13,9 +13,9 @@ MVP simplifications:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from enum import Enum
+from ..config import flag_enabled
 
 
 class Provider(str, Enum):
@@ -287,8 +287,7 @@ def anneal_reheat_enabled() -> bool:
 
     Same parsing shape as ``peer_selection_enabled`` (ADR 0167).
     """
-    raw = os.environ.get("CHIMERA_ANNEAL_REHEAT", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return flag_enabled("CHIMERA_ANNEAL_REHEAT")
 
 
 def rung_vendor(rung: LadderRung) -> str:

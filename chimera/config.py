@@ -32,10 +32,11 @@ from typing import Literal
 
 FlagKind = Literal["bool", "int", "float", "str", "path", "csv", "json"]
 
-#: Truthy spellings accepted by the bool-ish flags. Individual call sites
-#: vary (some test ``== "1"``, some ``in ("1","true","yes")``, one tests
-#: ``== "0"`` to *disable*); the registry records intent, not parser quirks.
-TRUTHY = ("1", "true", "yes")
+#: Truthy spellings accepted by the bool-ish flags (the dominant call-site
+#: idiom, shared by the whole ADR 0165–0174 flag family). A few legacy
+#: sites vary (some test ``== "1"``, one tests ``== "0"`` to *disable*);
+#: those keep their own parsers until individually migrated.
+TRUTHY = ("1", "true", "yes", "on")
 
 
 @dataclass(frozen=True)
@@ -221,6 +222,76 @@ REGISTRY: dict[str, FlagSpec] = dict(
 
 def _is_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in TRUTHY
+
+
+# ── registry-backed read path (incremental migration target) ─────────
+#
+# Call sites migrate to these accessors instead of hand-rolled
+# ``os.environ.get(...)`` parsing. Each accessor refuses undeclared flag
+# names (KeyError), so a migrated read can never silently bypass the
+# registry. Reads happen at CALL time (not import time) — tests that
+# monkeypatch.setenv keep working unchanged.
+
+
+def _require_declared(name: str) -> None:
+    if name in REGISTRY:
+        return
+    if any(name.startswith(p) for p in DYNAMIC_FLAG_PREFIXES):
+        return
+    raise KeyError(
+        f"{name} is not declared in chimera.config.REGISTRY — declare it "
+        f"(kind, default, description) before reading it through the registry"
+    )
+
+
+def flag_enabled(name: str, *, env: dict[str, str] | None = None) -> bool:
+    """Bool flag read: truthy when the value is 1/true/yes/on
+    (case-insensitive, stripped). Unset/empty/anything else → False."""
+    _require_declared(name)
+    source = os.environ if env is None else env
+    return source.get(name, "").strip().lower() in TRUTHY
+
+
+def flag_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int | None = None,
+    env: dict[str, str] | None = None,
+) -> int:
+    """Int flag read: unset or malformed → ``default``; clamped to
+    ``minimum`` when given."""
+    _require_declared(name)
+    source = os.environ if env is None else env
+    raw = source.get(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    return value
+
+
+def flag_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float | None = None,
+    env: dict[str, str] | None = None,
+) -> float:
+    """Float flag read: unset or malformed → ``default``; clamped to
+    ``minimum`` when given."""
+    _require_declared(name)
+    source = os.environ if env is None else env
+    raw = source.get(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    return value
 
 
 def validate_env(env: dict[str, str] | None = None) -> list[str]:
