@@ -42,6 +42,22 @@ is byte-identical to the cheapest-first walk.
 sets `CHIMERA_ANNEAL_REHEAT=1` and asserts `execute()` reaches the provider
 (≥1 call) instead of raising — closing the live-loop gap the unit suite missed.
 
+**Live validation (2026-06-10, post-fix).** Two-part:
+
+1. *Envelope composes:* the full all-flags `real_task_soak`
+   (`realtask-2026-06-10-0915`) converged end-to-end — 32 api_calls, agent
+   self-commit, gate PASS — with the reheat path correctly idle (no prior
+   failures). See the campaign doc's post-fix validation section.
+2. *Rotation fires:* a controlled live exercise seeded ONE real prior failure
+   (`max_rounds` at tier haiku) for a task signature, then ran ACT against real
+   providers twice. Flag OFF: escalation memory promoted haiku→sonnet and the
+   lead call went to `deepseek/deepseek-v4-pro` (cheapest-first, unrotated).
+   Flag ON, same seed: the `annealing reheat — rotating ladder by 1 (lead
+   vendor minimax/minimax-m3)` log fired and the real provider call went to
+   `minimax/minimax-m3`. This also confirms the "Non-goals" composition claim
+   live: tier promotion picks the *ladder*, reheat picks the decorrelated
+   *lead* within it.
+
 **Status:** Proposed (2026-06-08)
 
 ## Context
