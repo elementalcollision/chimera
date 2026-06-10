@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from typing import Any
 
 from ..memory import record_api_call, record_ladder_outcome
 from ..providers import Message, Provider

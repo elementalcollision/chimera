@@ -9,7 +9,6 @@ not just the underlying detector (which is covered by Layer 1 tests).
 from __future__ import annotations
 
 import subprocess as _subprocess
-from pathlib import Path
 
 import pytest
 

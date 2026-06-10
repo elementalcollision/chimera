@@ -9,7 +9,6 @@ OFF, opt in via ``CHIMERA_GRAPH_ENABLED``, legacy
 
 from __future__ import annotations
 
-import pytest
 
 from chimera.core.loop import graph_projection_enabled
 

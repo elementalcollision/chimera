@@ -29,7 +29,7 @@ import datetime as dt
 import json
 import os
 import socket
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .identity import AgentIdentity

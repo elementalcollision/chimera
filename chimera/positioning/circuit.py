@@ -25,7 +25,7 @@ to ``can_call()`` / ``record_*``. This keeps it testable as pure logic.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 

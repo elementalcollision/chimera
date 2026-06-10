@@ -374,7 +374,6 @@ def propose_kill_archived(
     Dedup: existing ``status='pending'`` ``kill_entity`` mutations for
     the same entity id are not re-enqueued.
     """
-    import json
     from .mutations import create_mutation, list_mutations
 
     cutoff = current_cycle - archive_after_cycles

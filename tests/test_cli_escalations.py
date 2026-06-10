@@ -15,7 +15,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from chimera.core.escalation import record_failure
 from chimera.memory import open_and_init

@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from chimera.memory import open_and_init
-from chimera.providers import ChatChunk, ChatResponse, Message, Provider
+from chimera.providers import ChatChunk, ChatResponse, Provider
 from chimera.providers.tiers import Provider as ProviderKind
 from chimera.skills import (
     AssembledSkill,
     SkillSpec,
     activate_skill,
     assemble_skill,
-    dynamic_skills_dir,
     load_dynamic_skills,
     validate_skill,
 )

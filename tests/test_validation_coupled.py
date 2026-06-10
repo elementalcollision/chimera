@@ -1,6 +1,7 @@
 """Coupled multi-file fault validation runner — plan (dryrun)."""
 from __future__ import annotations
-import os, subprocess
+import os
+import subprocess
 from pathlib import Path
 _S = Path(__file__).resolve().parents[1] / "scripts" / "validation_coupled.sh"
 

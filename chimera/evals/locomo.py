@@ -382,7 +382,7 @@ class LoCoMoAdapter:
         # Synthetic self card — load-bearing surface for the dialectic API.
         self._self_card_path.parent.mkdir(parents=True, exist_ok=True)
         card_lines: list[str] = [
-            f"# Peer card — self",
+            "# Peer card — self",
             "",
             f"**Conversation:** {item.sample_id} "
             f"(speakers: {item.speaker_a} and {item.speaker_b})",

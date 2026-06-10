@@ -68,7 +68,8 @@ def test_index_detects_update(db_and_wiki):
     p = _write(wiki, "a.md", "# A\n\nbody one")
     update_wiki_index(db, wiki)
     # Bump mtime + content.
-    import os, time
+    import os
+    import time
     time.sleep(0.01)
     p.write_text("# A\n\nbody two — completely different content", encoding="utf-8")
     new_mtime = p.stat().st_mtime_ns + 1

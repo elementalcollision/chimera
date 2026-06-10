@@ -9,7 +9,6 @@ import pytest
 from chimera.providers import (
     HAIKU,
     OPUS,
-    SONNET,
     resolve_rung,
 )
 from chimera.skills import (

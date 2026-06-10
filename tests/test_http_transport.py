@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
-import os
 
 import pytest
-from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 from chimera.server.http_server import _BearerAuthMiddleware, build_http_app
 from chimera.server.mcp_server import ChimeraMCPServer
-from chimera.tools import MCPServerConfig, parse_mcp_config
+from chimera.tools import parse_mcp_config
 
 
 # ── config parsing ──────────────────────────────────────────

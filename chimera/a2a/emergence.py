@@ -21,11 +21,10 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 _DEFAULT_JOURNAL_SUBDIR = "protocol_journal"

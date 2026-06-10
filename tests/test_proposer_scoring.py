@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from chimera.core.proposer_scoring import (
-    DEFAULT_THRESHOLD,
     ProposerDegradedError,
     all_scores,
     check_can_propose,
@@ -20,7 +19,6 @@ from chimera.core.proposer_scoring import (
     scoring_enabled,
 )
 from chimera.memory import (
-    approve_mutation,
     create_mutation,
     mark_applied,
     mark_failed,

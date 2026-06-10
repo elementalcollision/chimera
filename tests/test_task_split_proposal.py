@@ -17,7 +17,6 @@ from chimera.memory import open_and_init
 from chimera.memory.mutations import (
     approve_mutation,
     get_mutation,
-    list_mutations,
 )
 
 

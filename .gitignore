@@ -45,3 +45,6 @@ peer_chimera/
 
 # CodeGraph local index (machine-local SQLite knowledge graph)
 .codegraph/
+
+# graphify skill output (machine-local generated knowledge graph)
+graphify-out/

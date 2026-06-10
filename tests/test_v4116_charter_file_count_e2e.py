@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from chimera.core.act import ActResult
 from chimera.core.escalation import ESCALATING_FINISH_REASONS
 from chimera.core.remediation import _charter_file_count_hint
 from chimera.trust.manager import TrustManager, TrustTier

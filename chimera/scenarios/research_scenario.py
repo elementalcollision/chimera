@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core import ChimeraLoop, CycleReport, LoopConfig
-from ..core.mind import HeartbeatState, parse_inbox, save_heartbeat
+from ..core.mind import HeartbeatState, save_heartbeat
 from ..memory import open_and_init
 
 

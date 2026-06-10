@@ -11,7 +11,6 @@ explicit base for the charter case).
 from __future__ import annotations
 
 import subprocess
-import textwrap
 from pathlib import Path
 
 _LIB = Path(__file__).resolve().parents[1] / "scripts" / "soak_lib.sh"

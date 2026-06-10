@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from chimera.core.engine_gates import (
-    GateDecision,
     curiosity_gate,
     discovery_gate,
     gates_enabled,

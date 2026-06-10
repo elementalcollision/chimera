@@ -1119,7 +1119,7 @@ def check_postmortem_honesty(
         if claimed != ground_truth:
             reason = (
                 f"postmortem claims tests_passing: {str(claimed).lower()} but "
-                + (f"the test-run ledger shows no passing run recorded"
+                + ("the test-run ledger shows no passing run recorded"
                    if not ground_truth else
                    "the test-run ledger shows tests DID pass — cite the ledger")
             )

@@ -24,10 +24,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-import pytest
 
 from chimera.core.witness import (
-    WitnessVerdict,
     _build_user_prompt,
     extract_charter_excerpts,
     extract_task_charter,

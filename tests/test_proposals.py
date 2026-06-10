@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -18,7 +17,7 @@ from chimera.proposals import (
     extract_proposals,
     fingerprint,
 )
-from chimera.providers import ChatResponse, Message, Provider
+from chimera.providers import ChatResponse, Provider
 from chimera.providers.tiers import Provider as ProviderKind
 
 

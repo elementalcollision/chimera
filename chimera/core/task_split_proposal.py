@@ -27,7 +27,6 @@ pattern as the v4.39 ``kill_entity`` workflow.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sqlite3
