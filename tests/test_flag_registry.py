@@ -145,3 +145,26 @@ def test_validate_env_reads_os_environ_by_default(monkeypatch):
     monkeypatch.setenv("CHIMERA_SOAK_FORCE_STALL", "1")
     monkeypatch.delenv("CHIMERA_SOAK_RUN_ID", raising=False)
     assert any("inert" in w for w in config.validate_env())
+
+
+def test_loop_startup_logs_flag_warnings(tmp_path, monkeypatch, caplog):
+    """ADR 0176: ChimeraLoop init surfaces validate_env warnings via logging
+    (warn-only — misconfiguration must never block boot)."""
+    mind = tmp_path / "mind"
+    state = tmp_path / "state"
+    mind.mkdir()
+    state.mkdir()
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(mind))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(state))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("CHIMERA_GRAPH_ENABLED", "1")
+    monkeypatch.setenv("CHIMERA_AUTO_GRAPH_UPDATE_DISABLED", "1")
+
+    from chimera.core import ChimeraLoop, LoopConfig
+
+    with caplog.at_level("WARNING", logger="chimera.core.loop"):
+        ChimeraLoop(LoopConfig.from_env())
+    assert any("flag config:" in r.getMessage() for r in caplog.records), (
+        "expected a 'flag config:' warning for the graph legacy-override trap"
+    )

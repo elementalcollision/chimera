@@ -213,6 +213,15 @@ class ChimeraLoop:
         tool_registry: ToolRegistry | None = None,
     ) -> None:
         self.config = config or LoopConfig.from_env()
+        # ADR 0176: surface flag misconfiguration at startup. Warn-only —
+        # a misconfigured flag must never block boot, just be visible.
+        try:
+            from ..config import validate_env
+
+            for warning in validate_env():
+                logger.warning("flag config: %s", warning)
+        except Exception:
+            logger.exception("flag validation failed; continuing")
         self._heartbeat_path = self.config.mind_dir / "HEARTBEAT.md"
         self._inbox_path = self.config.mind_dir / "INBOX.md"
         self._session_log_path = self.config.mind_dir / "SESSION_LOG.md"
