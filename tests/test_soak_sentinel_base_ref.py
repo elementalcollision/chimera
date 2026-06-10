@@ -30,17 +30,20 @@ def _setup_charter_repo(root: Path) -> None:
     git("config", "user.email", "t@t.t")
     git("config", "user.name", "t")
     (root / "seed.txt").write_text("seed\n")
-    git("add", "seed.txt"); git("commit", "-qm", "seed")
+    git("add", "seed.txt")
+    git("commit", "-qm", "seed")
     # The build base branch carries the materialized acceptance test.
     git("checkout", "-q", "-b", "build-base")
     (root / "tests").mkdir()
     (root / "tests" / "test_target.py").write_text("def test(): assert True\n")
-    git("add", "tests/test_target.py"); git("commit", "-qm", "charter: materialized test")
+    git("add", "tests/test_target.py")
+    git("commit", "-qm", "charter: materialized test")
     # The agent's build branch: build the target + [agent] commit.
     git("checkout", "-q", "-b", "soak-work")
     (root / "chimera").mkdir()
     (root / "chimera" / "target.py").write_text("x = 1\n")
-    git("add", "chimera/target.py"); git("commit", "-qm", "[agent] build chimera/target.py")
+    git("add", "chimera/target.py")
+    git("commit", "-qm", "[agent] build chimera/target.py")
 
 
 def test_sentinel_fires_with_correct_base(tmp_path):

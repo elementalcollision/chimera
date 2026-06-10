@@ -14,6 +14,7 @@ send it as ``Authorization: Bearer <token>``.
 from __future__ import annotations
 
 import contextlib
+import hmac
 import logging
 import os
 
@@ -74,12 +75,23 @@ class _BearerAuthMiddleware(BaseHTTPMiddleware):
         if scheme.lower() != "bearer" or not token:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
+        # Constant-time matching. A plain ``==`` (or ``token in dict``) leaks
+        # the token byte-by-byte through response-time variation, letting an
+        # attacker recover it via a timing side-channel. ``hmac.compare_digest``
+        # compares in time independent of where the first mismatch is. We must
+        # avoid the dict's hash lookup for the per-peer map too, so we walk it
+        # and compare each candidate in constant time.
         peer_name: str | None = None
-        if token in self._token_map:
-            peer_name = self._token_map[token]
-        elif self._expected and token == self._expected:
+        matched = False
+        for candidate, name in self._token_map.items():
+            if hmac.compare_digest(token, candidate):
+                peer_name = name
+                matched = True
+                break
+        if not matched and self._expected and hmac.compare_digest(token, self._expected):
             peer_name = None  # anonymous-but-authenticated
-        else:
+            matched = True
+        if not matched:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         token_ctx = current_peer.set(peer_name)

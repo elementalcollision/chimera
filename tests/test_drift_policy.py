@@ -6,13 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _no_live_providers(monkeypatch):
-    """Tests here don't want ACT/engines to actually call providers."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-
 from chimera.core import ChimeraLoop, LoopConfig
 from chimera.drift import (
     DriftAction,
@@ -22,6 +15,13 @@ from chimera.drift import (
     Outcome,
     respond,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_live_providers(monkeypatch):
+    """Tests here don't want ACT/engines to actually call providers."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
 # ── policy (pure) ────────────────────────────────────────────

@@ -25,6 +25,7 @@ from typing import Any
 
 from .dispatch import DispatchContext
 from .registry import ToolRegistry, default_registry
+from .sandbox_env import sanitized_subprocess_env
 
 
 # The whitelist is intentionally small and read-only-ish at MVP.
@@ -191,6 +192,14 @@ def _resolve_cwd(cwd_arg: str | None) -> Path:
     if cwd_arg is None:
         return base
     candidate = Path(cwd_arg)
+    # SECURITY BOUNDARY: ``.resolve()`` is load-bearing. It canonicalises
+    # symlinks so a link planted inside mind/ or state/ that points outside
+    # the roots (e.g. ``mind/escape -> /etc``) resolves to its real target
+    # and then fails the containment check below. Do NOT replace this with a
+    # lexical join (``os.path.normpath``) — that would follow the link name
+    # without resolving it and reopen a symlink-traversal escape. The roots
+    # are resolved too (see ``_allowed_roots``) so legitimately symlinked
+    # roots (macOS /tmp, an operator-symlinked data dir) still compare equal.
     if not candidate.is_absolute():
         candidate = (base / candidate).resolve()
     else:
@@ -422,6 +431,7 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
         resolved,
         *argv[1:],
         cwd=str(cwd),
+        env=sanitized_subprocess_env(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

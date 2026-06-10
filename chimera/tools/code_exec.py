@@ -29,6 +29,7 @@ from typing import Any
 
 from .dispatch import DispatchContext
 from .registry import ToolRegistry, default_registry
+from .sandbox_env import sanitized_subprocess_env
 
 try:  # POSIX only — fine inside the Chimera Linux container.
     import resource as _resource  # type: ignore[import-not-found]
@@ -110,6 +111,11 @@ def _resolve_cwd(cwd_arg: str | None) -> Path:
     if cwd_arg is None:
         return base
     candidate = Path(cwd_arg)
+    # SECURITY BOUNDARY: ``.resolve()`` is load-bearing — see the matching
+    # note in shell.py._resolve_cwd. It canonicalises symlinks so a link
+    # planted under mind/ or state/ pointing outside the roots resolves to
+    # its real target and fails the containment check below. Do NOT swap it
+    # for a lexical join, which would reopen a symlink-traversal escape.
     if not candidate.is_absolute():
         candidate = (base / candidate).resolve()
     else:
@@ -177,6 +183,7 @@ async def code_exec_handler(args: dict[str, Any], context: DispatchContext) -> s
         preexec = _build_preexec(timeout_s)
         kwargs: dict[str, Any] = {
             "cwd": str(cwd),
+            "env": sanitized_subprocess_env(),
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
         }

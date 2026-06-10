@@ -4,12 +4,16 @@ A multi-LLM, tools-capable agent built on a thin Python core. Pulls patterns
 from Hermes, OpenClaw, Reggio (claude-daemon), Leonardo, village (KFM), and
 autoresearch — selectively, never wholesale.
 
-**Status:** v4.64 — production-shape with a learning loop, three-layer
-cost-discipline, opt-in graph projection, FTS5 wiki recall, and a task
-splitter. Stable schemas, an 8-phase agent loop, a federation drill, a
-live observability dashboard, persistent task-escalation memory, and
-three orthogonal cost caps (per-cycle / rolling-hour / per-task) so
-runaways stop themselves.
+**Status:** v4.120 — production-shape with a learning loop, three-layer
+cost-discipline, opt-in graph projection, FTS5 wiki recall, a task
+splitter, semantic tool/model routing (lexical v0), entropy-governed
+sub-tasking (ADRs 0167–0172), model-backed peers, and a hardened
+security baseline (ADR 0175: timing-safe peer auth, secret-free tool
+subprocesses, atomic trust state). Stable schemas, an 8-phase agent
+loop, a federation drill, a live observability dashboard, persistent
+task-escalation memory, three orthogonal cost caps (per-cycle /
+rolling-hour / per-task) so runaways stop themselves, and a central
+flag registry whose combination matrix is CI-enforced (ADR 0176).
 
 ## What it does
 
@@ -89,7 +93,7 @@ theme, four view presets (Operator / Cost / Debug / Federation).
 ## Documentation
 
 - **PLAN** — [PLAN.md](PLAN.md)
-- **ADRs** — [docs/adr/README.md](docs/adr/README.md) (84 decision records)
+- **ADRs** — [docs/adr/README.md](docs/adr/README.md) (175 decision records)
 - **Operator runbook** — [docs/runbook.md](docs/runbook.md) — three modes, dashboard widget guide, cost CLI, task splitter, escalations
 - **AI-helper orientation** — [AGENTS.md](AGENTS.md) — for AI assistants editing this repo
 - **Research bundle** — [docs/research/best-of-breed.md](docs/research/best-of-breed.md)
@@ -111,16 +115,16 @@ control-plane/        # Next.js dashboard
 mind/                 # narrative state (HEARTBEAT, INBOX, CHRONICLE, wiki)
 state/                # SQLite + Kuzu graph + journals (gitignored)
 docs/
-  adr/                # 84 architecture decision records
+  adr/                # 175 architecture decision records
   research/           # best-of-breed survey, deliverables
   runbook.md          # operator runbook
-tests/                # 706 passing, 5 skipped
+tests/                # 2,494 passing, 5 skipped
 ```
 
 ## Tests
 
 ```bash
-uv run pytest -q          # full suite (~10s; 706 passing, 5 skipped)
+uv run pytest -q          # full suite (~95s; 2,494 passing, 5 skipped)
 uv run pytest -m slow     # also runs federation/HTTP drills (~10s extra)
 ```
 

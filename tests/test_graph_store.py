@@ -42,7 +42,7 @@ def test_init_schema_idempotent(graph: GraphStore):
 
 def test_rebuild_projects_entities_and_transitions(graph: GraphStore, sqlite_conn):
     e1 = create_entity(sqlite_conn, kind="plan", name="alpha", cycle=0)
-    e2 = create_entity(sqlite_conn, kind="tool", name="shell", cycle=0)
+    create_entity(sqlite_conn, kind="tool", name="shell", cycle=0)
     transition_entity(
         sqlite_conn,
         entity_id=e1.id,
@@ -133,7 +133,7 @@ def test_filesystem_projection_skills_and_wiki(
 
 
 def test_mutation_edges_projected(graph: GraphStore, sqlite_conn):
-    e = create_entity(sqlite_conn, kind="tool", name="my_tool", cycle=0)
+    create_entity(sqlite_conn, kind="tool", name="my_tool", cycle=0)
     m_propose = create_mutation(
         sqlite_conn,
         type="tool_proposal",

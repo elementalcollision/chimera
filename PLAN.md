@@ -1,18 +1,41 @@
 # Chimera — Implementation Plan
 
-> **Status (2026-05-19):** *Historical.* This document captured the
+> **Status (2026-06-10):** *Historical.* This document captured the
 > research-spike-first plan that took Chimera from concept through
 > Phase 0–4 into v1.0, then v2.0 (federation), v3.0 (graph-backed
-> memory), and v4.0 (post-mortem polish + the v4.x learning loop).
-> All phases here are complete.
+> memory), and v4.0 (post-mortem polish + the v4.x learning loop —
+> v4.120 at last update). All phases here are complete; the unchecked
+> boxes below are preserved as written, not open work.
 >
 > **For the live system record**, see:
 > - [docs/adr/README.md](docs/adr/README.md) — every architectural
->   decision since Phase 0, 72 ADRs and counting.
-> - [README.md](README.md) — current production-shape (v4.52),
+>   decision since Phase 0, 175 ADRs and counting.
+> - [README.md](README.md) — current production shape,
 >   container + dashboard + CLI surfaces.
 >
 > This file is preserved as the design narrative.
+
+## Current roadmap (2026-06-10 consolidation review)
+
+The 2026-06-10 codebase review (ADRs 0175/0176) shifted focus from
+feature velocity to consolidation. Open items, in order:
+
+- [x] Security hardening: timing-safe bearer auth, subprocess env
+  hygiene, atomic trust-state writes, ruff CI gate — ADR 0175.
+- [x] Central flag registry + flag-combination test matrix; direct test
+  modules for budget/escalation/remediation — ADR 0176.
+- [x] Extract act.py guards and cli.py command handlers (pure moves) —
+  ADR 0177.
+- [ ] Wire `config.validate_env()` warnings into loop startup.
+- [ ] Incrementally migrate `os.environ` flag reads to the registry.
+- [ ] Word-boundary fix for `remediation._is_commit_task`
+  (xfail-documented in tests/test_remediation.py).
+- [ ] TLS (or documented loopback-only constraint) for the HTTP MCP
+  transport **before** federation leaves loopback — ADR 0175 trigger.
+- [ ] Evals (LongMemEval/LoCoMo) as a gated nightly, not just unit
+  tests in the main suite.
+- [ ] Graduate lexical routing v0 (ADRs 0165/0166) to embedding-based
+  routing only once eval gating is in place.
 
 ## Overview
 Chimera is a containerized, tools-capable agent built as a **chimera orchestrator** — a thin Python core that selectively pulls best-of-breed components from multiple agent SDKs, routes across OpenRouter + Anthropic models, and exposes a concentrically-expanding tool surface (shell → web → code-exec → MCP/sub-agents).

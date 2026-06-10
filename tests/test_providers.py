@@ -194,7 +194,6 @@ async def test_openrouter_provider_rebinds_client_on_loop_change(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     provider = OpenRouterProvider()
     c1 = await provider._get_client()
-    loop1 = provider._client_loop
 
     # Simulate a different loop by mutating the stored reference.
     fake_other = asyncio.new_event_loop()

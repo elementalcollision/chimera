@@ -266,6 +266,36 @@ async def test_shell_runs_safe_command(shell_env):
 
 
 @pytest.mark.asyncio
+async def test_shell_rejects_symlink_escape_via_cwd(shell_env):
+    """A symlink planted under mind/ pointing outside the roots must not let
+    the cwd escape. ``.resolve()`` canonicalises the link target, which then
+    fails the containment check (2026-06 hardening regression guard)."""
+    import os
+
+    mind, _ = shell_env
+    escape = mind / "escape"
+    os.symlink("/etc", escape)
+    with pytest.raises(ValueError, match="outside allowed roots"):
+        await shell_handler({"argv": ["ls", "."], "cwd": "mind/escape"}, DispatchContext())
+
+
+@pytest.mark.asyncio
+async def test_shell_subprocess_env_strips_secrets(shell_env, monkeypatch):
+    """The child process must not inherit API keys / peer tokens. We run `env`
+    via the shell tool and assert the secret never appears in its output."""
+    import shutil
+
+    if shutil.which("env") is None:
+        pytest.skip("env binary not available")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-LEAKCANARY")
+    monkeypatch.setenv("CHIMERA_PEER_TOKEN", "bearer-LEAKCANARY")
+    # env isn't on the default allow-list; run it elevated to exercise the
+    # subprocess env path directly.
+    out = await shell_handler({"argv": ["env"]}, DispatchContext(elevated=True))
+    assert "LEAKCANARY" not in out, "secret leaked into child process env"
+
+
+@pytest.mark.asyncio
 async def test_shell_wrapper_rejection_teaches_argv_form():
     """A `bash -c "..."` attempt (the agent's common mistake in self-determination
     soaks) is refused with a CORRECTIVE message that shows the right argv form,

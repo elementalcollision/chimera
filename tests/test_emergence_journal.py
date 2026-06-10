@@ -78,7 +78,7 @@ def test_list_for_peer_empty_for_unknown(journal_dir):
 
 
 def test_list_for_peer_skips_malformed_lines(journal_dir):
-    rec = record_observation(
+    record_observation(
         "chimera-alpha",
         "shell",
         _schema("shell", ["argv"]),
