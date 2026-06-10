@@ -1,13 +1,17 @@
 # ADR 0170 — Entropy observability signals (v4.120)
 
-**Status:** Proposed (2026-06-08). Loop wiring landed 2026-06-10: the routing
-soak campaign flagged this module as dead (defined, no live caller), so
-`_phase_act` now emits per-cycle **tool-use entropy** into the phase log and
-the `act` activity-row details when `CHIMERA_ENTROPY_SIGNALS` is on
-(`tests/test_entropy_signals_wiring.py` pins flag-on emission and flag-off
-byte-identity). Proposal-diversity and transition-entropy consumers remain
-follow-ups; promotion to Accepted awaits a live-fire observation of the
-signal in a soak.
+**Status:** Accepted (2026-06-10) — loop wiring landed the same day (the
+routing soak campaign had flagged this module as dead: defined, no live
+caller; `_phase_act` now emits per-cycle **tool-use entropy** into the phase
+log and the `act` activity-row details when `CHIMERA_ENTROPY_SIGNALS` is on,
+with `tests/test_entropy_signals_wiring.py` pinning flag-on emission and
+flag-off byte-identity), then **live-fired in soak `realtask-2026-06-10-0959`**:
+three emissions, including `H=0.0 over 23 tool call(s)` coinciding exactly
+with a 600s watchdog-quiet iteration — the signal read fixation precisely
+where the loop was in fact stuck, the precursor behavior this ADR claims.
+See [live-fire-certification-2026-06-10.md](../../mind/research/live-fire-certification-2026-06-10.md).
+Proposal-diversity and transition-entropy consumers remain follow-ups.
+Default remains OFF (`CHIMERA_ENTROPY_SIGNALS`).
 
 ## Context
 
