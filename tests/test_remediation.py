@@ -80,14 +80,18 @@ def test_is_commit_task_false_cases(text):
     assert _is_commit_task(text) is False
 
 
-@pytest.mark.xfail(reason=(
-    "_is_commit_task uses substring matching, so 'commitment' + 'git' "
-    "anywhere in the text classifies as a commit task, contradicting "
-    "the docstring's claim that incidental prose like 'commitment' is "
-    "not matched"
-))
 def test_is_commit_task_commitment_prose_is_not_a_commit_task():
+    """v4.121 word-boundary fix: 'commitment' + 'git' in prose must not
+    classify as a commit task (was substring-matched; xfail until fixed)."""
     text = "Demonstrate commitment to the git workflow guidelines."
+    assert _is_commit_task(text) is False
+
+
+@pytest.mark.parametrize("text", [
+    "Investigate the branching strategy documentation.",   # 'branching' != branch ctx
+    "Review uncommitted analysis notes for accuracy.",     # 'uncommitted' != commit
+])
+def test_is_commit_task_word_boundaries_reject_embedded_words(text):
     assert _is_commit_task(text) is False
 
 
