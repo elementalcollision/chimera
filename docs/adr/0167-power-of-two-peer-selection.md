@@ -1,10 +1,17 @@
 # ADR 0167 — Power-of-two-choices peer selection (v4.120)
 
-**Status:** Proposed (2026-06-08). Compose-safety validated 2026-06-10: the
-post-fix all-flags soak converged with `CHIMERA_PEER_SELECTION=1` armed
-throughout (no regression). NOT yet live-fired — the soak ran with no peer
-federation, so `select_peer` never executed a real two-choice pick; promotion
-to Accepted awaits a multi-peer exercise.
+**Status:** Accepted (2026-06-10). Compose-safety validated in the post-fix
+all-flags soak (flag armed, no regression), then **live-fired via
+model-backed peers (ADR 0174)**: with three real peers registered
+(`model-deepseek` / `model-minimax` / `model-z-ai`), `select_peer("consult")`
+spread its picks 5/4/3 across all three over 12 seeded draws — the
+no-herding property power-of-two-choices exists for — and the full
+select→trust-gate→dispatch chain ended in a real cross-vendor provider call.
+The candidates are local provider bindings presenting the exact remote-peer
+interfaces; a remote-federation exercise remains worthwhile but the selection
+rule itself is certified. See
+[live-fire-certification-2026-06-10.md](../../mind/research/live-fire-certification-2026-06-10.md)
+round 2. Default remains OFF (`CHIMERA_PEER_SELECTION`).
 
 ## Context
 

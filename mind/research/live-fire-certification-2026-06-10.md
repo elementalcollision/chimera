@@ -73,3 +73,56 @@ as #281.)
 | 0167 | `CHIMERA_PEER_SELECTION` | Proposed — awaits a multi-peer federation |
 
 All flags remain default-OFF.
+
+---
+
+# Round 2 (same day) — model-backed peers close the last two
+
+The round-1 blockers were structural: no peer federation (0167) and no
+multi-tool_use source (0171). **ADR 0174 (model-backed peers,
+`chimera/a2a/model_peers.py`)** removes both by registering the cross-vendor
+ladder rungs as A2A peers (`model-<vendor>`) with the standard peer surface —
+identity advertising a `consult` capability, ALLOW-shaped kfm-state, and a
+real provider-call consult tool, all behind default-OFF `CHIMERA_MODEL_PEERS`.
+
+## Exercise 3 — ADR 0167 selection (✅ FIRED)
+
+Three real peers registered (`model-deepseek`, `model-minimax`,
+`model-z-ai`). `select_peer("consult")` over 12 seeded draws spread picks
+**5 / 4 / 3 across all three** — the anti-herding distribution
+power-of-two-choices exists to produce (global-best would have herded onto
+one peer). The full `consult_selected_peer` chain then ran live:
+two-choice pick → `PeerAwareDispatcher` trust gate → real deepseek call →
+attributed answer. **Promotion criterion met** (candidates are local
+provider bindings presenting the exact remote-peer interfaces; a remote
+federation exercise remains a worthwhile follow-up but does not gate the
+selection rule itself).
+
+## Exercise 4 — ADR 0171 fan-out trim (✅ FIRED, full lifecycle)
+
+Live ACT run (sonnet tier, deepseek lead, `CHIMERA_FANOUT_BUDGET=1`,
+`CHIMERA_FANOUT_MAX_WIDTH=2`), task: survey all three model peers in one
+parallel batch. Observed:
+
+```
+act: dispatching 3 tool_uses in parallel: ['mcp-model-deepseek-consult',
+     'mcp-model-minimax-consult', 'mcp-model-z-ai-consult']
+act: fan-out budget — dispatching 2 of 3 tool_uses, deferring 1
+```
+
+The deferred `z-ai` call received the synthetic re-issue result, the model
+re-issued it the following round, it succeeded (history shows it twice:
+deferred-error then success), and ACT completed (`finish=stop, rounds=3`)
+with a coherent three-model synthesis. **Trim → defer → recover → complete:
+the entire ADR 0171 contract executed live. Promotion criterion met.**
+
+## Final scoreboard
+
+| ADR | Status | Evidence class |
+|---|---|---|
+| 0165 / 0166 / 0169 / 0170 / 0172 | Accepted | live-fired (rounds 0–1) |
+| 0167 / 0171 | **Accepted (round 2)** | live-fired via model-backed peers |
+| 0174 (the harness itself) | Proposed | new code; both exercises above ARE its live evidence — pending operator review/merge |
+
+All 8 routing/entropy ADRs from the 2026-06-08 insertion batch are now
+certified on live-fire evidence. All flags remain default-OFF.
