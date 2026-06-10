@@ -2388,6 +2388,7 @@ class ActExecutor:
             cycle=cycle,
             context=context,
             remediation_preamble=decision.preamble,
+            matched_failures=decision.matched_failures,
         )
 
         # On any non-completion exit, record the failure so the NEXT
@@ -2422,6 +2423,7 @@ class ActExecutor:
         cycle: int,
         context: DispatchContext | None = None,
         remediation_preamble: str = "",
+        matched_failures: int = 0,
     ) -> ActResult:
         ctx = context or DispatchContext()
         # v4.100 (ADR 0104): snapshot the INBOX state BEFORE the model
@@ -2481,23 +2483,24 @@ class ActExecutor:
         # escalate to the next rung. Out of rungs → give up.
         #
         # ADR 0169: decorrelated reheat-on-stuck. When prior same-signature
-        # failures exist (decision.matched_failures), rotate the cheapest-first
-        # ladder so a DIFFERENT vendor leads this attempt — an annealing reheat
-        # that decorrelates correlated failure modes. Off by default →
+        # failures exist (``matched_failures``, threaded in from the remediation
+        # decision computed in ``execute``), rotate the cheapest-first ladder so
+        # a DIFFERENT vendor leads this attempt — an annealing reheat that
+        # decorrelates correlated failure modes. Off by default →
         # byte-identical cheapest-first order.
         from ..providers.tiers import anneal_reheat_enabled, decorrelated_rung_order
-        if anneal_reheat_enabled() and decision.matched_failures > 0:
+        if anneal_reheat_enabled() and matched_failures > 0:
             _base_rungs = decorrelated_rung_order(
                 self._tier,
-                reheat_count=decision.matched_failures,
+                reheat_count=matched_failures,
                 requires_tools=True,
             )
             logger.info(
                 "act: annealing reheat — rotating ladder by %d (lead vendor %s) "
                 "after %d prior failures",
-                decision.matched_failures,
+                matched_failures,
                 _base_rungs[0].config.model_id if _base_rungs else "?",
-                decision.matched_failures,
+                matched_failures,
             )
         else:
             _base_rungs = eligible_rungs(self._tier, requires_tools=True)

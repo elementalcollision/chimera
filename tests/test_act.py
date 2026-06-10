@@ -749,3 +749,40 @@ async def test_act_records_round_boundary_latency(shell_env, dispatcher, db):
     assert rows[0]["round_boundary_latency_ms"] is None
     assert isinstance(rows[1]["round_boundary_latency_ms"], int)
     assert rows[1]["round_boundary_latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_act_anneal_reheat_reaches_provider(shell_env, dispatcher, db, monkeypatch):
+    """Regression (routing-soak-campaign-2026-06-08): with CHIMERA_ANNEAL_REHEAT
+    enabled, ``_execute_inner`` referenced ``decision`` — a local of the OUTER
+    ``execute`` method that was never threaded in — so the ADR 0169 reheat block
+    raised ``NameError`` BEFORE the first provider call. Every all-flags soak
+    therefore made 0 LLM calls and never acted. The flag must compose: ACT must
+    still reach the provider whether or not prior failures exist.
+
+    No-test gap this closes: the full unit suite was green because nothing
+    exercised the PLAN→ACT setup path with the reheat flag on.
+    """
+    monkeypatch.setenv("CHIMERA_ANNEAL_REHEAT", "1")
+    fake = _FakeProvider(
+        [
+            ChatResponse(
+                text="done.",
+                tool_uses=[],
+                stop_reason="stop",
+                model_id="m",
+                provider="fake",
+            )
+        ]
+    )
+    executor = ActExecutor(
+        dispatcher=dispatcher,
+        providers={ProviderKind.OPENROUTER: fake, ProviderKind.ANTHROPIC: fake},
+        db=db,
+    )
+    # cycle with no prior failures → matched_failures == 0 → reheat NOT applied,
+    # but the guard must evaluate without raising NameError and reach ACT.
+    result = await executor.execute("a fresh task with no priors", cycle=1)
+    assert len(fake.calls) == 1, "provider must be reached (0 calls = the bug)"
+    assert result.api_call_count == 1
+    assert result.finish_reason != "provider_unavailable"
