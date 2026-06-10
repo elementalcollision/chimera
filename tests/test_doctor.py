@@ -281,9 +281,7 @@ def test_checkpoint_wal_noop_when_db_missing(tmp_path):
 def test_shell_allowlist_warns_when_tool_missing_from_path(monkeypatch):
     """v4.80: doctor surfaces the gap when an advertised allow-list entry
     isn't on PATH so the operator can install it or accept the trim."""
-    import chimera.core.doctor as doc_mod
 
-    real_which = doc_mod.__dict__.get("shutil")  # not imported at module top
     import shutil as _shutil
 
     def fake_which(cmd: str) -> str | None:
@@ -356,7 +354,8 @@ def test_concurrent_soak_runners_warn_when_multiple_alive(monkeypatch):
 
 
 def _make_worktree(wt_dir, name, branch, mtime_age_hours):
-    import time as _time, os as _os
+    import time as _time
+    import os as _os
     entry = wt_dir / name
     entry.mkdir(parents=True, exist_ok=True)
     (entry / "HEAD").write_text("ref: refs/heads/" + branch + "\n")
@@ -726,7 +725,8 @@ def test_soak_liveness_ok_when_log_is_fresh(tmp_path):
 
 def test_soak_liveness_warns_when_log_stale_and_runner_alive(tmp_path, monkeypatch):
     """Stale log + matching runner-alive output → warn."""
-    import os, time
+    import os
+    import time
     from chimera.core.doctor import _check_soak_runner_liveness
     log = tmp_path / "long_cycle_v22_2026-05-23-2039.log"
     log.write_text("stale")
@@ -751,7 +751,8 @@ def test_soak_liveness_warns_when_log_stale_and_runner_alive(tmp_path, monkeypat
 
 def test_soak_liveness_ok_when_log_stale_but_no_runner(tmp_path, monkeypatch):
     """Stale log but no matching live runner → ok (runner already exited)."""
-    import os, time
+    import os
+    import time
     log = tmp_path / "long_cycle_v22_2026-05-23-2039.log"
     log.write_text("stale")
     old = time.time() - (30 * 60)
@@ -779,9 +780,8 @@ def test_soak_liveness_in_registry(monkeypatch):
 
 # ── combined ok + warn: branch drift (parametrised) ─────────────────
 
-import pytest as _pytest
 
-@_pytest.mark.parametrize(
+@pytest.mark.parametrize(
     "branch,expected_status",
     [("main", "ok"), ("chip/v31-fix", "warn")],
 )
@@ -800,7 +800,6 @@ def test_worktree_branch_drift_ok_and_warn(tmp_path, monkeypatch, branch, expect
         return _subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr="")
     monkeypatch.setattr("subprocess.run", fake_run)
     from chimera.core.doctor import _check_main_worktree_branch_drift
-    from pathlib import Path
     r = _check_main_worktree_branch_drift(tmp_path)
     assert r.status == expected_status
 
