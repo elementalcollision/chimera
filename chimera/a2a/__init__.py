@@ -40,6 +40,12 @@ from .emergence import (
     record_observation,
     record_observations_from_registry,
 )
+from .model_peers import (
+    CONSULT_CAPABILITY,
+    consult_selected_peer,
+    model_peers_enabled,
+    register_model_peers,
+)
 from .peer_dispatch import PeerAwareDispatcher, PeerCallRefused
 from .peer_selection import (
     PeerCandidate,
@@ -101,6 +107,10 @@ __all__ = [
     "list_peer_chimeras",
     "list_peers",
     "list_xenocomm_tools",
+    "CONSULT_CAPABILITY",
+    "consult_selected_peer",
+    "model_peers_enabled",
+    "register_model_peers",
     "PeerAwareDispatcher",
     "PeerCallRefused",
     "PeerCandidate",

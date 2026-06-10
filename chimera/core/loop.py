@@ -15,6 +15,7 @@ import os
 import signal
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..engines import (
     ChronicleManager,
@@ -247,6 +248,30 @@ class ChimeraLoop:
                 registry=self._registry,
             )
             register_sub_agent_tool(sub_runner, self._registry)
+        # ADR 0174: model-backed peers. With CHIMERA_MODEL_PEERS on (and ACT
+        # live for provider access), each cross-vendor ladder rung registers
+        # as a peer exposing a real `consult` capability — the candidate set
+        # ADR 0167's select_peer needs and the multi-tool_use fan-out source
+        # ADR 0171 needs. Flag off (default) → nothing registers.
+        if self._act is not None:
+            from ..a2a import model_peers_enabled, register_model_peers
+
+            if model_peers_enabled():
+                try:
+                    peers = register_model_peers(
+                        self._registry,
+                        self._act.providers,
+                        db=self._db,
+                        cycle_fn=lambda: (
+                            self._report.cycle if self._report is not None else 0
+                        ),
+                    )
+                    if peers:
+                        logger.info("model peers registered: %s", peers)
+                except Exception:
+                    logger.exception(
+                        "model-peer registration failed; continuing without them"
+                    )
         # Per-session drift detector (persists across cycles + restarts).
         self._drift = drift_detector or DriftDetector(
             state_path=self._drift_state_path,

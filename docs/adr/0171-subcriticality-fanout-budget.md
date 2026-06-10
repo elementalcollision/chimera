@@ -1,10 +1,16 @@
 # ADR 0171 — Subcriticality fan-out budget (branching process, v4.120)
 
-**Status:** Proposed (2026-06-08). Compose-safety validated 2026-06-10: the
-post-fix all-flags soak converged with `CHIMERA_FANOUT_BUDGET=1` armed
-throughout (no regression). NOT yet live-fired — no ACT round emitted a
-fan-out wider than the budget (8), so the dispatch/defer split never engaged
-live; promotion to Accepted awaits an observed over-budget trim.
+**Status:** Accepted (2026-06-10). Compose-safety validated in the post-fix
+all-flags soak (flag armed, no regression), then **live-fired end-to-end via
+model-backed peers (ADR 0174)**: a live ACT run (deepseek lead, width budget
+2) drew a real 3-wide `tool_use` batch of `mcp-model-*-consult` calls; the
+budget dispatched 2, deferred 1 with the synthetic re-issue result
+(`act: fan-out budget — dispatching 2 of 3 tool_uses, deferring 1`), the
+model re-issued the deferred call the next round, it succeeded, and ACT
+completed with a genuine three-model synthesis. The full trim → defer →
+recover → complete contract executed live. See
+[live-fire-certification-2026-06-10.md](../../mind/research/live-fire-certification-2026-06-10.md)
+round 2. Default remains OFF (`CHIMERA_FANOUT_BUDGET`).
 
 ## Context
 
