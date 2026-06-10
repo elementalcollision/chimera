@@ -126,6 +126,17 @@ def test_validate_env_boltzmann_temp_without_alloc():
     assert any("ignored without CHIMERA_BOLTZMANN_ALLOC" in w for w in warnings)
 
 
+def test_validate_env_half_configured_tls_pair():
+    warnings = config.validate_env({"CHIMERA_TLS_CERT": "/x/cert.pem"})
+    assert any("must be set together" in w for w in warnings)
+    warnings = config.validate_env({"CHIMERA_TLS_KEY": "/x/key.pem"})
+    assert any("must be set together" in w for w in warnings)
+    warnings = config.validate_env(
+        {"CHIMERA_TLS_CERT": "/x/cert.pem", "CHIMERA_TLS_KEY": "/x/key.pem"}
+    )
+    assert not any("must be set together" in w for w in warnings)
+
+
 def test_validate_env_bad_int_reported():
     warnings = config.validate_env({"CHIMERA_PLAN_MAX_OPEN_TASKS": "lots"})
     assert any("not an integer" in w for w in warnings)

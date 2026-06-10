@@ -185,7 +185,16 @@ REGISTRY: dict[str, FlagSpec] = dict(
         _f("CHIMERA_PEER_TOKEN", "str", None, "Shared bearer token for the HTTP MCP server."),
         _f("CHIMERA_PEER_TOKENS", "json", None, "Per-peer token map {token: peer-name}."),
         _f("CHIMERA_ALLOW_INSECURE_HTTP", "bool", None,
-           "Permit anonymous non-loopback HTTP bind (dangerous; dev only)."),
+           "Permit non-loopback HTTP bind without token+TLS (dangerous; dev only).",
+           ("CHIMERA_TLS_CERT", "CHIMERA_TLS_KEY")),
+        _f("CHIMERA_TLS_CERT", "path", None,
+           "TLS certificate (PEM) for the HTTP MCP server (ADR 0178); requires "
+           "CHIMERA_TLS_KEY. Mandatory with a bearer token for non-loopback binds.",
+           ("CHIMERA_TLS_KEY",)),
+        _f("CHIMERA_TLS_KEY", "path", None,
+           "TLS private key (PEM) for the HTTP MCP server (ADR 0178); requires "
+           "CHIMERA_TLS_CERT.",
+           ("CHIMERA_TLS_CERT",)),
         _f("CHIMERA_PEER_EXPOSED_TOOLS", "csv", None, "Tools exposed to peers."),
         _f("CHIMERA_PEER_REGISTRY_DIR", "path", None, "Peer registry directory."),
         _f("CHIMERA_PEER_TRUST_JOURNAL_DIR", "path", None, "Peer trust journal directory."),
@@ -370,6 +379,12 @@ def validate_env(env: dict[str, str] | None = None) -> list[str]:
     if e.get("CHIMERA_BOLTZMANN_TEMP") and not _is_truthy(e.get("CHIMERA_BOLTZMANN_ALLOC")):
         warnings.append(
             "CHIMERA_BOLTZMANN_TEMP is ignored without CHIMERA_BOLTZMANN_ALLOC=1"
+        )
+
+    if bool(e.get("CHIMERA_TLS_CERT")) != bool(e.get("CHIMERA_TLS_KEY")):
+        warnings.append(
+            "CHIMERA_TLS_CERT and CHIMERA_TLS_KEY must be set together — "
+            "a half-configured pair refuses to serve (ADR 0178)"
         )
 
     return warnings

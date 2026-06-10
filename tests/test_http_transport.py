@@ -208,18 +208,43 @@ def test_check_bind_security_refuses_non_loopback_without_token(monkeypatch):
     assert "CHIMERA_PEER_TOKEN" in msg
 
 
-def test_check_bind_security_allows_non_loopback_with_token(monkeypatch):
+def test_check_bind_security_token_without_tls_refused(monkeypatch):
+    """ADR 0178: a bearer token over cleartext HTTP is sniffable, so a
+    non-loopback bind now requires token AND TLS (was: token only)."""
+    from chimera.server.http_server import (
+        InsecureHttpBindError, _check_bind_security,
+    )
+    monkeypatch.setenv("CHIMERA_PEER_TOKEN", "tok-abc")
+    monkeypatch.delenv("CHIMERA_TLS_CERT", raising=False)
+    monkeypatch.delenv("CHIMERA_TLS_KEY", raising=False)
+    monkeypatch.delenv("CHIMERA_ALLOW_INSECURE_HTTP", raising=False)
+    with pytest.raises(InsecureHttpBindError, match="TLS"):
+        _check_bind_security("0.0.0.0")
+
+
+def test_check_bind_security_allows_non_loopback_with_token_and_tls(monkeypatch):
     from chimera.server.http_server import _check_bind_security
     monkeypatch.setenv("CHIMERA_PEER_TOKEN", "tok-abc")
     # Should not raise.
-    _check_bind_security("0.0.0.0")
+    _check_bind_security("0.0.0.0", tls_enabled=True)
 
 
-def test_check_bind_security_allows_non_loopback_with_token_map(monkeypatch):
+def test_check_bind_security_token_map_with_tls(monkeypatch):
     from chimera.server.http_server import _check_bind_security
     monkeypatch.delenv("CHIMERA_PEER_TOKEN", raising=False)
     monkeypatch.setenv("CHIMERA_PEER_TOKENS", '{"t1": "peerA"}')
-    _check_bind_security("0.0.0.0")
+    _check_bind_security("0.0.0.0", tls_enabled=True)
+
+
+def test_check_bind_security_tls_without_token_refused(monkeypatch):
+    from chimera.server.http_server import (
+        InsecureHttpBindError, _check_bind_security,
+    )
+    monkeypatch.delenv("CHIMERA_PEER_TOKEN", raising=False)
+    monkeypatch.delenv("CHIMERA_PEER_TOKENS", raising=False)
+    monkeypatch.delenv("CHIMERA_ALLOW_INSECURE_HTTP", raising=False)
+    with pytest.raises(InsecureHttpBindError, match="bearer token"):
+        _check_bind_security("0.0.0.0", tls_enabled=True)
 
 
 def test_check_bind_security_override_with_allow_insecure(monkeypatch):
