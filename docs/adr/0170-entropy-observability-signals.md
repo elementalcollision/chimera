@@ -1,6 +1,13 @@
 # ADR 0170 — Entropy observability signals (v4.120)
 
-**Status:** Proposed (2026-06-08)
+**Status:** Proposed (2026-06-08). Loop wiring landed 2026-06-10: the routing
+soak campaign flagged this module as dead (defined, no live caller), so
+`_phase_act` now emits per-cycle **tool-use entropy** into the phase log and
+the `act` activity-row details when `CHIMERA_ENTROPY_SIGNALS` is on
+(`tests/test_entropy_signals_wiring.py` pins flag-on emission and flag-off
+byte-identity). Proposal-diversity and transition-entropy consumers remain
+follow-ups; promotion to Accepted awaits a live-fire observation of the
+signal in a soak.
 
 ## Context
 

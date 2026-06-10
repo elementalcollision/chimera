@@ -834,14 +834,31 @@ class ChimeraLoop:
                 except Exception:
                     logger.exception("trust apply_finish_reason failed; continuing")
 
-        self._record_phase_activity(
-            "act",
-            details={
-                "tasks": len(self._tasks),
-                "completed": sum(1 for r in self._act_results if r.completed),
-                "api_calls": sum(r.api_call_count for r in self._act_results),
-            },
-        )
+        details: dict[str, object] = {
+            "tasks": len(self._tasks),
+            "completed": sum(1 for r in self._act_results if r.completed),
+            "api_calls": sum(r.api_call_count for r in self._act_results),
+        }
+        # ADR 0170: per-cycle tool-use entropy. Low H = the agent fixated on
+        # one tool (a degenerate-loop precursor, earlier than the exact-repeat
+        # detector); high H = broad tool use. Flag-gated emission — with
+        # CHIMERA_ENTROPY_SIGNALS unset the details dict and phase log are
+        # byte-identical to the prior path.
+        from .entropy_signals import entropy_signals_enabled, tool_use_entropy
+
+        if entropy_signals_enabled():
+            tool_names = [
+                tc.name
+                for r in self._act_results
+                for tc in r.tool_call_history
+            ]
+            h = round(tool_use_entropy(tool_names), 3)
+            details["tool_entropy"] = h
+            details["tool_calls"] = len(tool_names)
+            self._log_phase(
+                f"ACT: tool-use entropy H={h} over {len(tool_names)} tool call(s)"
+            )
+        self._record_phase_activity("act", details=details)
 
     async def _phase_write(self) -> None:
         assert self._state is not None
