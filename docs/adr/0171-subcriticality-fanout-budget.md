@@ -1,6 +1,10 @@
 # ADR 0171 — Subcriticality fan-out budget (branching process, v4.120)
 
-**Status:** Proposed (2026-06-08)
+**Status:** Proposed (2026-06-08). Compose-safety validated 2026-06-10: the
+post-fix all-flags soak converged with `CHIMERA_FANOUT_BUDGET=1` armed
+throughout (no regression). NOT yet live-fired — no ACT round emitted a
+fan-out wider than the budget (8), so the dispatch/defer split never engaged
+live; promotion to Accepted awaits an observed over-budget trim.
 
 ## Context
 

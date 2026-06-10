@@ -1,6 +1,10 @@
 # ADR 0172 — Boltzmann max-entropy allocation (v4.120)
 
-**Status:** Proposed (2026-06-08)
+**Status:** Proposed (2026-06-08). Compose-safety validated 2026-06-10: the
+post-fix all-flags soak converged with `CHIMERA_BOLTZMANN_ALLOC=1` armed
+throughout (no regression). NOT yet live-fired — the splitter's over-budget
+selection path (>max_subtasks candidates) never triggered live; promotion to
+Accepted awaits an observed value-aware selection on a real split.
 
 ## Context
 

@@ -1,6 +1,11 @@
 # ADR 0165 — Semantic tool pre-filter, lexical v0 (v4.119)
 
-**Status:** Proposed (2026-06-06)
+**Status:** Accepted (2026-06-10) — live-fire validated in the 2026-06-08/10
+routing soak campaign: prefilter active across multiple converging real-task
+and self-determined cells (incl. a 3/3 characterization sweep) and the post-fix
+all-flags envelope; no convergence regression. See
+[routing-soak-campaign-2026-06-08.md](../../mind/research/routing-soak-campaign-2026-06-08.md).
+Default remains OFF (`CHIMERA_TOOL_PREFILTER`).
 
 ## Context
 
