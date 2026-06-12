@@ -1,0 +1,4 @@
+{"item_id": "smoke-0", "category": "single-session-user", "is_correct": true}
+{"item_id": "smoke-1", "category": "multi-session", "is_correct": true}
+{"item_id": "smoke-2", "category": "abstention", "is_correct": false}
+{"item_id": "smoke-3", "category": "temporal-reasoning", "is_correct": true}

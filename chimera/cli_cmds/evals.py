@@ -302,3 +302,75 @@ def _build_openrouter_answer_fn(
         return run_on_persistent_loop(_call(prompt))
 
     return answer_fn
+
+
+def _cmd_evals_summarize(args) -> int:
+    """`chimera evals summarize` — grader-agnostic accuracy gate (ADR 0181).
+
+    The "gate" in the gated-nightly: aggregate a graded JSONL into
+    per-category accuracy (reusing the existing summarize_results /
+    format_summary_table), print it, and fail (exit 1) on a threshold
+    miss or a regression vs a stored baseline. Provider-agnostic and
+    key-free — grading itself is the operator's upstream step (ADR 0135).
+    """
+    import json as _json
+
+    from ..evals.longmemeval import (
+        format_summary_table,
+        summarize_results,
+    )
+
+    graded = Path(args.graded)
+    if not graded.exists():
+        print(f"error: graded JSONL not found: {graded}")
+        return 2
+
+    summary = summarize_results(
+        graded, correctness_field=args.correctness_field
+    )
+    if not summary or summary.get("_overall", {}).get("total", 0) == 0:
+        print(f"error: no gradable rows in {graded}")
+        return 2
+
+    overall = float(summary.get("_overall", {}).get("accuracy", 0.0))
+
+    if args.json:
+        print(_json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(format_summary_table(summary))
+
+    failed = False
+
+    if args.min_accuracy is not None and overall < args.min_accuracy:
+        print(
+            f"GATE FAIL: overall accuracy {overall:.4f} < "
+            f"--min-accuracy {args.min_accuracy:.4f}"
+        )
+        failed = True
+
+    if args.baseline:
+        base_path = Path(args.baseline)
+        if not base_path.exists():
+            print(f"error: --baseline not found: {base_path}")
+            return 2
+        try:
+            base = _json.loads(base_path.read_text(encoding="utf-8"))
+            base_overall = float(base.get("_overall", {}).get("accuracy", 0.0))
+        except (ValueError, OSError, AttributeError) as exc:
+            print(f"error: could not read baseline accuracy: {exc}")
+            return 2
+        drop = base_overall - overall
+        if drop > args.tolerance:
+            print(
+                f"GATE FAIL: overall accuracy {overall:.4f} regressed "
+                f"{drop:.4f} below baseline {base_overall:.4f} "
+                f"(tolerance {args.tolerance:.4f})"
+            )
+            failed = True
+        else:
+            print(
+                f"baseline OK: {overall:.4f} vs {base_overall:.4f} "
+                f"(Δ {(-drop):+.4f}, tolerance {args.tolerance:.4f})"
+            )
+
+    return 1 if failed else 0

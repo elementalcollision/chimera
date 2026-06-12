@@ -33,14 +33,23 @@ feature velocity to consolidation. Open items, in order:
 - [x] Word-boundary fix for `remediation._is_commit_task` (xfail retired).
 - [x] TLS for the HTTP MCP transport (ADR 0178): fail-closed cert/key
   pair, non-loopback now requires token **and** TLS.
-- [ ] Evals (LongMemEval/LoCoMo) as a gated nightly, not just unit
-  tests in the main suite.
+- [~] Evals (LongMemEval/LoCoMo) as a gated nightly. Gate built +
+  CI-tested (`chimera evals summarize`, ADR 0181); nightly workflow
+  is a manual-dispatch template. **Operator decision (2026-06-12): hold
+  go-live** — CI secrets "not yet", grader "decide later". The keyless
+  plumbing job runs today; flipping to live still needs secrets, grader,
+  dataset hosting, and a budget/threshold once those are decided.
 - [x] Post-merge validation handoff (2026-06-12): all-flags envelope A/B
   live-validated in the keyed env; dispatch-over-TLS drill closed
   (ADR 0178); CHIMERA_ENTROPY_SIGNALS default-ON (ADR 0180). Harness
   findings 1–3 chipped (sentinel diff predicate, autocommit provenance).
 - [ ] Graduate lexical routing v0 (ADRs 0165/0166) to embedding-based
-  routing only once eval gating is in place.
+  routing **once eval gating is live** (still gated — the eval nightly is
+  on hold above, so there is no measured routing baseline yet).
+  **Backend decided (2026-06-12, ADR 0134 §6.b): Ollama (local, bge-m3)**
+  — free, no external key; the loop degrades to lexical v0 if the local
+  Ollama server is unavailable. Implements behind a new registry flag
+  (e.g. `CHIMERA_TOOL_PREFILTER_EMBED`) when unblocked.
 
 ## Overview
 Chimera is a containerized, tools-capable agent built as a **chimera orchestrator** — a thin Python core that selectively pulls best-of-breed components from multiple agent SDKs, routes across OpenRouter + Anthropic models, and exposes a concentrically-expanding tool surface (shell → web → code-exec → MCP/sub-agents).

@@ -1,0 +1,81 @@
+# Evals nightly — LongMemEval / LoCoMo accuracy gate (ADR 0181).
+#
+# STATUS: TEMPLATE — manual-dispatch only. The keyless "plumbing" job runs
+# today and proves the adapter→gate pipeline end-to-end. The "live" job is
+# commented out pending four operator decisions (see ADR 0181 §"Decisions
+# required to go live" and mind/research/routing-soak-campaign-2026-06-12.md):
+#
+#   1. Grader — ADR 0135 delegates grading to an upstream harness. Which one
+#      writes `is_correct`? (LongMemEval's src/evaluation/evaluate_qa.py, a
+#      local judge, or deterministic match.)
+#   2. Secrets — add OPENROUTER_API_KEY (answers + judge) and optionally
+#      VOYAGE_API_KEY (dense retrieval) as repo secrets.
+#   3. Dataset hosting — LongMemEval (~500 items) and LoCoMo (locomo10.json)
+#      are external; fetch+cache at run time or stage as private assets.
+#   4. Budget + cadence + threshold — subset size per run, schedule, and the
+#      --min-accuracy floor / baseline-regression tolerance.
+#
+# To activate: set the schedule, add the dataset-fetch + --answer + grade
+# steps to the (uncommented) live job, wire the secrets, and commit the
+# first baseline JSON.
+
+name: Evals nightly
+
+on:
+  workflow_dispatch: {}
+  # Uncomment to schedule once live (02:17 UTC daily):
+  # schedule:
+  #   - cron: "17 2 * * *"
+
+jobs:
+  # Keyless heartbeat: proves `chimera evals summarize` (the gate) and the
+  # adapter smoke run on the runner, with no secrets/datasets. This is the
+  # part that is decision-free and runs today.
+  plumbing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev
+      - name: Adapter smoke (no keys)
+        run: |
+          uv run chimera evals longmemeval --smoke --out /tmp/ans.jsonl
+          uv run chimera evals locomo --smoke --out /tmp/locomo.jsonl
+      - name: Gate self-test (synthetic graded fixture)
+        run: |
+          uv run chimera evals summarize \
+            --graded tests/fixtures/graded_smoke.jsonl \
+            --min-accuracy 0.5
+
+  # live:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: astral-sh/setup-uv@v8.1.0
+  #     - run: uv python install 3.13
+  #     - run: uv sync --frozen --extra dev
+  #     - name: Fetch datasets
+  #       run: ./scripts/fetch_eval_datasets.sh   # DECISION 3
+  #     - name: Answer (LongMemEval subset)
+  #       env:
+  #         OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}   # DECISION 2
+  #       run: |
+  #         uv run chimera evals longmemeval --items data/longmemeval_s.jsonl \
+  #           --answer --n-per-category 5 --out /tmp/lme_answered.jsonl   # DECISION 4
+  #     - name: Grade
+  #       run: ./scripts/grade_eval.sh /tmp/lme_answered.jsonl /tmp/lme_graded.jsonl  # DECISION 1
+  #     - name: Gate vs baseline
+  #       run: |
+  #         uv run chimera evals summarize --graded /tmp/lme_graded.jsonl \
+  #           --baseline mind/evals/baseline.json --tolerance 0.05 \
+  #           --min-accuracy 0.55 --json > /tmp/summary.json   # DECISION 4
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: evals-summary
+  #         path: /tmp/summary.json
