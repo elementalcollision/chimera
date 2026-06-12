@@ -424,12 +424,15 @@ def _generate_token() -> str:
     return "tok_" + secrets.token_hex(8)
 
 
-async def _wait_for_health(url: str, *, timeout_s: float = 10.0) -> bool:
-    """Poll /healthz until 200 or timeout."""
+async def _wait_for_health(
+    url: str, *, timeout_s: float = 10.0, verify: bool | str = True
+) -> bool:
+    """Poll /healthz until 200 or timeout. ``verify`` follows httpx semantics
+    (True = certifi, path = pinned CA/self-signed cert — ADR 0178)."""
     import httpx
     deadline = asyncio.get_event_loop().time() + timeout_s
     health = url.rstrip("/") + "/healthz"
-    async with httpx.AsyncClient(timeout=2.0) as client:
+    async with httpx.AsyncClient(timeout=2.0, verify=verify) as client:
         while asyncio.get_event_loop().time() < deadline:
             try:
                 r = await client.get(health)
@@ -441,11 +444,11 @@ async def _wait_for_health(url: str, *, timeout_s: float = 10.0) -> bool:
     return False
 
 
-async def _check_anonymous_rejected(url: str) -> bool:
+async def _check_anonymous_rejected(url: str, *, verify: bool | str = True) -> bool:
     """A bearer-protected /mcp endpoint should 401 without a token."""
     import httpx
     mcp = url.rstrip("/") + "/mcp"
-    async with httpx.AsyncClient(timeout=2.0) as client:
+    async with httpx.AsyncClient(timeout=2.0, verify=verify) as client:
         try:
             r = await client.post(mcp, json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
         except httpx.HTTPError:
@@ -616,8 +619,19 @@ def _seed_trust_state(state_dir: Path, tier: int) -> None:
     )
 
 
-async def _spawn_peer(root: Path, *, agent_id: str, tier: int):
-    """Spawn one real `chimera serve --http` peer; return (proc, name, url, token)."""
+async def _spawn_peer(
+    root: Path,
+    *,
+    agent_id: str,
+    tier: int,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
+):
+    """Spawn one real `chimera serve --http` peer; return (proc, name, url, token).
+
+    With ``tls_cert``/``tls_key`` set, the peer serves HTTPS (ADR 0178 —
+    `serve_http` reads CHIMERA_TLS_CERT/KEY) and the returned url is https.
+    """
     mind = root / agent_id / "mind"
     state = root / agent_id / "state"
     mind.mkdir(parents=True, exist_ok=True)
@@ -625,7 +639,8 @@ async def _spawn_peer(root: Path, *, agent_id: str, tier: int):
 
     port = _find_free_port()
     token = "tok_" + _secrets.token_hex(8)
-    url = f"http://127.0.0.1:{port}"
+    scheme = "https" if tls_cert else "http"
+    url = f"{scheme}://127.0.0.1:{port}"
     env = {
         **os.environ,
         "CHIMERA_AGENT_ID": agent_id,
@@ -635,6 +650,14 @@ async def _spawn_peer(root: Path, *, agent_id: str, tier: int):
         "CHIMERA_STATE_DIR": str(state),
         "PATH": os.environ.get("PATH", ""),
     }
+    if tls_cert and tls_key:
+        env["CHIMERA_TLS_CERT"] = tls_cert
+        env["CHIMERA_TLS_KEY"] = tls_key
+    else:
+        # A TLS pair inherited from the operator's environment would make the
+        # peer serve https while the drill dials http — strip for clarity.
+        env.pop("CHIMERA_TLS_CERT", None)
+        env.pop("CHIMERA_TLS_KEY", None)
     proc = _subprocess.Popen(
         ["uv", "run", "chimera", "serve", "--http", "--host", "127.0.0.1", "--port", str(port)],
         env=env, stdout=_subprocess.DEVNULL, stderr=_subprocess.DEVNULL,
@@ -642,7 +665,12 @@ async def _spawn_peer(root: Path, *, agent_id: str, tier: int):
     return proc, agent_id, url, token
 
 
-async def _arun_remote_federation(peer_root: Path) -> RemoteFederationResult:
+async def _arun_remote_federation(
+    peer_root: Path,
+    *,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
+) -> RemoteFederationResult:
     from ..a2a import (
         PeerAwareDispatcher,
         latest_per_peer,
@@ -652,25 +680,40 @@ async def _arun_remote_federation(peer_root: Path) -> RemoteFederationResult:
     from ..memory import compute_connectivity
 
     result = RemoteFederationResult()
+    # With a cert/key pair the whole drill runs over HTTPS: peers serve TLS
+    # (ADR 0178) and every client leg pins the self-signed cert as its trust
+    # root (a self-signed cert is its own issuer, so verify=<cert> works).
+    verify: bool | str = tls_cert if tls_cert else True
     # alpha/beta earned trust (T4 → ALLOW); gamma is locked (T0 → REFUSE).
     plan = [("alpha", 4), ("beta", 4), ("gamma", 0)]
     procs: list = []
     reg = ToolRegistry()
     try:
-        spawned = [await _spawn_peer(peer_root, agent_id=a, tier=t) for a, t in plan]
+        spawned = [
+            await _spawn_peer(
+                peer_root, agent_id=a, tier=t, tls_cert=tls_cert, tls_key=tls_key
+            )
+            for a, t in plan
+        ]
         procs = [s[0] for s in spawned]
 
         # (1) all peers healthy.
         for _proc, name, url, _token in spawned:
-            if not await _wait_for_health(url, timeout_s=20.0):
+            if not await _wait_for_health(url, timeout_s=20.0, verify=verify):
                 result.failures.append(f"{name} failed health at {url}")
         result.health_ok = not result.failures
         if not result.health_ok:
             return result
 
-        # (2) register every peer over the real HTTP MCP transport.
+        # (2) register every peer over the real HTTP(S) MCP transport.
         cfg = {
-            name: MCPServerConfig(name=name, transport="http", url=url + "/mcp", token=token)
+            name: MCPServerConfig(
+                name=name,
+                transport="http",
+                url=url + "/mcp",
+                token=token,
+                tls_ca=tls_cert or "",
+            )
             for _proc, name, url, token in spawned
         }
         await register_mcp_servers(cfg, reg)
@@ -724,5 +767,18 @@ async def _arun_remote_federation(peer_root: Path) -> RemoteFederationResult:
     return result
 
 
-def run_remote_federation_drill(peer_root: Path) -> RemoteFederationResult:
-    return asyncio.run(_arun_remote_federation(peer_root))
+def run_remote_federation_drill(
+    peer_root: Path,
+    *,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
+) -> RemoteFederationResult:
+    """Run the remote-federation drill. With CHIMERA_TLS_CERT/KEY set in the
+    operator environment (and no explicit args), the drill automatically runs
+    over HTTPS — the ADR 0178 dispatch-over-TLS validation path."""
+    if tls_cert is None and tls_key is None:
+        tls_cert = os.environ.get("CHIMERA_TLS_CERT") or None
+        tls_key = os.environ.get("CHIMERA_TLS_KEY") or None
+    return asyncio.run(
+        _arun_remote_federation(peer_root, tls_cert=tls_cert, tls_key=tls_key)
+    )

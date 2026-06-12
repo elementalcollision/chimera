@@ -117,10 +117,31 @@ async def test_entropy_signal_fixation_reads_low(
 
 
 @pytest.mark.asyncio
-async def test_flag_off_is_byte_identical(
+async def test_flag_unset_emits_by_default(
     config: LoopConfig, mind_dir: Path, monkeypatch,
 ):
+    """ADR 0180: ENTROPY_SIGNALS is default-ON — an unset env emits the
+    entropy signal (registry-default read, ADR 0179 mechanism)."""
     monkeypatch.delenv("CHIMERA_ENTROPY_SIGNALS", raising=False)
+    (mind_dir / "INBOX.md").write_text("- [ ] a task\n", encoding="utf-8")
+    loop = ChimeraLoop(config)
+    loop._act = _ToolUsingFakeAct(["shell", "web_fetch"])
+    _promote_trust(loop)
+
+    report = await loop.run_one_cycle()
+
+    assert "tool-use entropy" in "\n".join(report.phase_log)
+    assert "tool_entropy" in _act_details(loop)
+    loop.close()
+
+
+@pytest.mark.asyncio
+async def test_flag_disabled_is_byte_identical(
+    config: LoopConfig, mind_dir: Path, monkeypatch,
+):
+    """Explicit disable (=0) restores the pre-ADR-0170 emission shape —
+    the opt-out contract for the default-ON graduation."""
+    monkeypatch.setenv("CHIMERA_ENTROPY_SIGNALS", "0")
     (mind_dir / "INBOX.md").write_text("- [ ] a task\n", encoding="utf-8")
     loop = ChimeraLoop(config)
     loop._act = _ToolUsingFakeAct(["shell", "web_fetch"])

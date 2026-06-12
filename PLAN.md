@@ -35,6 +35,10 @@ feature velocity to consolidation. Open items, in order:
   pair, non-loopback now requires token **and** TLS.
 - [ ] Evals (LongMemEval/LoCoMo) as a gated nightly, not just unit
   tests in the main suite.
+- [x] Post-merge validation handoff (2026-06-12): all-flags envelope A/B
+  live-validated in the keyed env; dispatch-over-TLS drill closed
+  (ADR 0178); CHIMERA_ENTROPY_SIGNALS default-ON (ADR 0180). Harness
+  findings 1–3 chipped (sentinel diff predicate, autocommit provenance).
 - [ ] Graduate lexical routing v0 (ADRs 0165/0166) to embedding-based
   routing only once eval gating is in place.
 

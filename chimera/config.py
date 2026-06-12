@@ -149,8 +149,11 @@ REGISTRY: dict[str, FlagSpec] = dict(
         _f("CHIMERA_FANOUT_MAX_WIDTH", "int", None,
            "Max parallel tool fan-out width when CHIMERA_FANOUT_BUDGET is on.",
            ("CHIMERA_FANOUT_BUDGET",)),
-        _f("CHIMERA_ENTROPY_SIGNALS", "bool", None,
-           "Tool-use entropy observability signals (ADR 0170)."),
+        _f("CHIMERA_ENTROPY_SIGNALS", "bool", "1",
+           "Tool-use entropy observability signals (ADR 0170). Default-ON "
+           "since ADR 0180 (second graduation): pure observability — one "
+           "entropy computation + one phase-log line per cycle, no dispatch/"
+           "provider/cost effect. Set 0 to disable."),
         _f("CHIMERA_ANNEAL_REHEAT", "bool", None,
            "Decorrelated reheat-on-stuck (ADR 0169)."),
         _f("CHIMERA_BOLTZMANN_ALLOC", "bool", None,

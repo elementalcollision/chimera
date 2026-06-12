@@ -100,7 +100,8 @@ def test_model_utilization_last_hour_uses_created_at(db):
         "INSERT INTO api_calls (cycle, provider, model_id, finish_reason, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
         (1, "fake", "stale", "stop",
-         (dt.datetime.utcnow() - dt.timedelta(hours=2)).isoformat(timespec="seconds")),
+         (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2))
+         .isoformat(timespec="seconds")),
     )
     rows = {r["model_id"]: r for r in db.execute(MODEL_UTILIZATION_SQL, (10,))}
     assert rows["fresh"]["last_hour"] == 2

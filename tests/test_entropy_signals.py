@@ -19,8 +19,18 @@ from chimera.core.entropy_signals import (
 # ── flag parsing ────────────────────────────────────────────
 
 
-def test_flag_off_by_default(monkeypatch):
+def test_flag_on_by_default(monkeypatch):
+    """ADR 0180: second default-ON graduation — unset reads True via the
+    registry default (ADR 0179 mechanism)."""
     monkeypatch.delenv("CHIMERA_ENTROPY_SIGNALS", raising=False)
+    assert entropy_signals_enabled() is True
+
+
+@pytest.mark.parametrize("val", ["0", "false", "off", ""])
+def test_flag_explicit_disable(monkeypatch, val):
+    """A default-on flag must still be explicitly disableable (ADR 0179
+    contract: any non-truthy explicit value reads False)."""
+    monkeypatch.setenv("CHIMERA_ENTROPY_SIGNALS", val)
     assert entropy_signals_enabled() is False
 
 
