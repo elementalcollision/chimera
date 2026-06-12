@@ -42,6 +42,7 @@ state/*
 
 # Scenario-spawned peer Chimera state
 peer_chimera/
+remote_federation/
 
 # CodeGraph local index (machine-local SQLite knowledge graph)
 .codegraph/

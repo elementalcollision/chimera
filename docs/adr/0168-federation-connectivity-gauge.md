@@ -18,6 +18,13 @@ certify):
   production `next build` green over the control-plane including
   `FederationConnectivityWidget` (the original review caveat).
 
+**Genuine-remote follow-up (round 4, 2026-06-12):** the gauge was re-certified
+over real HTTP peers, not just model-backed bindings — the
+`remote_federation_drill` (three independent `chimera serve --http` processes;
+alpha/beta T4 ALLOW, gamma T0 REFUSE) journals real trust decisions over the
+HTTP MCP transport and `compute_connectivity` reports **0.750** (largest 3/4),
+⟨k⟩ 1.00, gamma isolated. Covered by `tests/test_remote_federation_drill.py`.
+
 Default remains OFF (`CHIMERA_FEDERATION_METRICS`).
 
 ## Context

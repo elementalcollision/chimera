@@ -187,3 +187,62 @@ control-plane including `FederationConnectivityWidget` and the
 live-fire evidence.** All flags remain default-OFF. Remaining follow-ups:
 a true remote-federation exercise (0167/0168 candidates are local provider
 bindings presenting the remote interfaces), and the 0174 promotion decision.
+
+---
+
+# Round 4 (2026-06-12) — genuine remote federation closes the last caveat
+
+Rounds 2–3 certified ADR 0167/0168 against **model-backed peers** (ADR 0174):
+local provider bindings presenting the remote-peer interface. The standing
+follow-up — named in 0167's own status block and 0168's round-3 entry — was to
+certify both against **genuinely remote** peers over the real HTTP MCP
+transport. This round does that with a new repeatable scenario.
+
+## Exercise 7 — `remote_federation_drill` (✅ FIRED)
+
+`chimera scenario remote_federation_drill`
+(`chimera/scenarios/federation_drill.py::run_remote_federation_drill`) spawns
+**three independent `chimera serve --http` processes** — distinct
+`CHIMERA_AGENT_ID` (`alpha`/`beta`/`gamma`), port, bearer token, and state dir
+— each seeded with a **real `trust_state.json`** the live `kfm_tool` reads via
+`TrustManager` (alpha/beta at T4, gamma at T0). Nothing here is synthetic: the
+kfm-state is a real tier read from a real file, served over real HTTP.
+
+The drill then runs the genuine peer stack over the HTTP MCP transport:
+
+1. **Discovery/transport:** all three registered via `register_mcp_servers`
+   (HTTP transport) → real `mcp-<peer>-*` tools; `list_peer_chimeras` finds them.
+2. **Trust gate (real, over HTTP):** `PeerTrustPolicy.evaluate` on each peer's
+   HTTP-fetched kfm-state → **alpha/beta ALLOW, gamma REFUSE** (T0 = locked),
+   journaled.
+3. **ADR 0167 selection:** `select_peer()` two-choice over the remote peers,
+   12 seeded draws → spread **alpha 8 / beta 4**, and **never gamma**. The
+   selection ranges only over the trust-eligible pool and does not herd onto a
+   single peer — the property, now over genuinely remote peers.
+4. **ADR 0168 gauge:** `compute_connectivity` over the resulting trust journal
+   → **connectivity 0.750** (largest component 3/4), ⟨k⟩ 1.00, **gamma
+   isolated** (its REFUSE edge is non-connective).
+
+Observed CLI output:
+
+```
+peers:             ['alpha', 'beta', 'gamma']
+allow (0167 pool): ['alpha', 'beta']
+refuse (isolated): ['gamma']
+selection spread:  {'alpha': 8, 'beta': 4}
+connectivity:      0.750 (largest 3/4, ⟨k⟩ 1.00, isolated 1)
+ok: True
+```
+
+Covered by `tests/test_remote_federation_drill.py` (slow; skipped without `uv`).
+
+## What this closes
+
+0167 and 0168 are now certified against **both** model-backed peers (in-process,
+round 2–3) **and** genuinely remote HTTP peers (separate processes, this round).
+The selection rule and the percolation gauge have each fired against the exact
+interfaces a real remote Chimera presents, end to end. ADR 0174 is promoted to
+Accepted on the strength of the certifications that rest on it. The only
+remaining transport item is exercising the drill **with TLS** (ADR 0178) rather
+than loopback cleartext — noted, lower priority (loopback is the recommended
+deployment and TLS serving is already unit-covered).

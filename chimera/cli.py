@@ -630,7 +630,8 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=(
             "drift", "research", "two_chimera", "multi_host",
             "federation_drill", "federation_trust_drill",
-            "federation_http_drill", "cost_runaway_drill",
+            "federation_http_drill", "remote_federation_drill",
+            "cost_runaway_drill",
         ),
         help="Which scenario to run.",
     )
@@ -2796,6 +2797,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  identity.role:     {(result.identity or {}).get('role')}")
             print(f"  kfm.cycle:         {(result.kfm or {}).get('cycle')}")
             print(f"  witness_lines:     {result.witness_lines}")
+            if result.failures:
+                print("  failures:")
+                for f in result.failures:
+                    print(f"    - {f}")
+            print(f"  ok: {result.ok}")
+            return 0 if result.ok else 1
+        if args.name == "remote_federation_drill":
+            from .scenarios import run_remote_federation_drill as _rfd
+            peer_root = cfg.state_dir.parent / "remote_federation"
+            result = _rfd(peer_root)
+            print("chimera scenario remote_federation_drill:")
+            print(f"  peers:             {result.peers}")
+            print(f"  health_ok:         {result.health_ok}")
+            print(f"  allow (0167 pool): {result.allow_peers}")
+            print(f"  refuse (isolated): {result.refuse_peers}")
+            print(f"  selection spread:  {result.selection_spread}")
+            if result.connectivity is not None:
+                c = result.connectivity
+                print(
+                    f"  connectivity:      {c['connectivity']:.3f} "
+                    f"(largest {c['largest_component']}/{c['n_nodes']}, "
+                    f"⟨k⟩ {c['mean_degree']:.2f}, isolated {c['isolated_nodes']})"
+                )
             if result.failures:
                 print("  failures:")
                 for f in result.failures:
