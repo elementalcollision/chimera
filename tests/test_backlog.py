@@ -193,3 +193,68 @@ def test_gate_check_base_error_returns_4(tmp_path, monkeypatch):
 
     monkeypatch.setattr(rv, "verify_at_ref", lambda *a, **k: None)
     assert bl._check_gate_visibility(_spec(tmp_path)) == 4
+
+
+# ── skip-and-continue (2026-06-12 WALK finding) ─────────────
+
+
+def _next_args(**kw):
+    import argparse
+    base = dict(check_gate=True, json=False, claimed="")
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def _seed_two(tmp_path):
+    mind = tmp_path / "mind"
+    d = backlog_dir(mind)
+    _write(d, "01-bad.md", "---\ngoal: bad gate\nfiles: a.py\n---\n")
+    _write(d, "02-good.md", "---\ngoal: good gate\nfiles: b.py\n---\n")
+    return mind
+
+
+def test_next_skips_gate_invisible_and_dispatches_next(tmp_path, monkeypatch, capsys):
+    """A gate-invisible front spec must not block the queue — the picker
+    skips it and dispatches the next gate-visible spec."""
+    from chimera.cli_cmds import backlog as bl
+
+    mind = _seed_two(tmp_path)
+    # 01-bad gate-invisible (3); 02-good gate-visible (0).
+    monkeypatch.setattr(
+        bl, "_check_gate_visibility",
+        lambda spec: 3 if spec.slug == "01-bad" else 0,
+    )
+    rc = bl._cmd_backlog_next(_next_args(), mind)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "skipped: 01-bad (gate-invisible" in out
+    assert "next: 02-good" in out
+
+
+def test_next_all_skipped_returns_3(tmp_path, monkeypatch, capsys):
+    """When every candidate is gate-invisible, exit 3 (distinct from an
+    empty backlog's 1) so the runner logs the difference."""
+    from chimera.cli_cmds import backlog as bl
+
+    mind = _seed_two(tmp_path)
+    monkeypatch.setattr(bl, "_check_gate_visibility", lambda spec: 3)
+    rc = bl._cmd_backlog_next(_next_args(), mind)
+    out = capsys.readouterr().out
+    assert rc == 3
+    assert "no gate-visible spec" in out
+    assert "skipped: 01-bad" in out and "skipped: 02-good" in out
+
+
+def test_next_without_check_gate_takes_first(tmp_path, monkeypatch):
+    """No --check-gate → no skipping, first ready spec wins."""
+    from chimera.cli_cmds import backlog as bl
+
+    mind = _seed_two(tmp_path)
+    rc = bl._cmd_backlog_next(_next_args(check_gate=False, json=True), mind)
+    assert rc == 0
+
+
+def test_next_empty_backlog_returns_1(tmp_path):
+    from chimera.cli_cmds import backlog as bl
+    rc = bl._cmd_backlog_next(_next_args(), tmp_path / "mind")
+    assert rc == 1

@@ -16,7 +16,6 @@ def _cmd_backlog(args, parser) -> int:
     from ..core import LoopConfig
     from ..core.backlog import (
         list_specs,
-        select_next,
         validation_report,
     )
 
@@ -48,38 +47,7 @@ def _cmd_backlog(args, parser) -> int:
         return 1
 
     if sub == "next":
-        claimed = frozenset(
-            s.strip() for s in (args.claimed or "").split(",") if s.strip()
-        )
-        spec = select_next(mind_dir, claimed_slugs=claimed)
-        if spec is None:
-            print("backlog: no actionable spec")
-            return 1
-
-        if getattr(args, "check_gate", False):
-            code = _check_gate_visibility(spec)
-            if code != 0:
-                return code
-
-        if getattr(args, "json", False):
-            print(json.dumps({
-                "slug": spec.slug,
-                "path": str(spec.path),
-                "goal": spec.goal,
-                "files": list(spec.files),
-                "test": spec.test,
-                "base": spec.base,
-                "env": spec.task_env(),
-            }, indent=2))
-        else:
-            print(f"next: {spec.slug}")
-            print(f"  goal:  {spec.goal}")
-            print(f"  files: {' '.join(spec.files)}")
-            print(f"  test:  {spec.test or '(full suite)'}")
-            print(f"  base:  {spec.base}")
-            if spec.issue:
-                print(f"  issue: {spec.issue}")
-        return 0
+        return _cmd_backlog_next(args, mind_dir)
 
     if sub == "from-issues":
         from ..core.issue_backlog import ingest_issues
@@ -113,6 +81,72 @@ def _cmd_backlog(args, parser) -> int:
 
     parser.error("usage: chimera backlog {list|validate|next|from-issues}")
     return 2
+
+
+def _cmd_backlog_next(args, mind_dir) -> int:
+    """`chimera backlog next` — select (and optionally gate-check) the next
+    actionable spec.
+
+    Skip-and-continue (2026-06-12 WALK finding): a gate-invisible or
+    base-error spec must NOT block the queue behind it — at issue volume one
+    mis-specified entry would otherwise poison every daily run. Walk the
+    queue, skipping such specs (reported per-spec), and dispatch the first
+    that passes. Exit 0 = a spec selected; 3 = candidates existed but all
+    were skipped; 1 = the backlog is empty.
+    """
+    from ..core.backlog import select_next
+
+    claimed = {s.strip() for s in (args.claimed or "").split(",") if s.strip()}
+    skipped: list[tuple[str, int]] = []
+
+    while True:
+        spec = select_next(mind_dir, claimed_slugs=frozenset(claimed))
+        if spec is None:
+            break
+        if getattr(args, "check_gate", False):
+            code = _check_gate_visibility(spec)
+            if code != 0:
+                skipped.append((spec.slug, code))
+                claimed.add(spec.slug)  # skip it this run; try the next
+                continue
+
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "slug": spec.slug,
+                "path": str(spec.path),
+                "goal": spec.goal,
+                "files": list(spec.files),
+                "test": spec.test,
+                "base": spec.base,
+                "issue": spec.issue,
+                "skipped": [{"slug": s, "exit": c} for s, c in skipped],
+                "env": spec.task_env(),
+            }, indent=2))
+        else:
+            _print_skipped(skipped)
+            print(f"next: {spec.slug}")
+            print(f"  goal:  {spec.goal}")
+            print(f"  files: {' '.join(spec.files)}")
+            print(f"  test:  {spec.test or '(full suite)'}")
+            print(f"  base:  {spec.base}")
+            if spec.issue:
+                print(f"  issue: {spec.issue}")
+        return 0
+
+    # Nothing selected. Distinguish "all candidates skipped" (3) from "empty
+    # backlog" (1) so the runner can log the difference.
+    if skipped:
+        _print_skipped(skipped)
+        print("backlog: no gate-visible spec (all candidates skipped)")
+        return 3
+    print("backlog: no actionable spec")
+    return 1
+
+
+def _print_skipped(skipped: list[tuple[str, int]]) -> None:
+    for slug, code in skipped:
+        why = "gate-invisible" if code == 3 else "base error"
+        print(f"skipped: {slug} ({why}, exit {code})")
 
 
 def _check_gate_visibility(spec) -> int:

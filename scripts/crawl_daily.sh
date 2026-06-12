@@ -14,7 +14,8 @@
 # Exit codes:
 #   0  a spec was dispatched to the soak (review the resulting branch/PR)
 #   1  no actionable spec (empty/all-done backlog) — nothing to do
-#   3  the next spec was gate-invisible and skipped — fix the spec
+#   3  candidate specs existed but ALL were gate-invisible / base-errored
+#      (skip-and-continue exhausted the queue) — fix the spec(s)
 #   2  usage / unexpected error
 
 set -uo pipefail
@@ -41,8 +42,8 @@ if [ "$CODE" -ne 0 ]; then
   cat /tmp/crawl_next.err >&2 || true
   case "$CODE" in
     1) echo "[crawl] backlog empty / all done — nothing to dispatch." ;;
-    3) echo "[crawl] next spec is gate-invisible — skipped (fix the spec's gate)." ;;
-    4) echo "[crawl] base ref could not be evaluated — check the spec's base." ;;
+    3) echo "[crawl] all candidate specs were gate-invisible / base-errored "
+       echo "[crawl] (the picker skipped each) — fix the spec gates." ;;
   esac
   exit "$CODE"
 fi
