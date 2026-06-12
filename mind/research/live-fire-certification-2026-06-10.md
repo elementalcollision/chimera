@@ -126,3 +126,64 @@ the entire ADR 0171 contract executed live. Promotion criterion met.**
 
 All 8 routing/entropy ADRs from the 2026-06-08 insertion batch are now
 certified on live-fire evidence. All flags remain default-OFF.
+
+---
+
+# Round 3 (2026-06-12) — the connectivity gauge closes the batch
+
+ADR 0168 was the last of the six 2026-06-08 insertions still Proposed, for
+two reasons: the gauge had never been exercised over a *real* TRUSTED
+projection, and the dashboard widget's TypeScript had never been compiled
+(no `node_modules` in the build container at review time).
+
+## Exercise 5 — ADR 0168 gauge (✅ FIRED)
+
+Same model-backed-peers harness as rounds 2's exercises, plus one
+deliberately drifted peer to give the gauge something to discriminate:
+
+1. `register_model_peers` registered `model-deepseek` / `model-minimax` /
+   `model-z-ai`; a fourth peer `drifty` advertised `last_drift_score: 0.55`
+   (≥ the 0.30 lockdown threshold). All four written to the peer registry.
+2. Real `PeerAwareDispatcher` dispatches journaled the trust decisions:
+   **3 ALLOW + 1 REFUSE** (`peer drift 0.55 ≥ lockdown threshold`). The
+   consult bodies used a stub provider (no API keys in this environment) —
+   irrelevant to 0168, which consumes only the journal→projection→export
+   chain, all of which ran for real.
+3. `chimera graph rebuild` projected `Peer: 4 | TRUSTED: 4` into Kuzu.
+4. `chimera graph export` **without** the flag: no `federation` key — the
+   byte-identical contract holds. **With** `CHIMERA_FEDERATION_METRICS=1`:
+
+   ```json
+   {"n_nodes": 5, "n_edges": 3, "largest_component": 4,
+    "connectivity": 0.8, "mean_degree": 1.2,
+    "hub_node": "chimera-vm-f8fe0042", "hub_degree": 3,
+    "hub_concentration": 0.5, "isolated_nodes": 1}
+   ```
+
+   Every number matches the hand computation: self + 4 peers = 5 nodes; the
+   3 ALLOW edges are connective, the REFUSE edge is not, so the drifted peer
+   is **isolated** and connectivity = 4/5; ⟨k⟩ = 2·3/5 = 1.2 > 1 (giant
+   component present); the star topology puts the hub (self) at exactly 0.5
+   concentration. The gauge discriminates, not just decorates.
+
+## Exercise 6 — dashboard TypeScript (✅ VERIFIED)
+
+With a node22 toolchain available this round: `npm install` →
+`tsc --noEmit` **clean** → full production `next build` **green** over the
+control-plane including `FederationConnectivityWidget` and the
+`lib/graph.ts` `federation` snapshot type. The original review caveat
+("TS unverified, no node_modules") is closed.
+
+## Final scoreboard (updated)
+
+| ADR | Status | Evidence class |
+|---|---|---|
+| 0165 / 0166 / 0169 / 0170 / 0172 | Accepted | live-fired (rounds 0–1) |
+| 0167 / 0171 | Accepted | live-fired via model-backed peers (round 2) |
+| 0168 | **Accepted (round 3)** | live-fired gauge over a real projection + production dashboard build |
+| 0174 (the harness) | Proposed | three certifications now rest on it — pending operator review |
+
+**All six 2026-06-08 insertions (ADR 0167–0172) are now certified on
+live-fire evidence.** All flags remain default-OFF. Remaining follow-ups:
+a true remote-federation exercise (0167/0168 candidates are local provider
+bindings presenting the remote interfaces), and the 0174 promotion decision.

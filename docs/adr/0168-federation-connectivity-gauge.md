@@ -1,6 +1,24 @@
 # ADR 0168 — Federation connectivity gauge (percolation, v4.120)
 
-**Status:** Proposed (2026-06-08)
+**Status:** Accepted (2026-06-12). Both promotion blockers closed in the
+2026-06-12 live-fire round (the last of the six 2026-06-08 insertions to
+certify):
+
+- **Live-fired end-to-end via model-backed peers (ADR 0174):** three
+  `model-*` peers + one deliberately drifted peer, real
+  `PeerAwareDispatcher`/`PeerTrustPolicy` dispatches journaling 3 ALLOW +
+  1 REFUSE → `chimera graph rebuild` projecting `Peer: 4 | TRUSTED: 4` into
+  Kuzu → `chimera graph export` flag-off (no `federation` key —
+  byte-identical contract holds) and flag-on, with every gauge number
+  hand-verified: connectivity 0.8 (4/5), ⟨k⟩ 1.2 (> 1, giant component),
+  hub = self at 0.5 concentration, the REFUSEd peer correctly isolated. See
+  [live-fire-certification-2026-06-10.md](../../mind/research/live-fire-certification-2026-06-10.md)
+  round 3.
+- **Dashboard TypeScript verified:** `tsc --noEmit` clean and a full
+  production `next build` green over the control-plane including
+  `FederationConnectivityWidget` (the original review caveat).
+
+Default remains OFF (`CHIMERA_FEDERATION_METRICS`).
 
 ## Context
 
