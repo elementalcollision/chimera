@@ -108,6 +108,22 @@ the right repo. Multi-repo, externally replenished, still batch-reviewed.
 This is where the work source becomes genuinely self-renewing. The
 curated-MD path stays available as the manual override.
 
+**Built (ingestion, 2026-06-12):** `chimera/core/issue_backlog.py` +
+`chimera backlog from-issues --repo <r> [--label crawl] [--dry-run]` turn a
+*crawl-ready* issue (the `crawl` label + a fenced spec block in the body,
+same fields as an MD spec) into a normal `mind/backlog/issue-<N>-<slug>.md`
+spec with `issue: owner/repo#N` provenance. From there it flows through the
+**same** picker, gate-visibility check, and soak — issues without a spec
+block are skipped (not every issue is a gate-visible task), and the
+gate-check still rejects an issue whose gate is already green. Issue
+template: `.github/ISSUE_TEMPLATE/crawl-task.md`.
+
+Deliberately **not yet** built (later increments): multi-repo PR
+*targeting* (the soak builds against the local repo; a PR to a different
+repo needs per-repo verify/soak adaptation), and free-form-issue triage
+(`oh-my-issues` clustering an unstructured backlog into specs). The
+ingestion is the renewable-source spine; these extend its reach.
+
 ### Phase 3 — RUN: narrow auto-merge + production-health nightly
 
 Graduate the safest change-classes (dependency bumps that pass full CI,

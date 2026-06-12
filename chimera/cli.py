@@ -1009,6 +1009,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "--claimed", default="", metavar="SLUGS",
         help="Comma-separated slugs to treat as already claimed (skip).",
     )
+    bl_issues = backlog_sub.add_parser(
+        "from-issues",
+        help="WALK (ADR 0182 phase 2): ingest crawl-ready GitHub issues "
+             "(a fenced spec block in the body) into mind/backlog/.",
+    )
+    bl_issues.add_argument(
+        "--repo", default="elementalcollision/chimera",
+        help="owner/name to pull open issues from. Default: this repo.",
+    )
+    bl_issues.add_argument(
+        "--label", default="crawl",
+        help="Only ingest issues with this label (default: crawl). "
+             "Pass empty to consider all open issues.",
+    )
+    bl_issues.add_argument(
+        "--dry-run", action="store_true",
+        help="Report what would be ingested without writing spec files.",
+    )
 
     # v44: `chimera soak summary <run-id>` — thin wrapper over
     # chimera.soak_summary (the first real-feature module Chimera authored;
