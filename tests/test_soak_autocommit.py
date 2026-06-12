@@ -13,6 +13,7 @@ import subprocess
 from chimera.soak_autocommit import (
     ALREADY_COMMITTED,
     COMMITTED,
+    JOURNAL_ONLY,
     NOTHING_TO_COMMIT,
     TEST_FAILING,
     autocommit_if_ready,
@@ -136,6 +137,55 @@ def test_fail_safe_on_non_repo(tmp_path):
     (tmp_path / "deliverable.py").write_text("x = 1\n")
     status = autocommit_if_ready(tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD)
     assert status in {"error", NOTHING_TO_COMMIT}
+
+
+# ── Finding 3 (2026-06-12 campaign): never stamp a journal-only commit ──
+# Both soak cells produced [agent] commits titled with the full task
+# description + "agent authored+verified" while carrying ONLY mind/
+# artifacts. A journal-only state must refuse, not commit.
+
+
+def test_journal_only_changes_skip_commit(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "mind").mkdir()
+    (tmp_path / "mind" / "CHRONICLE.md").write_text("journal grew\n")
+    # The allowlisted deliverable does not exist → no deliverable diff.
+    status = autocommit_if_ready(
+        tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD,
+    )
+    assert status == JOURNAL_ONLY
+    assert _agent_subjects(tmp_path) == []
+
+
+def test_journal_only_with_unchanged_tracked_deliverable_skips(tmp_path):
+    _init_repo(tmp_path)
+    # The allowlisted file exists on the branch but is UNCHANGED.
+    (tmp_path / "mind").mkdir()
+    (tmp_path / "mind" / "CHRONICLE.md").write_text("journal grew\n")
+    status = autocommit_if_ready(
+        tmp_path, ["seed.txt"], MSG, test_cmd=PASS_CMD,
+    )
+    assert status == JOURNAL_ONLY
+    assert _agent_subjects(tmp_path) == []
+
+
+def test_deliverable_commits_after_journal_only_skip(tmp_path):
+    """The skip must not poison later iterations: once the deliverable
+    appears, the autocommit lands it WITH the journal riding along."""
+    _init_repo(tmp_path)
+    (tmp_path / "mind").mkdir()
+    (tmp_path / "mind" / "CHRONICLE.md").write_text("journal grew\n")
+    assert autocommit_if_ready(
+        tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD) == JOURNAL_ONLY
+    (tmp_path / "deliverable.py").write_text("x = 1\n")
+    assert autocommit_if_ready(
+        tmp_path, ["deliverable.py"], MSG, test_cmd=PASS_CMD) == COMMITTED
+    show = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=str(tmp_path), capture_output=True, text=True,
+    )
+    assert "deliverable.py" in show.stdout
+    assert "mind/CHRONICLE.md" in show.stdout
 
 
 # ── ADR 0162: the critic gate also guards the harness autocommit path ──

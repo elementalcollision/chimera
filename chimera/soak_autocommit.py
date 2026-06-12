@@ -27,6 +27,7 @@ from pathlib import Path
 ALREADY_COMMITTED = "already_committed"
 TEST_FAILING = "test_failing"
 NOTHING_TO_COMMIT = "nothing_to_commit"
+JOURNAL_ONLY = "journal_only_skipped"
 COMMITTED = "committed"
 CRITIC_BLOCKED = "critic_blocked"
 ERROR = "error"
@@ -71,13 +72,21 @@ def autocommit_if_ready(
 
     1. :data:`ALREADY_COMMITTED` — an ``[agent]`` commit already exists in
        ``base_ref..head_ref``. Idempotent: safe to call every iteration.
-    2. :data:`TEST_FAILING` — ``test_cmd`` (if given) exits non-zero. Never
+    2. :data:`JOURNAL_ONLY` / :data:`NOTHING_TO_COMMIT` — no ``allowed_files``
+       path has an uncommitted change. The commit would carry only ``mind/``
+       artifacts while ``message`` claims the full deliverable (2026-06-12
+       campaign, Finding 3), so REFUSE — and refuse rather than commit an
+       honest "journal-only" message, because any ``[agent]``-subject commit
+       trips check 1 on every later iteration and would permanently block
+       the real deliverable's autocommit. The journal rides along once the
+       deliverable exists.
+    3. :data:`TEST_FAILING` — ``test_cmd`` (if given) exits non-zero. Never
        commit red code. Skipped when ``test_cmd`` is None.
-    3. Stage the ``allowed_files`` that exist on disk, plus the ``journal_dir``
+    4. Stage the ``allowed_files`` that exist on disk, plus the ``journal_dir``
        tree (``mind/`` — the operational journal the loop writes between
        cycles, auto-allowed by the soft-sentinel per ADR 0121).
-    4. :data:`NOTHING_TO_COMMIT` — nothing is staged after step 3.
-    5. :data:`COMMITTED` — ``git commit`` succeeds. ``message`` MUST already
+    5. :data:`NOTHING_TO_COMMIT` — nothing is staged after step 4.
+    6. :data:`COMMITTED` — ``git commit`` succeeds. ``message`` MUST already
        begin with ``[agent]`` (the autonomous-delivery contract token the
        ADR 0147 gate and the soft-sentinel look for); the caller is expected
        to disclose harness execution in the body.
@@ -90,6 +99,20 @@ def autocommit_if_ready(
         root = Path(worktree_root)
         if _has_agent_commit(root, base_ref, head_ref):
             return ALREADY_COMMITTED
+        # Deliverable presence (Finding 3): some allowed_files path must have
+        # an uncommitted change (index, worktree, or untracked) before the
+        # message's provenance claim is true. Checked before test_cmd so a
+        # journal-only iteration skips the expensive gate run.
+        if not allowed_files:
+            return ERROR
+        deliverable = _git(root, "status", "--porcelain", "--", *allowed_files)
+        if deliverable.returncode != 0:
+            return ERROR
+        if not (deliverable.stdout or "").strip():
+            journal = _git(root, "status", "--porcelain", "--", journal_dir)
+            if (journal.stdout or "").strip():
+                return JOURNAL_ONLY
+            return NOTHING_TO_COMMIT
         if test_cmd:
             res = subprocess.run(
                 test_cmd, cwd=str(root),
