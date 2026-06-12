@@ -33,8 +33,10 @@ feature velocity to consolidation. Open items, in order:
 - [x] Word-boundary fix for `remediation._is_commit_task` (xfail retired).
 - [x] TLS for the HTTP MCP transport (ADR 0178): fail-closed cert/key
   pair, non-loopback now requires token **and** TLS.
-- [ ] Evals (LongMemEval/LoCoMo) as a gated nightly, not just unit
-  tests in the main suite.
+- [~] Evals (LongMemEval/LoCoMo) as a gated nightly. Gate built +
+  CI-tested (`chimera evals summarize`, ADR 0181); nightly workflow
+  is a manual-dispatch template. **Go-live needs 4 operator decisions:**
+  grader choice, CI secrets, dataset hosting, budget/threshold.
 - [x] Post-merge validation handoff (2026-06-12): all-flags envelope A/B
   live-validated in the keyed env; dispatch-over-TLS drill closed
   (ADR 0178); CHIMERA_ENTROPY_SIGNALS default-ON (ADR 0180). Harness

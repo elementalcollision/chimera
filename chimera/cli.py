@@ -17,6 +17,7 @@ from .cli_cmds.evals import (
     _build_openrouter_answer_fn,  # noqa: F401 — re-export: tests use chimera.cli._build_openrouter_answer_fn
     _cmd_evals_locomo,
     _cmd_evals_longmemeval,
+    _cmd_evals_summarize,
 )
 from .cli_cmds.peers import _cmd_peers_ask, _cmd_peers_cards
 from .cli_cmds.self_scan import _cmd_self_scan
@@ -921,6 +922,46 @@ def _build_parser() -> argparse.ArgumentParser:
              "(matches LongMemEval default; deep histories need the headroom).",
     )
 
+    # `chimera evals summarize` — grader-agnostic accuracy gate (ADR 0181).
+    # The "gate" in "gated nightly": consumes a graded JSONL (whatever
+    # grader the operator ran per ADR 0135 annotated `is_correct`),
+    # prints per-category accuracy, and exits nonzero on a threshold miss
+    # or a regression vs a stored baseline. No keys, no provider calls.
+    summarize = evals_sub.add_parser(
+        "summarize",
+        help="Aggregate a graded eval JSONL into per-category accuracy and "
+             "gate on a threshold / baseline regression (ADR 0181).",
+    )
+    summarize.add_argument(
+        "--graded", required=True,
+        help="Path to a graded JSONL — each row carries a boolean "
+             "correctness field (default key `is_correct`) written by the "
+             "operator's chosen grader (ADR 0135 delegates grading).",
+    )
+    summarize.add_argument(
+        "--correctness-field", default="is_correct",
+        help="Row key holding the boolean grade. Default: is_correct.",
+    )
+    summarize.add_argument(
+        "--min-accuracy", type=float, default=None,
+        help="Fail (exit 1) if overall accuracy is below this absolute "
+             "floor (0.0–1.0). Omit to skip the floor check.",
+    )
+    summarize.add_argument(
+        "--baseline",
+        help="Path to a prior summarize --json output. Fail (exit 1) if "
+             "overall accuracy regresses beyond --tolerance below it.",
+    )
+    summarize.add_argument(
+        "--tolerance", type=float, default=0.0,
+        help="Allowed accuracy drop vs --baseline before failing. "
+             "Default 0.0 (any regression fails).",
+    )
+    summarize.add_argument(
+        "--json", action="store_true",
+        help="Emit the summary as JSON (for storing as the next baseline).",
+    )
+
     # v40′: `chimera mind count` — thin wrapper over chimera.mindcount
     # (the first Chimera-authored module to land; see
     # mind/research/v40prime-attempt1-capstone.md).
@@ -1732,6 +1773,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_evals_longmemeval(args)
         if sub_cmd == "locomo":
             return _cmd_evals_locomo(args)
+        if sub_cmd == "summarize":
+            return _cmd_evals_summarize(args)
         parser.error(f"unknown evals subcommand: {sub_cmd}")
         return 2
 
