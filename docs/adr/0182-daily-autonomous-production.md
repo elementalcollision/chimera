@@ -124,6 +124,12 @@ repo needs per-repo verify/soak adaptation), and free-form-issue triage
 (`oh-my-issues` clustering an unstructured backlog into specs). The
 ingestion is the renewable-source spine; these extend its reach.
 
+**Skip-and-continue (fast-follow):** `backlog next --check-gate` now walks
+the ready queue, skipping gate-invisible / base-errored specs (reported
+per-spec) and dispatching the first that passes — so one mis-specified
+issue no longer poisons the daily run. Exit 3 now means "candidates
+existed but all were skipped" (distinct from 1 = empty backlog).
+
 ### Phase 3 — RUN: narrow auto-merge + production-health nightly
 
 Graduate the safest change-classes (dependency bumps that pass full CI,
