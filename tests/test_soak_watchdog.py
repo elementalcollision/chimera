@@ -163,9 +163,9 @@ def test_watchdog_decodes_kill_signal(tmp_path: Path) -> None:
     assert "KILLED BY SIGNAL 9" in text and "external reap" in text
 
 
-def test_soak_lib_version_is_v6() -> None:
+def test_soak_lib_version_is_v7() -> None:
     result = _run(f"source {SOAK_LIB}; soak_lib_version")
-    assert "v6" in result.stdout, result.stdout
+    assert "v7" in result.stdout, result.stdout
     assert "mind/*" in result.stdout
 
 

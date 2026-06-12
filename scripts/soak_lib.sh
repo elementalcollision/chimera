@@ -22,7 +22,9 @@
 #   2. The cumulative diff of those agent commits against main touches
 #      ONLY files matching the passed-in charter_glob (a bash extended
 #      glob, e.g. "chimera/core/escalation.py tests/test_task_escalation.py").
-#      A single file outside the glob → NOT landed.
+#      A single file outside the glob → NOT landed. At least ONE touched
+#      file must come from the allowlist itself — mind/* journal paths are
+#      auto-allowed but never sufficient (2026-06-12 campaign, Finding 2).
 #   3. The passed-in test_cmd exits 0 when run from $WORKTREE.
 #
 # When all three are true, the runner can `break` out of the phase-2
@@ -97,7 +99,11 @@ soak_phase2_deliverable_landed() {
     if [ -z "$touched" ]; then
         return 1
     fi
-    local f
+    # The journal auto-allow is permissive, not sufficient: a journal-only
+    # diff means the deliverable never landed, so require at least one
+    # touched path from the allowlist itself (2026-06-12 campaign,
+    # Finding 2 — a journal-only [agent] commit satisfied this predicate).
+    local f allowlist_hits=0
     for f in $touched; do
         # Auto-allow operational journal artifacts under mind/
         case "$f" in
@@ -112,7 +118,12 @@ soak_phase2_deliverable_landed() {
             # Out-of-charter file present — deliverable is NOT clean
             return 1
         fi
+        allowlist_hits=$((allowlist_hits + 1))
     done
+    if [ "$allowlist_hits" -eq 0 ]; then
+        # Journal-only diff — no deliverable file changed
+        return 1
+    fi
 
     # 3. Test command exits 0
     if ! ( cd "$worktree" && bash -c "$test_cmd" ) >/dev/null 2>&1; then
@@ -138,7 +149,10 @@ soak_phase2_deliverable_landed() {
 #      phase 1 runs engines-OFF / no-commit, so the change is uncommitted;
 #      the diff is working-tree-vs-base.
 #   2. Every changed path is in $allowed_files (mind/* auto-allowed, as in
-#      the phase-2 sentinel) — the change stayed in scope.
+#      the phase-2 sentinel) — the change stayed in scope — AND at least
+#      one changed path comes from $allowed_files itself. A journal-only
+#      diff is NOT a deliverable (2026-06-12 campaign, Finding 2: both
+#      cells exited phase 1 "green" with zero allowlist files changed).
 #   3. $gate_cmd exits 0 from the worktree — the real pipeline is green.
 #      (Pass `uv run chimera verify --ruff <files> --test <target>`.)
 #
@@ -172,8 +186,10 @@ soak_phase1_verify_green() {
         return 1
     fi
 
-    # 2. Every changed file is in scope (mind/* auto-allowed; see ADR 0121).
-    local f
+    # 2. Every changed file is in scope (mind/* auto-allowed; see ADR 0121),
+    # and at least one is from the allowlist itself — the journal auto-allow
+    # must not satisfy the predicate alone (2026-06-12 campaign, Finding 2).
+    local f allowlist_hits=0
     for f in $touched; do
         case "$f" in
             mind/*) continue ;;
@@ -185,7 +201,12 @@ soak_phase1_verify_green() {
         if [ "$ok" -eq 0 ]; then
             return 1
         fi
+        allowlist_hits=$((allowlist_hits + 1))
     done
+    if [ "$allowlist_hits" -eq 0 ]; then
+        # Journal-only diff — no deliverable file changed
+        return 1
+    fi
 
     # 3. The repo's real verification passes.
     if ! ( cd "$worktree" && bash -c "$gate_cmd" ) >/dev/null 2>&1; then
@@ -289,5 +310,5 @@ soak_run_chimera_with_watchdog() {
 # Print the lib version. Runners log this so post-mortems can correlate
 # soak behavior with the lib revision when the lib changes shape.
 soak_lib_version() {
-    echo "soak_lib.sh v6 — watchdog heartbeat + signal-decoded exit (early-death diagnostics); phase1 verify-green sentinel; mind/* journal auto-allow"
+    echo "soak_lib.sh v7 — sentinels require >=1 allowlist path (mind/* journal auto-allow is permissive, not sufficient; 2026-06-12 Finding 2); watchdog heartbeat + signal-decoded exit"
 }
