@@ -86,8 +86,19 @@ fully unit-tested), the `chimera backlog list|validate|next` verbs (with
 on a gate-invisible spec), the `mind/backlog/` folder + README + a worked
 `done:true` example, and `scripts/crawl_daily.sh` — the one-task-per-run
 driver that picks → gate-checks → runs `real_task_soak.sh` → draft PR, with
-a dispatch log so a spec is not re-run before its PR lands. Nothing runs
-until the operator provisions the keyed scheduled runner.
+a dispatch log so a spec is not re-run before its PR lands.
+
+**Live (2026-06-12):** the gate now accepts pytest flags in `test`
+(`default_checks` tokenises `test_target`), so a deprecation under
+`-W error` is a genuinely RED-on-base gate — which is what makes a
+warning-only fix gate-visible on an otherwise-green repo. The backlog is
+seeded with the two (and only two) gate-visible tasks the clean main
+carries: the federation client deprecations (`streamablehttp_client`
+rename; httpx `verify=<str>` → ssl context). The keyed scheduled runner is
+provisioned on macOS via `scripts/crawl/install_launchd.sh`
+(`com.chimera.crawl`, daily 09:15) → `scripts/crawl_daily.sh` → draft PR.
+That a clean repo yields only two gate-visible tasks is the healthy signal;
+the backlog grows as the operator curates work (and as WALK adds issues).
 
 ### Phase 2 — WALK: GitHub issues across elementalcollision repos
 
