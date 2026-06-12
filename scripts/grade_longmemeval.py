@@ -172,7 +172,7 @@ async def main():
     qid2ref = {e['question_id']: e for e in ref}
 
     # Load hypotheses (our JSONL).
-    hyps = [json.loads(l) for l in open(hyp_path) if l.strip()]
+    hyps = [json.loads(line) for line in open(hyp_path) if line.strip()]
     print(f"grading {len(hyps)} hypotheses with judge={judge_model}...")
 
     out_rows = []
