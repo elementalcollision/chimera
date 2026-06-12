@@ -31,9 +31,11 @@ import {
 import { readFragmentation } from "@/lib/fragmentation";
 import { readHeartbeat, readMindFile, readTrustState } from "@/lib/mind";
 import { getBenchmarks } from "@/lib/benchmarks";
+import { computeHealth } from "@/lib/health";
 
 import CanvasShell, { ViewPreset, WidgetDef } from "@/components/CanvasShell";
 import BenchmarkHistoryWidget from "@/components/widgets/BenchmarkHistoryWidget";
+import ProductionHealthWidget from "@/components/widgets/ProductionHealthWidget";
 import CostAlarmWidget from "@/components/widgets/CostAlarmWidget";
 import HotSignaturesWidget from "@/components/widgets/HotSignaturesWidget";
 import CostOverTimeWidget from "@/components/widgets/CostOverTimeWidget";
@@ -102,7 +104,32 @@ export default async function HomePage() {
   const boundary = roundBoundaryStats();
   const benchmarks = getBenchmarks();
 
+  // ADR 0182 consolidation: one worst-of verdict over the health signals
+  // Chimera already emits — the headline of the operator-first Review view.
+  const health = computeHealth({
+    costRate,
+    drift: driftLog[0] ?? null,
+    queue: qHealth,
+    fragmentationCount: fragmentation.length,
+    hotSignatureCount: hotSigs.length,
+    auditFlagged: (audit?.stale_count ?? 0) + (audit?.dead_count ?? 0),
+  });
+
   const widgets: WidgetDef[] = [
+    {
+      id: "health", title: "Production health", eyebrow: "review", icon: "activity",
+      chip:
+        health.overall === "red"
+          ? { tone: "danger", text: "degraded" }
+          : health.overall === "amber"
+            ? { tone: "warn", text: "watch" }
+            : health.overall === "green"
+              ? { tone: "ok", text: "healthy" }
+              : undefined,
+      group: "agent", layout: { x: 0, y: 0, w: 12, h: 5 },
+      minW: 6, minH: 5, defaultStatic: true,
+      body: <ProductionHealthWidget health={health} />,
+    },
     {
       id: "status", title: "Status", eyebrow: "agent", icon: "activity",
       chip: hb?.status === "running" ? { tone: "ok", text: hb.status } : undefined,
@@ -290,6 +317,24 @@ export default async function HomePage() {
   ];
 
   const presets: Record<string, ViewPreset> = {
+    // ADR 0182: the operator-first default. Answers the three daily-
+    // production questions — is health trending bad (Production health +
+    // Cost rate), what did Chimera do (Chronicle), what's queued/awaiting
+    // attention (Inbox + Mutations). The telemetry presets below remain for
+    // debugging; this is the front door. (The true "PRs awaiting review"
+    // surface lands with the CRAWL phase; Inbox + Mutations are today's
+    // closest proxy.)
+    review: {
+      label: "Review",
+      layout: {
+        health:    { x: 0, y: 0,  w: 12, h: 5 },
+        status:    { x: 0, y: 5,  w: 5,  h: 5 },
+        cost_alarm:{ x: 5, y: 5,  w: 7,  h: 5 },
+        chronicle: { x: 0, y: 10, w: 6,  h: 7 },
+        inbox:     { x: 6, y: 10, w: 6,  h: 7 },
+        mutations: { x: 0, y: 17, w: 12, h: 5 },
+      },
+    },
     operator: {
       label: "Operator",
       layout: {
