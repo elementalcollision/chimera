@@ -77,9 +77,41 @@ def _cmd_backlog(args, parser) -> int:
             print(f"  files: {' '.join(spec.files)}")
             print(f"  test:  {spec.test or '(full suite)'}")
             print(f"  base:  {spec.base}")
+            if spec.issue:
+                print(f"  issue: {spec.issue}")
         return 0
 
-    parser.error("usage: chimera backlog {list|validate|next}")
+    if sub == "from-issues":
+        from ..core.issue_backlog import ingest_issues
+
+        label = args.label or None
+        if getattr(args, "dry_run", False):
+            from ..core.issue_backlog import _fetch_issues, issue_to_spec_markdown
+
+            issues = _fetch_issues(args.repo, label=label)
+            ingestable = sum(
+                1 for i in issues if issue_to_spec_markdown(i, args.repo) is not None
+            )
+            print(
+                f"backlog from-issues (dry-run): {args.repo} "
+                f"label={label or '(any)'} — {len(issues)} open issue(s), "
+                f"{ingestable} crawl-ready"
+            )
+            return 0
+
+        results = ingest_issues(args.repo, mind_dir=mind_dir, label=label)
+        ingested = [r for r in results if r.written is not None]
+        for r in results:
+            mark = "+" if r.written is not None else "-"
+            tail = r.written.name if r.written is not None else r.reason
+            print(f"  [{mark}] #{r.number} {r.title[:54]} — {tail}")
+        print(
+            f"backlog from-issues: {len(ingested)}/{len(results)} ingested "
+            f"from {args.repo}"
+        )
+        return 0
+
+    parser.error("usage: chimera backlog {list|validate|next|from-issues}")
     return 2
 
 

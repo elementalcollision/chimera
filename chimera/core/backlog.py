@@ -48,6 +48,9 @@ class BacklogSpec:
     base: str = "main"
     body: str = ""
     done: bool = False
+    # Provenance: "owner/repo#N" when this spec was ingested from a GitHub
+    # issue (WALK, ADR 0182 phase 2); None for an operator-authored MD spec.
+    issue: str | None = None
     errors: tuple[str, ...] = field(default=())
 
     @property
@@ -117,9 +120,12 @@ def parse_spec(path: Path) -> BacklogSpec:
 
     done = bool(data.get("done"))
 
+    issue = data.get("issue")
+    issue = str(issue).strip() if issue else None
+
     return BacklogSpec(
         path=path, goal=goal, files=files, test=test, base=base,
-        body=body, done=done, errors=tuple(errors),
+        body=body, done=done, issue=issue, errors=tuple(errors),
     )
 
 
