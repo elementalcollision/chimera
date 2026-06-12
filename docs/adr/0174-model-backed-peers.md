@@ -1,6 +1,17 @@
 # ADR 0174 — Model-backed peers (multi-model engagement chain)
 
-**Status:** Proposed (2026-06-10)
+**Status:** Accepted (2026-06-12). The module's purpose — being the live-fire
+harness for ADR 0167 and 0171 — is fulfilled and certified: round 2 of the
+live-fire journal drove the full select→trust-gate→dispatch chain over three
+model peers (selection spread 5/4/3, no herding) and the fan-out
+trim→defer→recover→complete contract end to end; round 3 reused the harness for
+ADR 0168's gauge. Unit surface: `tests/test_model_peers.py` (21 cases). A
+genuinely-remote counterpart now also exists (`remote_federation_drill`, round
+4) certifying 0167/0168 over real HTTP peers, so model peers are no longer the
+*only* federation evidence — they remain the cheap in-process path. Default
+stays OFF (`CHIMERA_MODEL_PEERS`); every consult is cost-metered. See
+[live-fire-certification-2026-06-10.md](../../mind/research/live-fire-certification-2026-06-10.md)
+rounds 2–4.
 
 ## Context
 

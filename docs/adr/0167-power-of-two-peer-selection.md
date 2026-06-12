@@ -7,11 +7,16 @@ model-backed peers (ADR 0174)**: with three real peers registered
 spread its picks 5/4/3 across all three over 12 seeded draws — the
 no-herding property power-of-two-choices exists for — and the full
 select→trust-gate→dispatch chain ended in a real cross-vendor provider call.
-The candidates are local provider bindings presenting the exact remote-peer
-interfaces; a remote-federation exercise remains worthwhile but the selection
-rule itself is certified. See
+The round-2 candidates were local provider bindings; the remote-federation
+follow-up is now **also done** (round 4, 2026-06-12): the
+`remote_federation_drill` spawns three independent `chimera serve --http`
+processes (distinct `CHIMERA_AGENT_ID`, real seeded `trust_state.json`) and
+runs `select_peer()` over them across the real HTTP MCP transport — 12 seeded
+draws spread 8/4 across the two ALLOW peers and **never** the T0/REFUSE peer,
+the no-herding property over genuinely remote peers. See
 [live-fire-certification-2026-06-10.md](../../mind/research/live-fire-certification-2026-06-10.md)
-round 2. Default remains OFF (`CHIMERA_PEER_SELECTION`).
+rounds 2 + 4; covered by `tests/test_remote_federation_drill.py`. Default
+remains OFF (`CHIMERA_PEER_SELECTION`).
 
 ## Context
 
