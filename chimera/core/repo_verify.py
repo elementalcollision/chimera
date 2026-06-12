@@ -17,12 +17,20 @@ the detail, not an exception.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 # How much of a failing check's output to keep as actionable detail.
 _DETAIL_TAIL_CHARS = 4000
+
+# Gate-transition classes (ADR 0182 gate-visibility prerequisite).
+RED_TO_GREEN = "red_to_green"      # the change moved a failing gate to green
+GREEN_TO_GREEN = "green_to_green"  # gate-INVISIBLE: already green on base
+STILL_RED = "still_red"            # change did not achieve green
+BASE_ERROR = "base_error"          # could not evaluate the base ref
 
 
 @dataclass
@@ -102,3 +110,124 @@ def verify_change(
     return VerificationReport(
         checks=[run_check(name, argv, root, timeout) for name, argv in checks],
     )
+
+
+@dataclass
+class GateVisibilityReport:
+    """Did the change actually MOVE the gate? (ADR 0182 gate-visibility.)
+
+    The plain gate answers "is it green now?" — which a task that was
+    ALREADY green on base passes trivially, proving nothing (the
+    2026-06-12 Finding 1 failure: a deprecation-warning "fix" that edited
+    no file still passed, because a warning fails neither ruff nor pytest).
+    This report adds the missing half: the same gate must have been RED on
+    the base ref. Only a real red→green transition is gate-visible.
+    """
+
+    before: VerificationReport | None
+    after: VerificationReport
+    transition: str
+    error: str | None = None
+
+    @property
+    def gate_visible(self) -> bool:
+        return self.transition == RED_TO_GREEN
+
+    def summary(self) -> str:
+        if self.transition == RED_TO_GREEN:
+            return "GATE-VISIBLE — base ✗ → change ✓ (real red→green transition)"
+        if self.transition == GREEN_TO_GREEN:
+            return (
+                "GATE-INVISIBLE — base already ✓; the change proves nothing. "
+                "Make the gate red on base first (e.g. a failing test, or "
+                "`-W error` so a warning counts as failure)."
+            )
+        if self.transition == STILL_RED:
+            return "STILL-RED — change did not make the gate green: " + self.after.summary()
+        return f"BASE-ERROR — could not evaluate base ref: {self.error}"
+
+
+def classify_gate_transition(
+    repo_root: Path | str,
+    base_ref: str,
+    *,
+    checks: list[tuple[str, list[str]]] | None = None,
+    test_target: str | None = None,
+    ruff_paths: list[str] | None = None,
+    timeout: float = 600.0,
+) -> GateVisibilityReport:
+    """Classify whether the worktree's change moved the gate from red→green.
+
+    Runs the gate on the current worktree (must end green) AND on a
+    throwaway ``git worktree`` checkout of ``base_ref`` (must have been
+    red). Never raises — a base it cannot evaluate is :data:`BASE_ERROR`,
+    not an exception (matches the module charter).
+
+    The CRAWL picker (ADR 0182) calls this at task-pick time to reject
+    gate-invisible specs before dispatching the agent.
+    """
+    root = Path(repo_root)
+    after = verify_change(
+        root, checks=checks, test_target=test_target,
+        ruff_paths=ruff_paths, timeout=timeout,
+    )
+
+    before = _verify_base_ref(
+        root, base_ref, checks=checks, test_target=test_target,
+        ruff_paths=ruff_paths, timeout=timeout,
+    )
+    if before is None:
+        return GateVisibilityReport(
+            before=None, after=after, transition=BASE_ERROR,
+            error=f"could not check out base ref {base_ref!r} in a worktree",
+        )
+
+    if not after.ok:
+        transition = STILL_RED
+    elif before.ok:
+        transition = GREEN_TO_GREEN
+    else:
+        transition = RED_TO_GREEN
+    return GateVisibilityReport(before=before, after=after, transition=transition)
+
+
+def _verify_base_ref(
+    repo_root: Path,
+    base_ref: str,
+    *,
+    checks: list[tuple[str, list[str]]] | None,
+    test_target: str | None,
+    ruff_paths: list[str] | None,
+    timeout: float,
+) -> VerificationReport | None:
+    """Run the gate against ``base_ref`` in a detached throwaway worktree.
+
+    Returns the base's :class:`VerificationReport`, or ``None`` if the ref
+    could not be materialised (unknown ref, not a git repo, …).
+
+    PERF NOTE (CRAWL picker follow-up): the fresh worktree has no ``.venv``,
+    so a ``uv run`` check rebuilds the environment there (tens of seconds on
+    first use) — fine for a one-shot pick-time check, but the picker should
+    reuse the parent venv (e.g. inherit ``VIRTUAL_ENV`` / narrow the base
+    check to ruff-only) before calling this in a loop.
+    """
+    tmp = tempfile.mkdtemp(prefix=".gate-base-")
+    try:
+        add = subprocess.run(
+            ["git", "-C", str(repo_root), "worktree", "add", "--detach", tmp, base_ref],
+            capture_output=True, text=True, timeout=120,
+        )
+        if add.returncode != 0:
+            return None
+        return verify_change(
+            Path(tmp), checks=checks, test_target=test_target,
+            ruff_paths=ruff_paths, timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    finally:
+        subprocess.run(
+            ["git", "-C", str(repo_root), "worktree", "remove", "--force", tmp],
+            capture_output=True, text=True,
+        )
+        shutil.rmtree(tmp, ignore_errors=True)

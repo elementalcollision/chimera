@@ -16,7 +16,33 @@ def _cmd_verify(args) -> int:
     """
     from pathlib import Path
 
-    from ..core.repo_verify import verify_change
+    from ..core.repo_verify import (
+        GREEN_TO_GREEN,
+        RED_TO_GREEN,
+        classify_gate_transition,
+        verify_change,
+    )
+
+    # Gate-visibility mode (ADR 0182): require a real red→green transition,
+    # not merely green-now (which a spec already passing on base satisfies
+    # without doing anything — the 2026-06-12 Finding 1 failure).
+    if getattr(args, "base", None):
+        gv = classify_gate_transition(
+            Path.cwd(),
+            base_ref=args.base,
+            test_target=args.test,
+            ruff_paths=args.ruff,
+            timeout=args.timeout,
+        )
+        print(gv.summary())
+        if gv.transition == RED_TO_GREEN:
+            return 0
+        for check in gv.after.failed:
+            print(f"\n── {check.name} (exit {check.returncode}) ──", file=sys.stderr)
+            print(check.detail, file=sys.stderr)
+        # Distinct exit so a caller can tell "gate-invisible spec" (3) from
+        # "change incomplete / broke the gate" (1).
+        return 3 if gv.transition == GREEN_TO_GREEN else 1
 
     report = verify_change(
         Path.cwd(),
