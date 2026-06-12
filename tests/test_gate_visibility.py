@@ -103,3 +103,26 @@ def test_after_failure_short_circuits_to_still_red(repo: Path):
     # mislabelled gate-visible.
     gv = classify_gate_transition(repo, "HEAD", checks=_NEVER)
     assert gv.transition == STILL_RED
+
+
+# ── verify_at_ref (the picker's public surface) ─────────────
+
+
+def test_verify_at_ref_runs_checks_in_base_worktree(repo: Path):
+    from chimera.core.repo_verify import verify_at_ref
+
+    # Base has no fixed.flag → the flag check fails there.
+    red = verify_at_ref(repo, "HEAD", checks=_FLAG_CHECK)
+    assert red is not None and red.ok is False
+    # Commit the flag → a later base ref is green.
+    (repo / "fixed.flag").write_text("x")
+    _git(repo, "add", "fixed.flag")
+    _git(repo, "commit", "-qm", "add flag")
+    green = verify_at_ref(repo, "HEAD", checks=_FLAG_CHECK)
+    assert green is not None and green.ok is True
+
+
+def test_verify_at_ref_unknown_ref_returns_none(repo: Path):
+    from chimera.core.repo_verify import verify_at_ref
+
+    assert verify_at_ref(repo, "no-such-ref", checks=_FLAG_CHECK) is None

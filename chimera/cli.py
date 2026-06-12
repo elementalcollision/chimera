@@ -11,6 +11,7 @@ from typing import Any
 
 from . import __version__
 
+from .cli_cmds.backlog import _cmd_backlog
 from .cli_cmds.charter import _cmd_charter
 from .cli_cmds.critic_calibrate import _cmd_critic_calibrate
 from .cli_cmds.evals import (
@@ -978,6 +979,35 @@ def _build_parser() -> argparse.ArgumentParser:
     mind_sub = mind_p.add_subparsers(dest="mind_command", metavar="<mind-cmd>")
     mind_sub.add_parser(
         "count", help="Print recursive file counts per top-level mind/ entry.",
+    )
+
+    # CRAWL backlog (ADR 0182): operator-curated task specs in mind/backlog/.
+    backlog_p = sub.add_parser(
+        "backlog",
+        help="Inspect/select operator-curated CRAWL task specs (ADR 0182).",
+    )
+    backlog_sub = backlog_p.add_subparsers(dest="backlog_command", metavar="<backlog-cmd>")
+    backlog_sub.add_parser("list", help="List all backlog specs with status.")
+    backlog_sub.add_parser(
+        "validate", help="Report malformed specs (nonzero exit if any).",
+    )
+    bl_next = backlog_sub.add_parser(
+        "next",
+        help="Print the next actionable spec (oldest valid, not-done). With "
+             "--check-gate, also verify the spec's gate is RED on its base "
+             "(gate-visibility, ADR 0182) and exit 3 if it is gate-invisible.",
+    )
+    bl_next.add_argument(
+        "--json", action="store_true", help="Emit the spec as JSON (for the runner)."
+    )
+    bl_next.add_argument(
+        "--check-gate", action="store_true",
+        help="Verify the gate is red on base before selecting; exit 3 if the "
+             "spec is gate-invisible (already green), 4 if the base errored.",
+    )
+    bl_next.add_argument(
+        "--claimed", default="", metavar="SLUGS",
+        help="Comma-separated slugs to treat as already claimed (skip).",
     )
 
     # v44: `chimera soak summary <run-id>` — thin wrapper over
@@ -3228,6 +3258,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         parser.error("usage: chimera mind count")
         return 2
+
+    if args.command == "backlog":
+        return _cmd_backlog(args, parser)
 
     if args.command == "soak":
         if args.soak_command == "summary":
