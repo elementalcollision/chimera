@@ -107,6 +107,12 @@ cost`, drift detector). LongMemEval/LoCoMo stay a **release-time** gate
    spec-picker must additionally reject specs whose gate cannot fail before
    the change (e.g. a warning-only task needs `-W error`), or verify the
    gate was red on `base` first.
+   **Built:** `classify_gate_transition` + `chimera verify --base <ref>`
+   (`chimera/core/repo_verify.py`) runs the gate on both the worktree and a
+   throwaway base checkout and classifies red→green (exit 0) /
+   gate-invisible green→green (exit 3) / still-red (exit 1). The CRAWL
+   picker calls this at pick time; the soak phase-1 sentinel adopts it as a
+   follow-up.
 
 2. **A workable, understandable dashboard.** The current dashboard accreted
    to 18 widgets across 4 presets — a debug console, not an operator's

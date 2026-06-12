@@ -185,6 +185,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--timeout", type=float, default=600.0,
         help="Per-check timeout in seconds (default 600).",
     )
+    verify.add_argument(
+        "--base", default=None, metavar="REF",
+        help="Gate-visibility mode (ADR 0182): also run the gate on this "
+             "base ref and require a real red→green transition. Exit 0 only "
+             "if the gate was RED on base and GREEN now; exit 3 if the gate "
+             "was already green on base (gate-INVISIBLE — the change proves "
+             "nothing); exit 1 if still red. Used by the CRAWL picker to "
+             "reject gate-invisible task specs.",
+    )
 
     faith = sub.add_parser(
         "faithfulness",
