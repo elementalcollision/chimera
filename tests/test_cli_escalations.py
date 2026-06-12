@@ -123,6 +123,19 @@ def test_escalations_clear_has_no_json_flag(tmp_path: Path) -> None:
     )
 
 
+def test_escalations_clear_all_succeeds_without_json(tmp_path: Path) -> None:
+    """Regression: `clear --all` (no --json) must not AttributeError on the
+    handler's args.json reference — the bug hit during the 2026-06-12
+    pre-CRAWL state cleanup."""
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    _seed_escalations(state / "chimera.db")
+
+    rc, out, err = _run_escalations("clear", "--all", state_dir=state)
+    assert rc == 0, f"clear --all failed: rc={rc} err={err}"
+    assert "deleted" in out.lower()
+
+
 # ── list with grep + json ───────────────────────────────────
 
 def test_escalations_list_json_with_grep(tmp_path: Path) -> None:

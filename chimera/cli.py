@@ -1907,7 +1907,10 @@ def main(argv: list[str] | None = None) -> int:
                     "(safety guard; the agent uses these rows to learn)."
                 )
             n = clear_escalations(conn, signature_substring=args.grep)
-            if args.json:
+            # `clear` has no --json flag by charter (destructive verb, kept
+            # non-scriptable); getattr guards the no-flag path that otherwise
+            # AttributeError'd on `args.json`.
+            if getattr(args, "json", False):
                 print(_json.dumps({"deleted_rows": n}))
                 return 0
             print(f"chimera escalations: deleted {n} row(s)")
