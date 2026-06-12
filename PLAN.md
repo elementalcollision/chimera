@@ -43,6 +43,10 @@ feature velocity to consolidation. Open items, in order:
   live-validated in the keyed env; dispatch-over-TLS drill closed
   (ADR 0178); CHIMERA_ENTROPY_SIGNALS default-ON (ADR 0180). Harness
   findings 1–3 chipped (sentinel diff predicate, autocommit provenance).
+- [ ] **Daily autonomous production (ADR 0182, crawl/walk/run)** — the
+  upstream of everything below. CRAWL: operator-curated `mind/backlog/*.md`
+  specs, 1 task/day, draft-PR batch review. Hard prerequisites:
+  gate-visibility (Finding 1) + a consolidated operator dashboard.
 - [ ] Graduate lexical routing v0 (ADRs 0165/0166) to embedding-based
   routing **once eval gating is live** (still gated — the eval nightly is
   on hold above, so there is no measured routing baseline yet).
