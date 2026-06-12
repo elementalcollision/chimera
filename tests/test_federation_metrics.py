@@ -14,15 +14,24 @@ from chimera.memory import (
 # ── flag parsing ────────────────────────────────────────────
 
 
-def test_flag_off_by_default(monkeypatch):
+def test_flag_on_by_default(monkeypatch):
+    # ADR 0179: this observability flag graduated to default-ON.
     monkeypatch.delenv("CHIMERA_FEDERATION_METRICS", raising=False)
-    assert federation_metrics_enabled() is False
+    assert federation_metrics_enabled() is True
 
 
 @pytest.mark.parametrize("val", ["1", "true", "YES", "on"])
 def test_flag_truthy(monkeypatch, val):
     monkeypatch.setenv("CHIMERA_FEDERATION_METRICS", val)
     assert federation_metrics_enabled() is True
+
+
+@pytest.mark.parametrize("val", ["0", "false", "no", "off", ""])
+def test_flag_explicit_disable(monkeypatch, val):
+    # An explicit non-truthy value always disables, even though the default
+    # is now on — `CHIMERA_FEDERATION_METRICS=0` opts out.
+    monkeypatch.setenv("CHIMERA_FEDERATION_METRICS", val)
+    assert federation_metrics_enabled() is False
 
 
 # ── compute_connectivity ────────────────────────────────────
