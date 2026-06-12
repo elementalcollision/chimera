@@ -72,6 +72,17 @@ def test_default_checks_narrow_to_targets():
     assert checks["pytest"][-1] == "tests/test_x.py"
 
 
+def test_default_checks_test_target_carries_pytest_flags():
+    """ADR 0182: a tokenised test_target can carry pytest flags so a
+    warning-only fix is gate-visible (e.g. -W error makes a deprecation a
+    hard failure). A bare path still tokenises to itself."""
+    checks = dict(default_checks(test_target="-W error::DeprecationWarning tests/test_x.py"))
+    assert checks["pytest"][-3:] == ["-W", "error::DeprecationWarning", "tests/test_x.py"]
+    # Bare path unchanged.
+    bare = dict(default_checks(test_target="tests/test_x.py::test_y"))
+    assert bare["pytest"][-1] == "tests/test_x.py::test_y"
+
+
 # ── report ──────────────────────────────────────────────────────────
 
 
