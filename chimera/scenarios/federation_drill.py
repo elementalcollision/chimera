@@ -645,12 +645,11 @@ async def _spawn_peer(root: Path, *, agent_id: str, tier: int):
 async def _arun_remote_federation(peer_root: Path) -> RemoteFederationResult:
     from ..a2a import (
         PeerAwareDispatcher,
-        PeerCallRefused,
         latest_per_peer,
         record_decision,
     )
     from ..a2a.peer_selection import select_peer
-    from ..memory import GraphStore, compute_connectivity
+    from ..memory import compute_connectivity
 
     result = RemoteFederationResult()
     # alpha/beta earned trust (T4 → ALLOW); gamma is locked (T0 → REFUSE).
