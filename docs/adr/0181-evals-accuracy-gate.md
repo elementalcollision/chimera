@@ -66,6 +66,12 @@ decisions are made):
 
 ## Decisions required to go live (operator)
 
+> **Operator decision (2026-06-12): HOLD go-live.** Secrets "not yet",
+> grader "decide later". The keyless plumbing job stays the active
+> surface; the four decisions below remain open. The downstream
+> embedding-routing item's backend was, however, resolved the same day:
+> **Ollama (local, bge-m3)** for ADR 0134 §6.b.
+
 The template can't be scheduled until these are made — they are not
 technical blockers but choices with cost/policy implications:
 
