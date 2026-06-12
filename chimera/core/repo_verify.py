@@ -191,6 +191,29 @@ def classify_gate_transition(
     return GateVisibilityReport(before=before, after=after, transition=transition)
 
 
+def verify_at_ref(
+    repo_root: Path | str,
+    ref: str,
+    *,
+    checks: list[tuple[str, list[str]]] | None = None,
+    test_target: str | None = None,
+    ruff_paths: list[str] | None = None,
+    timeout: float = 600.0,
+) -> VerificationReport | None:
+    """Run the gate against ``ref`` in a throwaway worktree (public surface).
+
+    The CRAWL backlog picker (ADR 0182) uses this at pick time: a spec's
+    gate must be RED on base — a gate already green on base is
+    gate-invisible (the change could no-op and still "pass"), so the picker
+    rejects the spec before dispatching the agent. Returns ``None`` when the
+    ref cannot be materialised.
+    """
+    return _verify_base_ref(
+        Path(repo_root), ref, checks=checks, test_target=test_target,
+        ruff_paths=ruff_paths, timeout=timeout,
+    )
+
+
 def _verify_base_ref(
     repo_root: Path,
     base_ref: str,

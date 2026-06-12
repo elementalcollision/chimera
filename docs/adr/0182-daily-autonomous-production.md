@@ -80,6 +80,15 @@ New code is small and additive: the spec format, the picker
 (`chimera backlog next` / a thin wrapper), and a scheduled invocation. No
 change to the loop, gates, or soak harness.
 
+**Built (scaffold):** `chimera/core/backlog.py` (spec parse/validate/select,
+fully unit-tested), the `chimera backlog list|validate|next` verbs (with
+`next --check-gate` enforcing gate-visibility via `verify_at_ref` — exit 3
+on a gate-invisible spec), the `mind/backlog/` folder + README + a worked
+`done:true` example, and `scripts/crawl_daily.sh` — the one-task-per-run
+driver that picks → gate-checks → runs `real_task_soak.sh` → draft PR, with
+a dispatch log so a spec is not re-run before its PR lands. Nothing runs
+until the operator provisions the keyed scheduled runner.
+
 ### Phase 2 — WALK: GitHub issues across elementalcollision repos
 
 Swap the curated-MD source for live issues: triage/cluster (the
