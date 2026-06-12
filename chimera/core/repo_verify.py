@@ -17,6 +17,7 @@ the detail, not an exception.
 
 from __future__ import annotations
 
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -70,11 +71,18 @@ def default_checks(
     ``test_target`` narrows pytest to the affected test(s) (cheaper than the full
     suite); ``ruff_paths`` narrows the lint to the changed files. Omit both to
     run the whole repo.
+
+    ``test_target`` is **shell-tokenised** (``shlex.split``), so it may carry
+    pytest flags as well as a path — e.g. ``"-W error::DeprecationWarning
+    tests/test_x.py"`` makes a deprecation a hard failure, which is how a
+    warning-only fix is made gate-visible (ADR 0182: the gate must be RED on
+    base). A bare path tokenises to itself, so existing single-path callers
+    are unchanged.
     """
     ruff = ["uv", "run", "ruff", "check", *(ruff_paths or ["."])]
     pytest = ["uv", "run", "--extra", "dev", "pytest", "-q"]
     if test_target:
-        pytest.append(test_target)
+        pytest.extend(shlex.split(test_target))
     return [("ruff", ruff), ("pytest", pytest)]
 
 

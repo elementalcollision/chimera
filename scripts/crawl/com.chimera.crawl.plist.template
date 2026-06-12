@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CRAWL daily runner — launchd LaunchAgent template (ADR 0182, macOS).
+
+  Runs scripts/crawl_daily.sh once a day. Install with
+  scripts/crawl/install_launchd.sh (which fills __REPO__ / __UV__ / __HOME__
+  and copies this into ~/Library/LaunchAgents/). The job runs as the logged-in
+  user so it inherits the keychain/.env; crawl_daily.sh sources .env itself.
+
+  Manual handoff is preserved: the job produces a DRAFT PR and stops. It does
+  not push to main or merge. Review the branch/PR, then mark the spec done.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.chimera.crawl</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>__REPO__/scripts/crawl_daily.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+
+    <!-- uv must be on PATH for `uv run chimera ...`. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>__UVDIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>HOME</key>
+      <string>__HOME__</string>
+    </dict>
+
+    <!-- 09:15 local time daily — one task/day to begin (ADR 0182). -->
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>15</integer>
+    </dict>
+
+    <!-- Don't fire a missed run in a burst if the machine was asleep. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>__REPO__/state/crawl/crawl.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__REPO__/state/crawl/crawl.err.log</string>
+  </dict>
+</plist>
