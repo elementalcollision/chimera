@@ -3,7 +3,7 @@ goal: "Migrate the federation HTTP/TLS client to the new MCP SDK streamable_http
 files: chimera/tools/mcp_client.py chimera/scenarios/federation_drill.py
 test: "-W error::DeprecationWarning tests/test_remote_federation_tls_drill.py"
 base: main
-done: false
+done: true  # done directly (not via CRAWL) 2026-06-12 — see crawl-first-run note
 ---
 NOT a rename (the first CRAWL run proved this — see
 mind/research/crawl-first-run-2026-06-12.md). The MCP SDK's
