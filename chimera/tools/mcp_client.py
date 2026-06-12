@@ -63,6 +63,11 @@ class MCPServerConfig:
     # http
     url: str = ""
     token: str = ""
+    # TLS (ADR 0178): path to a CA bundle / self-signed cert to trust when
+    # dialing an https URL. Empty → httpx's default verification (certifi).
+    # httpx does NOT honour SSL_CERT_FILE, so self-signed federation peers
+    # need the trust root threaded explicitly.
+    tls_ca: str = ""
 
 
 def parse_mcp_config(raw: str | None) -> dict[str, MCPServerConfig]:
@@ -98,6 +103,7 @@ def parse_mcp_config(raw: str | None) -> dict[str, MCPServerConfig]:
                 transport="http",
                 url=str(url),
                 token=str(body.get("token") or ""),
+                tls_ca=str(body.get("tls_ca") or ""),
             )
         elif transport == "stdio":
             if not body.get("command"):
@@ -129,7 +135,28 @@ async def _open_session(config: MCPServerConfig):
         headers = {}
         if config.token:
             headers["Authorization"] = f"Bearer {config.token}"
-        cm = streamablehttp_client(url=config.url, headers=headers or None)
+        kwargs: dict[str, Any] = {"url": config.url, "headers": headers or None}
+        if config.tls_ca:
+            # ADR 0178: trust a specific CA / self-signed cert for this peer.
+            # The SDK's default factory hard-codes httpx's certifi verification;
+            # supply one that pins `verify` to the configured bundle instead.
+            import httpx  # type: ignore
+
+            def _pinned_client(
+                headers: dict[str, str] | None = None,
+                timeout: Any | None = None,
+                auth: Any | None = None,
+            ) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout if timeout is not None else httpx.Timeout(30.0),
+                    auth=auth,
+                    verify=config.tls_ca,
+                    follow_redirects=True,
+                )
+
+            kwargs["httpx_client_factory"] = _pinned_client
+        cm = streamablehttp_client(**kwargs)
         # streamablehttp_client yields (read, write, get_session_id_fn).
         opened = await cm.__aenter__()
         read, write = opened[0], opened[1]
