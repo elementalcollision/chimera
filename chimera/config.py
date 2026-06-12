@@ -204,8 +204,10 @@ REGISTRY: dict[str, FlagSpec] = dict(
         _f("CHIMERA_PEER_CARD_LLM", "bool", None, "LLM-generated peer cards."),
         _f("CHIMERA_PEER_CARDS_ON_ROTATE", "bool", None, "Regenerate peer cards on rotation."),
         _f("CHIMERA_PEER_BELIEFS_ON_ROTATE", "bool", None, "Refresh peer beliefs on rotation."),
-        _f("CHIMERA_FEDERATION_METRICS", "bool", None,
-           "Federation connectivity gauge (ADR 0168)."),
+        _f("CHIMERA_FEDERATION_METRICS", "bool", "1",
+           "Federation connectivity gauge (ADR 0168). Default-ON (ADR 0179): "
+           "pure observability — adds a 'federation' block to the graph-export "
+           "snapshot; no hot-path effect. Set =0 to disable."),
         _f("CHIMERA_MODEL_PEERS", "bool", None,
            "Model-backed peers from the vendor ladder (ADR 0174).",
            ("CHIMERA_MODEL_PEER_VENDORS", "CHIMERA_PEER_SELECTION")),
@@ -255,10 +257,21 @@ def _require_declared(name: str) -> None:
 
 def flag_enabled(name: str, *, env: dict[str, str] | None = None) -> bool:
     """Bool flag read: truthy when the value is 1/true/yes/on
-    (case-insensitive, stripped). Unset/empty/anything else → False."""
+    (case-insensitive, stripped).
+
+    When the flag is **unset**, the registry's declared ``default`` is used
+    (ADR 0179): a flag declared default-on (``default="1"``) reads True until
+    explicitly overridden, while every flag declared ``default=None`` (the
+    overwhelming majority) stays off-when-unset exactly as before. An explicit
+    empty/`0`/`false`/anything-non-truthy value still reads False, so
+    ``CHIMERA_X=0`` always disables — even a default-on flag."""
     _require_declared(name)
     source = os.environ if env is None else env
-    return source.get(name, "").strip().lower() in TRUTHY
+    raw = source.get(name)
+    if raw is None:
+        spec = REGISTRY.get(name)
+        raw = spec.default if (spec is not None and spec.default is not None) else ""
+    return raw.strip().lower() in TRUTHY
 
 
 def flag_int(
