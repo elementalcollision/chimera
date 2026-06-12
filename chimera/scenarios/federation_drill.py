@@ -424,6 +424,19 @@ def _generate_token() -> str:
     return "tok_" + secrets.token_hex(8)
 
 
+def _httpx_verify(verify: bool | str) -> object:
+    """Map a ``bool | str`` verify into an httpx-acceptable value.
+
+    httpx deprecated ``verify=<str>`` (a cert path); a path must now be an
+    ``ssl.SSLContext``. A bool passes through unchanged (True = certifi).
+    """
+    if isinstance(verify, str):
+        import ssl
+
+        return ssl.create_default_context(cafile=verify)
+    return verify
+
+
 async def _wait_for_health(
     url: str, *, timeout_s: float = 10.0, verify: bool | str = True
 ) -> bool:
@@ -432,7 +445,7 @@ async def _wait_for_health(
     import httpx
     deadline = asyncio.get_event_loop().time() + timeout_s
     health = url.rstrip("/") + "/healthz"
-    async with httpx.AsyncClient(timeout=2.0, verify=verify) as client:
+    async with httpx.AsyncClient(timeout=2.0, verify=_httpx_verify(verify)) as client:
         while asyncio.get_event_loop().time() < deadline:
             try:
                 r = await client.get(health)
@@ -448,7 +461,7 @@ async def _check_anonymous_rejected(url: str, *, verify: bool | str = True) -> b
     """A bearer-protected /mcp endpoint should 401 without a token."""
     import httpx
     mcp = url.rstrip("/") + "/mcp"
-    async with httpx.AsyncClient(timeout=2.0, verify=verify) as client:
+    async with httpx.AsyncClient(timeout=2.0, verify=_httpx_verify(verify)) as client:
         try:
             r = await client.post(mcp, json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
         except httpx.HTTPError:
