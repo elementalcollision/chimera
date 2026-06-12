@@ -144,7 +144,12 @@ export default function CanvasShell({
       if (rawT === "system" || rawT === "light" || rawT === "slate") setTheme(rawT);
       if (rawD === "compact" || rawD === "cozy" || rawD === "spacious") setDensity(rawD);
       if (rawC != null) setShowCatalogue(rawC === "1");
+      // ADR 0182: default to the operator-first "review" view on first
+      // visit (no persisted preset). The telemetry presets stay one click
+      // away; this just changes the front door from the full 24-widget
+      // canvas to the consolidated review surface.
       if (rawPreset && rawPreset in presets) setPresetState(rawPreset);
+      else if (rawPreset === null && "review" in presets) setPresetState("review");
       if (rawAuto === "1") setAutoRefresh(true);
     } catch {
       setLayouts(defaultLayout(widgets));

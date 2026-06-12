@@ -114,13 +114,20 @@ cost`, drift detector). LongMemEval/LoCoMo stay a **release-time** gate
    picker calls this at pick time; the soak phase-1 sentinel adopts it as a
    follow-up.
 
-2. **A workable, understandable dashboard.** The current dashboard accreted
-   to 18 widgets across 4 presets — a debug console, not an operator's
-   window. Batch review at one-human scale needs it to answer, at a glance:
-   *what did Chimera do since I last looked, what is waiting for my review,
-   and is production health trending bad?* This is a consolidation/redesign
-   track, runnable in parallel with the CRAWL build; it is the actual human
-   interface to the program. Tracked as a sibling ADR.
+2. **A workable, understandable dashboard.** The dashboard had accreted to
+   24 widgets across 4 telemetry presets — a debug console, not an
+   operator's window. Batch review at one-human scale needs it to answer,
+   at a glance: *what did Chimera do since I last looked, what is waiting
+   for my review, and is production health trending bad?*
+   **Built (first pass):** a new operator-first **Review** preset is now the
+   default front door (`control-plane/app/page.tsx` + `CanvasShell` default).
+   It leads with a **Production health** rollup (`lib/health.ts` +
+   `ProductionHealthWidget`) — a worst-of verdict over the signals Chimera
+   already emits (cost rate, drift, queue staleness, fragmentation, hot
+   signatures, ontology audit), each dimension always showing its raw value.
+   Chronicle answers "what did it do"; Inbox + Mutations are today's proxy
+   for "what's queued" until the CRAWL phase adds the real PR-review queue.
+   The 24 telemetry widgets and their presets are preserved, one click away.
 
 ## Graduation criteria (operator-gated)
 

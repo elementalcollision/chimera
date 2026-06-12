@@ -65,12 +65,17 @@ cd control-plane && npm install && npm run dev
 # → http://127.0.0.1:3000
 ```
 
-Widgets: Status, Token cost, Cost-over-time, Drift composite, Phase timings,
+The default view is **Review** (ADR 0182) — an operator-first surface that
+answers the three daily-production questions at a glance: **Production
+health** (a worst-of verdict over cost rate, drift, queue staleness,
+fragmentation, hot signatures, and ontology audit), what Chimera did
+(Chronicle), and what's queued (Inbox + Mutations). The full telemetry
+canvas — 25 widgets across the Operator / Cost / Debug / Federation presets
+(Status, Token cost, Cost-over-time, Drift composite, Phase timings,
 Ontology + Audit, API calls, Mutations + Queue health, Skill assembly,
 Skill graph, Fragmentation, Peers, Trust journal, Emergence, Re-anchor
-history, **Tool fan-out** (per-model + history + cost-per-tool-call), Inbox,
-Chronicle. All reading directly from SQLite. Drag, pin, hide, three-way
-theme, four view presets (Operator / Cost / Debug / Federation).
+history, **Tool fan-out**, …) — is one click away. All reading directly
+from SQLite. Drag, pin, hide, three-way theme.
 
 ## Architecture
 
@@ -88,7 +93,7 @@ theme, four view presets (Operator / Cost / Debug / Federation).
 | **Engines** | Discovery / Curiosity / Reflection — chronicle writers + mutation proposers, env-gated kill-switch |
 | **Drift** | Composite score with semantic + behavioral + stagnation; demote-plan policy; per-cycle time series |
 | **Trust** | T0–T5 ladder with promotion criteria; lockdown via drift threshold |
-| **Dashboard** | Next.js 15 + Turbopack + react-grid-layout, MLC design language, 18 widgets |
+| **Dashboard** | Next.js 15 + Turbopack + react-grid-layout, MLC design language; operator-first **Review** default (ADR 0182) over 25 widgets / 5 presets |
 
 ## Documentation
 
