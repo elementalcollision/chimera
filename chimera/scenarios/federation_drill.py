@@ -561,3 +561,169 @@ async def _arun_http_drill(peer_root: Path) -> FederationHttpDrillResult:
 
 def run_federation_http_drill(peer_root: Path) -> FederationHttpDrillResult:
     return asyncio.run(_arun_http_drill(peer_root))
+
+
+# ── Remote federation drill (ADR 0167 + 0168 remote certification) ──────
+#
+# The local certification of ADR 0167 (power-of-two peer selection) and
+# ADR 0168 (federation connectivity gauge) used model-backed peers (ADR 0174)
+# — local provider bindings presenting the remote-peer interface. The named
+# follow-up was to certify both against *genuinely remote* peers. This drill
+# does that over the real HTTP MCP transport: it spawns N independent Chimera
+# HTTP servers (distinct CHIMERA_AGENT_ID, port, token, state dir), seeds each
+# with a real trust_state.json so the live kfm_tool reports a real ALLOW- or
+# REFUSE-shaped tier, registers them as remote mcp-<peer>-* tools, then runs
+# the real PeerAwareDispatcher trust gate, the real select_peer two-choice, and
+# the real connectivity gauge over the resulting trust journal.
+
+import json as _json  # noqa: E402
+import secrets as _secrets  # noqa: E402
+import subprocess as _subprocess  # noqa: E402
+from collections import Counter as _Counter  # noqa: E402
+
+
+@dataclass
+class RemoteFederationResult:
+    peers: list[str] = field(default_factory=list)
+    allow_peers: list[str] = field(default_factory=list)
+    refuse_peers: list[str] = field(default_factory=list)
+    selection_spread: dict[str, int] = field(default_factory=dict)
+    connectivity: dict | None = None
+    health_ok: bool = False
+    failures: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return (
+            not self.failures
+            and self.health_ok
+            # selection only ever picked trust-eligible (ALLOW) peers
+            and bool(self.selection_spread)
+            and set(self.selection_spread).issubset(set(self.allow_peers))
+            # the gauge isolated the REFUSEd peer(s)
+            and self.connectivity is not None
+            and self.connectivity.get("isolated_nodes", 0) >= len(self.refuse_peers)
+        )
+
+
+def _seed_trust_state(state_dir: Path, tier: int) -> None:
+    """Write a real trust_state.json the live kfm_tool reads via TrustManager."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "trust_state.json").write_text(
+        _json.dumps(
+            {"current_tier": tier, "tier_entered_at": "2026-06-12T00:00:00+00:00"}
+        )
+    )
+
+
+async def _spawn_peer(root: Path, *, agent_id: str, tier: int):
+    """Spawn one real `chimera serve --http` peer; return (proc, name, url, token)."""
+    mind = root / agent_id / "mind"
+    state = root / agent_id / "state"
+    mind.mkdir(parents=True, exist_ok=True)
+    _seed_trust_state(state, tier)
+
+    port = _find_free_port()
+    token = "tok_" + _secrets.token_hex(8)
+    url = f"http://127.0.0.1:{port}"
+    env = {
+        **os.environ,
+        "CHIMERA_AGENT_ID": agent_id,
+        "CHIMERA_PEER_TOKEN": token,
+        "CHIMERA_PEER_EXPOSED_TOOLS": "shell",
+        "CHIMERA_MIND_DIR": str(mind),
+        "CHIMERA_STATE_DIR": str(state),
+        "PATH": os.environ.get("PATH", ""),
+    }
+    proc = _subprocess.Popen(
+        ["uv", "run", "chimera", "serve", "--http", "--host", "127.0.0.1", "--port", str(port)],
+        env=env, stdout=_subprocess.DEVNULL, stderr=_subprocess.DEVNULL,
+    )
+    return proc, agent_id, url, token
+
+
+async def _arun_remote_federation(peer_root: Path) -> RemoteFederationResult:
+    from ..a2a import (
+        PeerAwareDispatcher,
+        PeerCallRefused,
+        latest_per_peer,
+        record_decision,
+    )
+    from ..a2a.peer_selection import select_peer
+    from ..memory import GraphStore, compute_connectivity
+
+    result = RemoteFederationResult()
+    # alpha/beta earned trust (T4 → ALLOW); gamma is locked (T0 → REFUSE).
+    plan = [("alpha", 4), ("beta", 4), ("gamma", 0)]
+    procs: list = []
+    reg = ToolRegistry()
+    try:
+        spawned = [await _spawn_peer(peer_root, agent_id=a, tier=t) for a, t in plan]
+        procs = [s[0] for s in spawned]
+
+        # (1) all peers healthy.
+        for _proc, name, url, _token in spawned:
+            if not await _wait_for_health(url, timeout_s=20.0):
+                result.failures.append(f"{name} failed health at {url}")
+        result.health_ok = not result.failures
+        if not result.health_ok:
+            return result
+
+        # (2) register every peer over the real HTTP MCP transport.
+        cfg = {
+            name: MCPServerConfig(name=name, transport="http", url=url + "/mcp", token=token)
+            for _proc, name, url, token in spawned
+        }
+        await register_mcp_servers(cfg, reg)
+        result.peers = [name for _p, name, _u, _t in spawned]
+
+        # (3) real trust gate per peer over HTTP → journal the real decisions.
+        journal_dir = peer_root / "trust_journal"
+        journal_dir.mkdir(parents=True, exist_ok=True)
+        disp = PeerAwareDispatcher(reg)
+        for name in result.peers:
+            state = await fetch_peer_kfm(name, registry=reg)
+            decision = disp.policy.evaluate(state)
+            record_decision(
+                name, decision.decision.name, reason=decision.reason,
+                drift_score=state.get("last_drift_score"), dir=journal_dir,
+            )
+            if decision.decision.name == "ALLOW":
+                result.allow_peers.append(name)
+            else:
+                result.refuse_peers.append(name)
+
+        # (4) ADR 0167 — real two-choice selection over the remote peers.
+        import random as _random
+        rng = _random.Random(1234)
+        picks = _Counter()
+        for _ in range(12):
+            chosen = await select_peer(
+                registry=reg, policy=disp.policy, rng=rng,
+            )
+            if chosen is not None:
+                picks[chosen] += 1
+        result.selection_spread = dict(picks)
+
+        # (5) ADR 0168 — connectivity gauge over the real remote trust journal.
+        self_id = "operator"
+        latest = latest_per_peer(dir=journal_dir)
+        edges = [
+            (self_id, peer, rec.decision) for peer, rec in latest.items()
+        ]
+        nodes = [self_id, *result.peers]
+        result.connectivity = compute_connectivity(edges, nodes).to_dict()
+    except Exception as exc:  # noqa: BLE001
+        result.failures.append(f"remote federation drill error: {exc!r}")
+    finally:
+        for proc in procs:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3.0)
+            except _subprocess.TimeoutExpired:
+                proc.kill()
+    return result
+
+
+def run_remote_federation_drill(peer_root: Path) -> RemoteFederationResult:
+    return asyncio.run(_arun_remote_federation(peer_root))

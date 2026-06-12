@@ -8,9 +8,11 @@ from .federation_drill import (
     FederationDrillResult,
     FederationHttpDrillResult,
     FederationTrustDrillResult,
+    RemoteFederationResult,
     run_federation_drill,
     run_federation_http_drill,
     run_federation_trust_drill,
+    run_remote_federation_drill,
 )
 from .graph_stress import GraphStressResult, QueryTiming, run_graph_stress
 from .cost_runaway_drill import (
@@ -26,6 +28,8 @@ __all__ = [
     "FederationDrillResult",
     "FederationHttpDrillResult",
     "FederationTrustDrillResult",
+    "RemoteFederationResult",
+    "run_remote_federation_drill",
     "GraphStressResult",
     "QueryTiming",
     "format_cost_runaway_result",
