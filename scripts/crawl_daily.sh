@@ -66,9 +66,34 @@ echo "[crawl]   files: $TASK_FILES"
 # Record dispatch BEFORE the soak so a crash can't double-dispatch tomorrow.
 echo "$SLUG" >> "$DISPATCH_LOG"
 
-bash "$REPO_ROOT/scripts/real_task_soak.sh"
-RC=$?
+SOAK_OUT="$(mktemp -t crawl-soak.XXXXXX)"
+bash "$REPO_ROOT/scripts/real_task_soak.sh" 2>&1 | tee "$SOAK_OUT"
+RC=${PIPESTATUS[0]}
+
+# Evidence-first (ADR 0182 Phase 3): record this run's outcome into the
+# ledger so RUN-graduation metrics accrue from real history. Parse the
+# soak's stable [soak-outcome] line; fall back to a fail record if absent.
+OUTCOME_LINE="$(grep '\[soak-outcome\]' "$SOAK_OUT" | tail -1 || true)"
+ISSUE_ARG=""
+case "$SPEC_JSON" in *'"issue"'*) ISSUE="$(printf '%s' "$SPEC_JSON" | uv run python -c 'import json,sys; print(json.load(sys.stdin).get("issue") or "")')"; [ -n "$ISSUE" ] && ISSUE_ARG="--issue $ISSUE" ;; esac
+if [ -n "$OUTCOME_LINE" ]; then
+  # shellcheck disable=SC2046  # intentional word-split of key=val tokens
+  eval $(printf '%s\n' "$OUTCOME_LINE" | sed -E 's/.*\[soak-outcome\] //; s/([a-z_]+)=([^ ]*)/O_\1="\2"/g')
+  uv run chimera crawl record --run-id "${O_run_id:-$RUN_TS}" --slug "$SLUG" \
+    --gate "${O_gate:-fail}" --committed "${O_committed:-0}" \
+    --cost-usd "${O_cost_usd:-0}" --branch "${O_branch:-}" \
+    --base "${O_base:-main}" $ISSUE_ARG 2>&1 | tail -1 || true
+else
+  echo "[crawl] WARN: no [soak-outcome] line — recording a fail outcome."
+  uv run chimera crawl record --run-id "crawl-${SLUG}-$(date -u +%s)" \
+    --slug "$SLUG" --gate fail $ISSUE_ARG 2>&1 | tail -1 || true
+fi
+rm -f "$SOAK_OUT"
+
+# Health snapshot for this run (operational heartbeat; never fails the run).
+echo "[crawl] health snapshot:"
+uv run chimera health 2>&1 | sed 's/^/[crawl]   /' || true
 
 echo "[crawl] soak finished (rc=$RC). Review the branch/PR; mark the spec"
-echo "[crawl] done: true (or remove '$SLUG' from $DISPATCH_LOG) once landed."
+echo "[crawl] done: true once landed, then: chimera crawl resolve --run-id <id> --disposition merged"
 exit 0

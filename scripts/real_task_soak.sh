@@ -348,8 +348,17 @@ phase_loop "phase2" "$PHASE2_CAP_USD" "$P2_ISO" "1" "$MAX_WALL_SECONDS"
 log "── branch commits (expect 1 [agent] commit) ──"
 ( cd "$WORKTREE" && git log --oneline "$TASK_BASE"..HEAD ) 2>&1 | tee -a "$LOG"
 log "── gate (post-fix) ──"
-( cd "$WORKTREE" && eval "$GATE_VERIFY_CMD" ) 2>&1 | tee -a "$LOG" || true
+( cd "$WORKTREE" && eval "$GATE_VERIFY_CMD" ) 2>&1 | tee -a "$LOG"
+GATE_RC=${PIPESTATUS[0]}
 log "Review: cd $WORKTREE && git log --oneline $TASK_BASE..HEAD"
+
+# Evidence (ADR 0182 Phase 3): one stable machine-readable outcome line the
+# CRAWL runner records into the outcome ledger. Fields the runner needs to
+# accrue the RUN-graduation metrics (gate-pass rate, cost, disposition).
+[ "${GATE_RC:-1}" -eq 0 ] && SOAK_GATE=pass || SOAK_GATE=fail
+SOAK_COMMITTED="$(cd "$WORKTREE" && git log --format='%s' "$TASK_BASE"..HEAD 2>/dev/null | grep -c '\[agent\]' || echo 0)"
+SOAK_COST="$(grep -oE 'spend=\$[0-9.]+' "$LOG" | tail -1 | sed 's/spend=\$//')"
+log "[soak-outcome] run_id=${RUN_ID} branch=${BRANCH} gate=${SOAK_GATE} committed=${SOAK_COMMITTED:-0} cost_usd=${SOAK_COST:-0} base=${TASK_BASE}"
 
 # ADR 0163: trust-gated autonomous self-PR. Centralized HERE (the lowest common
 # denominator — both real-task and self-determined/charter runs funnel through
