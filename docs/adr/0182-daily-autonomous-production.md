@@ -148,13 +148,25 @@ worst-of `HEALTHY|WATCH|DEGRADED` verdict, `--json` for scripting, exit 1
 on DEGRADED (`--fail-amber` to also fail on WATCH). Read-only; useful now
 as an operator/CI heartbeat and the substrate a nightly will schedule.
 
+**Built (evidence accrual, 2026-06-13):** the CRAWL **outcome ledger**
+(`chimera/core/crawl_ledger.py`, `chimera crawl record|report|resolve`).
+Each run records its outcome — slug, gate pass/fail, commits, cost,
+branch, issue provenance, and an operator-set disposition
+(pending/merged/reverted/abandoned). `crawl_daily.sh` parses the soak's
+stable `[soak-outcome]` line into the ledger and logs a `chimera health`
+snapshot per run. `chimera crawl report` folds it into the exact
+graduation metrics — gate-pass rate, revert rate over landed work,
+cost-per-run, cost-per-landed-change. This is the **evidence-first** path:
+auto-merge stays gated until this ledger shows a sustained bar over real
+landed PRs.
+
 **Deliberately NOT yet built — gated, not forgotten:**
 - *Auto-merge* is the highest-risk capability in the system and the
-  graduation criteria gate it on **landed-PR evidence that does not yet
-  exist** (zero CRAWL PRs have merged). It also needs the soak to actually
-  open PRs — the existing `maybe_self_pr` (ADR 0163, trust-gated,
+  graduation criteria gate it on **landed-PR evidence the ledger above now
+  accrues** (zero CRAWL PRs have merged yet). It also needs the soak to
+  actually open PRs — the existing `maybe_self_pr` (ADR 0163, trust-gated,
   default-OFF) is the seam, but flipping unattended merge on is
-  unjustified until the health metrics show a sustained quality bar.
+  unjustified until `chimera crawl report` shows a sustained quality bar.
 - The *production-health nightly schedule* measures production volume that
   isn't being produced yet (clean repo, idle loop), so it is a template,
   not an active cron — same posture as the evals nightly.

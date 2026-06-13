@@ -314,6 +314,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Exit nonzero on WATCH too (default: nonzero only on DEGRADED).",
     )
 
+    # CRAWL outcome ledger (ADR 0182 Phase 3 evidence base).
+    crawl_p = sub.add_parser(
+        "crawl",
+        help="CRAWL outcome ledger — record/report per-run evidence (ADR 0182).",
+    )
+    crawl_sub = crawl_p.add_subparsers(dest="crawl_command", metavar="<crawl-cmd>")
+    cr_rec = crawl_sub.add_parser("record", help="Append one run outcome (runner calls this).")
+    cr_rec.add_argument("--run-id", required=True)
+    cr_rec.add_argument("--slug", required=True)
+    cr_rec.add_argument("--gate", required=True, choices=["pass", "fail"])
+    cr_rec.add_argument("--committed", type=int, default=0)
+    cr_rec.add_argument("--cost-usd", type=float, default=0.0)
+    cr_rec.add_argument("--branch", default="")
+    cr_rec.add_argument("--base", default="main")
+    cr_rec.add_argument("--issue", default=None)
+    cr_report = crawl_sub.add_parser("report", help="Summarise the outcome ledger (graduation evidence).")
+    cr_report.add_argument("--json", action="store_true")
+    cr_resolve = crawl_sub.add_parser("resolve", help="Set a run's disposition (merged/reverted/abandoned).")
+    cr_resolve.add_argument("--run-id", required=True)
+    cr_resolve.add_argument(
+        "--disposition", required=True,
+        choices=["pending", "merged", "reverted", "abandoned"],
+    )
+
     split = sub.add_parser(
         "split",
         help="Preview a task splitter call. Heuristic + optional model.",
@@ -1519,6 +1543,63 @@ def main(argv: list[str] | None = None) -> int:
         if summary.overall == "amber" and getattr(args, "fail_amber", False):
             return 1
         return 0
+
+    if args.command == "crawl":
+        import json as _json
+
+        from .core import LoopConfig
+        from .core.crawl_ledger import (
+            CrawlOutcome,
+            record_outcome,
+            set_disposition,
+            summarize_outcomes,
+        )
+
+        cfg = LoopConfig.from_env()
+        sub_cmd = getattr(args, "crawl_command", None)
+
+        if sub_cmd == "record":
+            import datetime as _dt
+            outcome = CrawlOutcome(
+                run_id=args.run_id,
+                ts=_dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                slug=args.slug, gate=args.gate, committed=args.committed,
+                cost_usd=args.cost_usd, branch=args.branch, base=args.base,
+                issue=args.issue,
+            )
+            path = record_outcome(cfg.state_dir, outcome)
+            print(f"chimera crawl: recorded {args.run_id} (gate={args.gate}) → {path}")
+            return 0
+
+        if sub_cmd == "report":
+            summary = summarize_outcomes(cfg.state_dir)
+            if args.json:
+                print(_json.dumps(summary, indent=2))
+                return 0
+            if summary.get("total", 0) == 0:
+                print("chimera crawl: no outcomes recorded yet")
+                return 0
+            print(f"chimera crawl report: {summary['total']} run(s)")
+            print(f"  gate-pass rate     {summary['gate_pass_rate']:.0%} "
+                  f"({summary['gate_pass']}/{summary['total']})")
+            print(f"  dispositions       {summary['by_disposition']}")
+            rr = summary["revert_rate"]
+            print(f"  revert rate        {('%.0f%%' % (rr * 100)) if rr is not None else 'n/a (0 merged)'}")
+            print(f"  cost/run           ${summary['cost_per_run_usd']:.4f}")
+            cpl = summary["cost_per_landed_usd"]
+            print(f"  cost/landed        {('$%.4f' % cpl) if cpl is not None else 'n/a (0 merged)'}")
+            return 0
+
+        if sub_cmd == "resolve":
+            ok = set_disposition(cfg.state_dir, args.run_id, args.disposition)
+            if not ok:
+                print(f"chimera crawl: no such run_id {args.run_id!r} in the ledger")
+                return 1
+            print(f"chimera crawl: {args.run_id} → {args.disposition}")
+            return 0
+
+        parser.error("usage: chimera crawl {record|report|resolve}")
+        return 2
 
     if args.command == "split":
         # v4.63 (ADR 0082): task splitter preview.
