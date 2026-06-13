@@ -301,6 +301,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cycle number to report on (default: most recent).",
     )
 
+    health = sub.add_parser(
+        "health",
+        help="One-command production-health verdict (cost/drift/queue/hot "
+             "signatures) — the CLI parity of the dashboard rollup (ADR 0182).",
+    )
+    health.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of formatted text."
+    )
+    health.add_argument(
+        "--fail-amber", action="store_true",
+        help="Exit nonzero on WATCH too (default: nonzero only on DEGRADED).",
+    )
+
     split = sub.add_parser(
         "split",
         help="Preview a task splitter call. Heuristic + optional model.",
@@ -1473,6 +1486,38 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  ⚠️  cycle spend OVER per-cycle cap (${cycle_cap:.2f})")
             if hour_cap > 0 and spend_60m >= hour_cap:
                 print(f"  ⚠️  60m spend OVER rolling-hour cap (${hour_cap:.2f})")
+        return 0
+
+    if args.command == "health":
+        from .core import LoopConfig
+        from .core.health import compute_health
+        from .memory import open_and_init
+
+        cfg = LoopConfig.from_env()
+        conn = open_and_init(cfg.state_dir / "chimera.db")
+        # drift_path=None → list_drift resolves state/drift_log.jsonl via env.
+        summary = compute_health(conn, drift_path=None)
+
+        if args.json:
+            import json as _json
+            print(_json.dumps(summary.to_dict(), indent=2))
+        else:
+            label = {
+                "green": "HEALTHY", "amber": "WATCH",
+                "red": "DEGRADED", "unknown": "—",
+            }[summary.overall]
+            print(f"chimera health: {label}")
+            for d in summary.dimensions:
+                mark = {
+                    "green": "✓", "amber": "!", "red": "✗", "unknown": "·",
+                }[d.status]
+                print(f"  [{mark}] {d.label:16s} {d.detail}")
+
+        # Exit code: 0 healthy/unknown; 1 degraded (or watch with --fail-amber).
+        if summary.overall == "red":
+            return 1
+        if summary.overall == "amber" and getattr(args, "fail_amber", False):
+            return 1
         return 0
 
     if args.command == "split":

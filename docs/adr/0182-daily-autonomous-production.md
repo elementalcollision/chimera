@@ -141,6 +141,32 @@ signals Chimera already emits (soak ledger, escalation memory, `chimera
 cost`, drift detector). LongMemEval/LoCoMo stay a **release-time** gate
 (run when memory-subsystem code changes), never a nightly.
 
+**Built (measurement foundation, 2026-06-13):** `chimera health`
+(`chimera/core/health.py`) — the CLI parity of the dashboard rollup:
+cost-rate / drift / proposal-queue / hot-signature signals folded into a
+worst-of `HEALTHY|WATCH|DEGRADED` verdict, `--json` for scripting, exit 1
+on DEGRADED (`--fail-amber` to also fail on WATCH). Read-only; useful now
+as an operator/CI heartbeat and the substrate a nightly will schedule.
+
+**Deliberately NOT yet built — gated, not forgotten:**
+- *Auto-merge* is the highest-risk capability in the system and the
+  graduation criteria gate it on **landed-PR evidence that does not yet
+  exist** (zero CRAWL PRs have merged). It also needs the soak to actually
+  open PRs — the existing `maybe_self_pr` (ADR 0163, trust-gated,
+  default-OFF) is the seam, but flipping unattended merge on is
+  unjustified until the health metrics show a sustained quality bar.
+- The *production-health nightly schedule* measures production volume that
+  isn't being produced yet (clean repo, idle loop), so it is a template,
+  not an active cron — same posture as the evals nightly.
+- *WALK multi-repo targeting* (working the issues that live in
+  claude-daemon / autoresearch-unified) is not a bounded increment: the
+  soak is **chimera-self-improvement** end to end (worktrees the local
+  repo, gates on `chimera verify`, runs Chimera's own loop). Targeting
+  arbitrary repos is a different operating mode (Chimera as a general
+  coding agent with per-repo verify) — a product decision + significant
+  rework, not a fast-follow. *Free-form-issue triage* is downstream of it
+  (chimera itself has zero open issues to triage).
+
 ## Hard prerequisites (block CRAWL going unattended)
 
 1. **Gate-visibility.** A task must be unable to report "done" unless the
