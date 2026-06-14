@@ -34,3 +34,21 @@ def _hermetic_enforcement_env(monkeypatch):
     """
     for var in _ENFORCEMENT_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_state_dirs(tmp_path_factory, monkeypatch):
+    """Point CHIMERA_STATE_DIR / CHIMERA_MIND_DIR at a throwaway dir for every
+    test by default.
+
+    The 2026-06-14 CRAWL finding: tests that run the real loop
+    (test_loop / test_drift_policy → ``record_drift(path=None)`` →
+    ``state/drift_log.jsonl``) wrote into the OPERATOR's real ``state/`` because
+    nothing isolated these dirs — silently polluting the live drift log so
+    ``chimera health`` read a false DEGRADED. Isolate by default; a test that
+    needs its own dirs still overrides with ``monkeypatch.setenv`` (its set runs
+    after this fixture, so it wins).
+    """
+    base = tmp_path_factory.mktemp("chimera-state")
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(base / "state"))
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(base / "mind"))
