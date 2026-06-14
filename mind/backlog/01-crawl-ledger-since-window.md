@@ -3,7 +3,7 @@ goal: "Add an optional since-timestamp window to crawl_ledger.summarize_outcomes
 files: chimera/core/crawl_ledger.py tests/test_crawl_ledger_since.py
 test: tests/test_crawl_ledger_since.py
 base: main
-done: false
+done: true  # landed via #308 (2026-06-14, first autonomous CRAWL merge)
 ---
 Dogfood the evidence tooling: `summarize_outcomes(state_dir)` currently folds
 the whole ledger. As CRAWL accrues runs, windowed evidence (last 7/30 days)

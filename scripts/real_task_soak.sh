@@ -357,7 +357,10 @@ log "Review: cd $WORKTREE && git log --oneline $TASK_BASE..HEAD"
 # accrue the RUN-graduation metrics (gate-pass rate, cost, disposition).
 [ "${GATE_RC:-1}" -eq 0 ] && SOAK_GATE=pass || SOAK_GATE=fail
 SOAK_COMMITTED="$(cd "$WORKTREE" && git log --format='%s' "$TASK_BASE"..HEAD 2>/dev/null | grep -c '\[agent\]' || echo 0)"
-SOAK_COST="$(grep -oE 'spend=\$[0-9.]+' "$LOG" | tail -1 | sed 's/spend=\$//')"
+# Accurate total from the worktree's api_calls (recomputed from tokens × price).
+# NOT the log's per-phase 'spend=' lines — phase 2 resets that counter, so a
+# tail-of-log read reported $0.00 (2026-06-14 finding).
+SOAK_COST="$(cd "$WORKTREE" && uv run chimera cost --json 2>/dev/null | uv run python -c 'import sys,json; print(json.load(sys.stdin).get("total_usd", 0))' 2>/dev/null || echo 0)"
 log "[soak-outcome] run_id=${RUN_ID} branch=${BRANCH} gate=${SOAK_GATE} committed=${SOAK_COMMITTED:-0} cost_usd=${SOAK_COST:-0} base=${TASK_BASE}"
 
 # ADR 0163: trust-gated autonomous self-PR. Centralized HERE (the lowest common
