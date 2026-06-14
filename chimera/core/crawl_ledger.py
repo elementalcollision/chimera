@@ -111,9 +111,12 @@ def set_disposition(state_dir: Path, run_id: str, disposition: str) -> bool:
     return True
 
 
-def summarize_outcomes(state_dir: Path) -> dict:
+def summarize_outcomes(state_dir: Path, since: str | None = None) -> dict:
     """Fold the ledger into the RUN-graduation evidence metrics."""
     outcomes = read_outcomes(state_dir)
+    if since is not None:
+        outcomes = [o for o in outcomes if o.ts >= since]
+
     total = len(outcomes)
     if total == 0:
         return {"total": 0}
