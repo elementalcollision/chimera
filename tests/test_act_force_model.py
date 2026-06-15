@@ -7,7 +7,7 @@ cannot converge. This knob bypasses the ladder for a specific Anthropic model.
 
 from __future__ import annotations
 
-from chimera.core.act import _forced_anthropic_rung
+from chimera.core.act import _forced_anthropic_rung, _forced_rung
 from chimera.providers.tiers import Provider as ProviderKind
 
 
@@ -25,6 +25,29 @@ def test_forced_unknown_model_gets_anthropic_defaults():
     assert rung.config.model_id == "claude-some-future-model"
     assert rung.config.provider is ProviderKind.ANTHROPIC
     assert rung.capabilities.supports_tools is True
+
+
+def test_forced_resolves_openrouter_ladder_model_with_real_provider():
+    """ADR 0183 A.1: pinning a code/sonnet ladder lead resolves to its REAL
+    OpenRouter rung (true provider + cost), not a synthetic Anthropic one — the
+    seam the kimi-vs-deepseek A/B rides on."""
+    kimi = _forced_rung("moonshotai/kimi-k2.7-code")
+    assert kimi.config.model_id == "moonshotai/kimi-k2.7-code"
+    assert kimi.config.provider is ProviderKind.OPENROUTER
+    assert kimi.config.input_cost_per_mtok == 0.75  # operator-confirmed, not a default
+    assert kimi.capabilities.supports_tools is True
+
+    incumbent = _forced_rung("deepseek/deepseek-v4-pro")
+    assert incumbent.config.model_id == "deepseek/deepseek-v4-pro"
+    assert incumbent.config.provider is ProviderKind.OPENROUTER
+
+
+def test_forced_unknown_id_still_falls_back_to_anthropic():
+    """Back-compat: an id no ladder knows keeps the original synthetic-Anthropic
+    behaviour (pin a future claude-* model)."""
+    rung = _forced_rung("claude-some-future-model")
+    assert rung.config.model_id == "claude-some-future-model"
+    assert rung.config.provider is ProviderKind.ANTHROPIC
 
 
 def test_pick_rung_honours_force_env(monkeypatch):

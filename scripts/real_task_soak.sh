@@ -50,7 +50,11 @@ TASK_TEST="${TASK_TEST:-}"
 TASK_BASE="${TASK_BASE:-main}"
 
 STAMP="$(date -u +%Y-%m-%d-%H%M)"
-RUN_ID="realtask-${STAMP}"
+# RUN_ID_SUFFIX disambiguates back-to-back runs of the SAME minute (e.g.
+# ab_soak.sh's two model arms) so their branches, worktrees, and ledger run_ids
+# never collide — and the arm stays legible in the [soak-outcome] run_id. Unset
+# → identical to the original `realtask-<stamp>`.
+RUN_ID="realtask-${STAMP}${RUN_ID_SUFFIX:+-${RUN_ID_SUFFIX}}"
 BRANCH="chimera-soak/${RUN_ID}"
 WORKTREE="${WORKTREE:-$REPO_ROOT/../chimera-soak-${RUN_ID}}"
 

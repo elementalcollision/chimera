@@ -150,11 +150,29 @@ from .act_guards import (
 logger = logging.getLogger(__name__)
 
 
+def _forced_rung(model_id: str) -> LadderRung:
+    """Resolve ``CHIMERA_ACT_FORCE_MODEL`` to a concrete rung.
+
+    A known ladder model or alias (``moonshotai/kimi-k2.7-code``,
+    ``deepseek/deepseek-v4-pro``, ``claude-opus-4-7``, …) resolves to its REAL
+    rung — true provider (OpenRouter *or* Anthropic), real costs + capabilities.
+    This lets a soak pin ACT to any ladder model for an A/B (ADR 0183 A.1) — e.g.
+    the ``code`` tier's kimi lead vs. the ``sonnet`` lead deepseek — not just an
+    Anthropic one. An unknown id falls back to a synthetic Anthropic rung (the
+    original create/self-determine use: pin a future ``claude-*`` model)."""
+    from ..providers.tiers import resolve_rung
+
+    try:
+        return resolve_rung(model_id)
+    except ValueError:
+        return _forced_anthropic_rung(model_id)
+
+
 def _forced_anthropic_rung(model_id: str) -> LadderRung:
-    """A synthetic tool-capable rung pinned to the Anthropic provider + ``model_id``
-    (CHIMERA_ACT_FORCE_MODEL). Reuses a known tier's limits/costs when the model
-    matches one; otherwise applies conservative defaults. Always Anthropic, since
-    the OpenRouter rungs are the unreliable ones this knob exists to bypass."""
+    """A synthetic tool-capable rung pinned to the Anthropic provider + ``model_id``.
+    Reuses a known tier's limits/costs when the model matches one; otherwise applies
+    conservative defaults. The fallback for an id no ladder knows — kept Anthropic
+    since the original knob existed to bypass the unreliable OpenRouter rungs."""
     from ..providers.tiers import MODEL_TIERS, ModelCapabilities, ModelConfig
 
     base = next((c for c in MODEL_TIERS.values() if c.model_id == model_id), None)
@@ -672,15 +690,16 @@ class ActExecutor:
     # ── execution ──────────────────────────────────────────
 
     def _pick_rung(self, *, requires_tools: bool) -> LadderRung:
-        # CHIMERA_ACT_FORCE_MODEL pins ACT to a specific, reliable Anthropic model
-        # instead of the ladder's cheapest-first rung. The self-determination soaks
-        # (create/self-determine roadmap) showed the cheap OpenRouter rungs return
-        # empty/weak completions here, so the agent cannot converge on test-less
-        # targets. This knob lets a soak run ACT on a capable model (e.g. the
-        # critic's claude-sonnet-4-6) without rewiring the whole ladder.
+        # CHIMERA_ACT_FORCE_MODEL pins ACT to one ladder model instead of the
+        # ladder's cheapest-first rung. Originally for the self-determination soaks
+        # (the cheap OpenRouter rungs returned empty/weak completions, so the agent
+        # could not converge on test-less targets) — pin a capable Anthropic model.
+        # Now resolves ANY ladder model (real provider + costs), so a soak can pin
+        # ACT to the code tier's kimi lead or the sonnet lead deepseek for an A/B
+        # (ADR 0183 A.1) without rewiring the ladder.
         forced = os.environ.get("CHIMERA_ACT_FORCE_MODEL")
         if forced:
-            return _forced_anthropic_rung(forced)
+            return _forced_rung(forced)
         return select_rung(self._tier, requires_tools=requires_tools)
 
     def _provider_for(self, rung: LadderRung) -> Provider | None:
