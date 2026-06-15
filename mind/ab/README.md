@@ -27,6 +27,30 @@ Override with `AB_ARM_A_MODEL` / `AB_ARM_B_MODEL` (any `chimera tiers` model
 or alias). Any `real_task_soak.sh` knob (caps, walls) passes through to both
 arms unchanged.
 
+## Battery + multi-trial (`AB_TRIALS`)
+
+Run the graded A/B across several probes and roll them into one scorecard:
+
+```bash
+# All probes (mind/ab/*-probe.md with a sibling .accept.py), 1 trial each:
+bash scripts/ab_battery.sh
+
+# Explicit, ordered, with N trials per (probe, arm):
+AB_TRIALS=3 bash scripts/ab_battery.sh \
+  mind/ab/slugify-probe.md mind/ab/codetier-probe.md \
+  mind/ab/roman-probe.md mind/ab/intervals-probe.md
+```
+
+**Why `AB_TRIALS`:** code generation is stochastic — the first battery showed
+a single trial per cell can *flip* a probe's winner (duration reversed between
+runs). `AB_TRIALS=N` runs each cell N times and the scorecard reports the
+**distribution** (mean spec-pass `[min–max]`, pooled rate, within-cell variance)
+instead of one noisy sample. The verdict treats a quality gap **within ~5pp as
+a tie** and decides on cost (the lower-variance signal). Wall + spend scale
+linearly: `probes × TRIALS × 2 arms` soaks (~15–20 min each) — `ab_battery`
+prints the soak count up front. Trials are disambiguated by an `AB_RUN_TAG`
+(`t1`, `t2`, …) so their worktrees/branches/ledger slugs never collide.
+
 ## What it measures (the decision rule)
 
 Each arm writes its OWN gate test, so the in-loop gate proves only that the
