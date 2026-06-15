@@ -80,6 +80,20 @@ model is a few declarative lines; OpenRouter is the transport
    against the current `sonnet` lead (deepseek-v4-pro) on the CRAWL backlog;
    promote on evidence.
 
+> **Built (tier composition, 2026-06-15).** Per operator decision, a
+> dedicated **`code` tier** now exists (`tiers.CODE_LADDER`,
+> `TIER_LADDERS["code"]`): `moonshotai/kimi-k2.7-code` (added) → deepseek-v4-pro
+> → z-ai/glm-5.1 → qwen/qwen3.7-max → claude-opus (trailing safety-net, ADR
+> 0072). It is a **selectable** tier orthogonal to the haiku→sonnet→opus
+> cost-escalation axis (`MODEL_TIERS` / `escalation._TIER_ORDER` unchanged),
+> reachable via `select_rung("code")` / `CHIMERA_ACT_FORCE_MODEL`. **Still
+> remaining for A.1:** verify Kimi's price/slug against the live catalog,
+> the A/B soak measured by the outcome ledger, and the default-routing
+> activation (point ACT at `code` for CRAWL work) — that flip stays
+> evidence-gated. We chose a dedicated tier over the `code_optimized` flag
+> because a 4th tier doesn't disturb the existing 3-tier escalation or the
+> witness/safety-net invariants.
+
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
 - New: a model-ingestion smoke (the new rung resolves, prices, pings) and
