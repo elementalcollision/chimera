@@ -142,6 +142,20 @@ model is a few declarative lines; OpenRouter is the transport
 > merge can't move the base ref mid-run (it did, once — a benign but real
 > footgun).
 
+> **Routing flip DONE (2026-06-15) — A.1 complete.** Per operator decision,
+> CRAWL ACT now routes at the `code` tier by default (kimi-k2.7-code lead, with
+> the deepseek→glm→qwen→opus fallback ladder). Seam: `CHIMERA_ACT_TIER`
+> (`ActExecutor.from_env`, default `haiku`; an explicit caller tier still wins);
+> `crawl_daily.sh` exports `CHIMERA_ACT_TIER=code`. `recommended_tier` now passes
+> a non-`_TIER_ORDER` tier through unchanged (the haiku/sonnet/opus floors no
+> longer rewrite `code`→`sonnet`); the `code` tier gets sonnet-equivalent token
+> headroom (8192) so kimi's reasoning-then-code pattern isn't truncated. The
+> daily outcome ledger is the ongoing monitor; revert is a one-line env change.
+> This closes Pillar A.1 — composition, ingestion, pricing, graded A/B, and the
+> evidence-gated routing flip are all done. (A.2 — fold the result into the
+> standing ladder + keep the ingestion checklist — and an optional `AB_TRIALS`
+> n>1 mode remain as follow-ups.)
+
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
 - New: a model-ingestion smoke (the new rung resolves, prices, pings) and
