@@ -51,6 +51,28 @@ linearly: `probes × TRIALS × 2 arms` soaks (~15–20 min each) — `ab_battery
 prints the soak count up front. Trials are disambiguated by an `AB_RUN_TAG`
 (`t1`, `t2`, …) so their worktrees/branches/ledger slugs never collide.
 
+## N-way head-to-head (`ab_arena.sh`)
+
+`ab_soak`/`ab_battery` are 2-arm (one model vs one). To rank the **whole code
+field** at once, use the arena — it runs *every* model in `AB_MODELS` on every
+probe, grades each against the probe's `.accept.py`, and prints a leaderboard
+(pooled spec-pass %, mean $/run, probe wins).
+
+```bash
+# Default field = the four suggested open code-tier models, all probes:
+bash scripts/ab_arena.sh
+
+# A subset / with trials:
+AB_TRIALS=2 bash scripts/ab_arena.sh mind/ab/roman-probe.md
+AB_MODELS="moonshotai/kimi-k2.7-code z-ai/glm-5.1" bash scripts/ab_arena.sh
+```
+
+Default field (opus is the Anthropic safety-net, not a suggested code model —
+add via `AB_MODELS` if wanted): `moonshotai/kimi-k2.7-code`,
+`deepseek/deepseek-v4-pro`, `z-ai/glm-5.1`, `qwen/qwen3.7-max`. Same base-SHA
+pin, accept-grading, and `AB_TRIALS` distribution support as the battery; total
+soaks = `models × probes × trials`.
+
 ## What it measures (the decision rule)
 
 Each arm writes its OWN gate test, so the in-loop gate proves only that the
