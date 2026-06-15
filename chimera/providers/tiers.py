@@ -162,10 +162,8 @@ LADDER_GEMINI_31_PRO = ModelConfig(
 LADDER_KIMI_K27_CODE = ModelConfig(
     model_id="moonshotai/kimi-k2.7-code", max_calls_per_minute=10,
     max_calls_per_hour=100, max_calls_per_day=2_000,
-    # Estimate consistent with the Kimi-K2 family (cheap-for-capability);
-    # VERIFY against the live OpenRouter catalog at activation
-    # (ADR 0183 ingestion checklist via `chimera tiers --json`).
-    input_cost_per_mtok=0.55, output_cost_per_mtok=2.30,
+    # Operator-confirmed pricing 2026-06-15 (was an estimate at ingestion).
+    input_cost_per_mtok=0.75, output_cost_per_mtok=3.50,
     provider=Provider.OPENROUTER, openrouter_model_id="moonshotai/kimi-k2.7-code",
 )
 
