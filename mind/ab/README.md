@@ -29,18 +29,34 @@ arms unchanged.
 
 ## What it measures (the decision rule)
 
-A **landed** change = gate pass (ruff + pytest, narrowed to the spec) AND ≥1
-`[agent]` commit, with the in-loop faithfulness + critic gates applied to both
-arms identically. The verdict:
+Each arm writes its OWN gate test, so the in-loop gate proves only that the
+arm's tests pin its OWN implementation — NOT that the implementation meets the
+external spec. A model can therefore "pass" by under-implementing and
+under-testing in tandem (this is exactly what happened in the first run —
+deepseek skipped a unit + the ordering rules and self-graded green; see
+`mind/research/ab-codetier-first-run-2026-06-15.md`). So **quality is graded
+separately**, against a canonical acceptance test:
 
-- both landed → **cheaper wins** (cost-per-landed-change),
-- only one landed → that arm wins,
-- neither → inconclusive (re-run or fix the spec).
+- Put a `<spec>.accept.py` next to the spec (e.g. `codetier-probe.accept.py`),
+  or set `AB_ACCEPT=<path>`. It is the single source of truth for the spec's
+  acceptance criteria — a normal pytest file importing the produced module.
+- After each arm, `ab_soak.sh` copies it into that arm's worktree and runs it
+  against the arm's produced code — IDENTICAL test, both arms.
+
+A **landed** change = gate pass AND ≥1 `[agent]` commit. The verdict, when an
+accept test is present (**quality-first, so cost can't win by doing less**):
+
+- higher **spec-pass** wins,
+- equal spec-pass → **cheaper** wins (cost-per-landed at equal quality),
+- neither landed → inconclusive.
+
+Without an accept test it falls back to a cost-only verdict, clearly labelled
+`(UNGRADED)` — do not make a routing decision on an ungraded run.
 
 Both runs are recorded into the outcome ledger (`chimera crawl report`) with
 arm-tagged run_ids, so evidence accrues across re-runs. This is the gate ADR
 0183 A.1 puts on the code-tier default-routing flip: route CRAWL ACT at the
-`code` tier only on a kimi win (or parity at lower cost).
+`code` tier only on a graded win (or parity at lower cost).
 
 ## Repeatable by construction
 

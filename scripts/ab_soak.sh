@@ -72,11 +72,24 @@ AB_STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 REPORT="$STATE_DIR/ab_soak_${SPEC_SLUG}_${AB_STAMP}.txt"
 mkdir -p "$STATE_DIR"
 
+# Canonical acceptance test (quality control). Each arm writes its OWN gate test
+# (Design 2), so the in-loop gate can't compare quality against the EXTERNAL
+# spec — a model can pass by under-implementing + under-testing in tandem (the
+# 2026-06-15 first-run finding). When an accept test is present, ab_soak runs it
+# against each arm's produced module after the soak and scores spec-pass; the
+# verdict then prefers correctness, with cost breaking ties at equal quality.
+# Default: a sibling `<spec>.accept.py`; override with AB_ACCEPT. Empty → the
+# cost-only verdict (clearly labelled UNGRADED).
+ACCEPT="${AB_ACCEPT:-${AB_SPEC%.md}.accept.py}"
+ACCEPT_ABS=""
+[ -f "$ACCEPT" ] && ACCEPT_ABS="$(cd "$(dirname "$ACCEPT")" && pwd)/$(basename "$ACCEPT")"
+
 echo "=== ab_soak: ${SPEC_SLUG} ==="
-echo "  goal : $TASK_GOAL"
-echo "  files: $TASK_FILES"
-echo "  test : ${TASK_TEST:-<full suite>}"
-echo "  base : ${TASK_BASE:-main}"
+echo "  goal  : $TASK_GOAL"
+echo "  files : $TASK_FILES"
+echo "  test  : ${TASK_TEST:-<full suite>}"
+echo "  base  : ${TASK_BASE:-main}"
+echo "  accept: ${ACCEPT_ABS:-<none — cost-only verdict>}"
 echo "  arm A ($LABEL_A): $ARM_A_MODEL"
 echo "  arm B ($LABEL_B): $ARM_B_MODEL"
 echo "─────────────────────────────────────────────────────────────"
@@ -119,36 +132,84 @@ fi
 read -r A_GATE A_COMMITTED A_COST A_BRANCH A_RUNID <<<"$(run_arm "$LABEL_A" "$ARM_A_MODEL")"
 read -r B_GATE B_COMMITTED B_COST B_BRANCH B_RUNID <<<"$(run_arm "$LABEL_B" "$ARM_B_MODEL")"
 
+# grade_accept WORKTREE → echoes "passed total" of the canonical acceptance test
+# run against that arm's PRODUCED module (held identical across arms). "- -" when
+# no accept test is configured; "0 N" when the arm produced nothing importable.
+grade_accept() {
+    local wt="$1"
+    [ -n "$ACCEPT_ABS" ] || { echo "- -"; return; }
+    [ -d "$wt" ] || { echo "0 0"; return; }
+    cp "$ACCEPT_ABS" "$wt/tests/_ab_accept.py" 2>/dev/null || { echo "0 0"; return; }
+    local out; out="$(cd "$wt" && uv run pytest tests/_ab_accept.py -q --no-header -p no:cacheprovider 2>&1)"
+    rm -f "$wt/tests/_ab_accept.py" 2>/dev/null || true
+    local p f e
+    p="$(printf '%s' "$out" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | tail -1)"
+    f="$(printf '%s' "$out" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | tail -1)"
+    e="$(printf '%s' "$out" | grep -oE '[0-9]+ error'  | grep -oE '[0-9]+' | tail -1)"
+    p="${p:-0}"; f="${f:-0}"; e="${e:-0}"
+    echo "$p $((p + f + e))"
+}
+
+WT_A="$REPO_ROOT/../chimera-soak-ab-${SPEC_SLUG}-${LABEL_A}-${AB_STAMP}"
+WT_B="$REPO_ROOT/../chimera-soak-ab-${SPEC_SLUG}-${LABEL_B}-${AB_STAMP}"
+read -r A_ACC A_ACCTOT <<<"$(grade_accept "$WT_A")"
+read -r B_ACC B_ACCTOT <<<"$(grade_accept "$WT_B")"
+
 # ── verdict ────────────────────────────────────────────────────
-# Decision rule (ADR 0183 A.1): a landed change = gate pass AND ≥1 [agent]
-# commit. Both landed → cheaper wins (cost-per-landed-change). Only one landed
-# → it wins. Neither → inconclusive (re-run or revisit the spec).
+# A landed change = gate pass AND ≥1 [agent] commit. With an acceptance test,
+# QUALITY (spec-pass) is the primary axis — cost only breaks a quality tie, so a
+# cheaper arm can't win by doing less (ADR 0183 A.1; 2026-06-15 finding). Without
+# one, fall back to the cost-only verdict, clearly labelled UNGRADED.
 landed() { [ "$1" = "pass" ] && [ "${2:-0}" -ge 1 ]; }
+cheaper() {  # → "A"|"B"|"TIE"
+    if awk -v a="$A_COST" -v b="$B_COST" 'BEGIN{exit !(b < a)}'; then echo B
+    elif awk -v a="$A_COST" -v b="$B_COST" 'BEGIN{exit !(a < b)}'; then echo A
+    else echo TIE; fi
+}
 VERDICT=""
-if landed "$A_GATE" "$A_COMMITTED" && landed "$B_GATE" "$B_COMMITTED"; then
-    if awk -v a="$A_COST" -v b="$B_COST" 'BEGIN{exit !(b < a)}'; then
-        VERDICT="B ($LABEL_B / $ARM_B_MODEL) — both landed, B cheaper (\$$B_COST < \$$A_COST)"
-    elif awk -v a="$A_COST" -v b="$B_COST" 'BEGIN{exit !(a < b)}'; then
-        VERDICT="A ($LABEL_A / $ARM_A_MODEL) — both landed, A cheaper (\$$A_COST < \$$B_COST)"
+if [ -n "$ACCEPT_ABS" ]; then
+    A_OK=0; B_OK=0
+    landed "$A_GATE" "$A_COMMITTED" && A_OK=1
+    landed "$B_GATE" "$B_COMMITTED" && B_OK=1
+    if [ "$A_OK" = 0 ] && [ "$B_OK" = 0 ]; then
+        VERDICT="INCONCLUSIVE — neither arm landed a gated commit"
+    elif [ "$A_ACC" -gt "$B_ACC" ]; then
+        VERDICT="A ($LABEL_A / $ARM_A_MODEL) — higher spec-pass ($A_ACC/$A_ACCTOT vs $B_ACC/$B_ACCTOT)"
+    elif [ "$B_ACC" -gt "$A_ACC" ]; then
+        VERDICT="B ($LABEL_B / $ARM_B_MODEL) — higher spec-pass ($B_ACC/$B_ACCTOT vs $A_ACC/$A_ACCTOT)"
     else
-        VERDICT="TIE — both landed at equal cost (\$$A_COST)"
+        case "$(cheaper)" in
+            A) VERDICT="A ($LABEL_A / $ARM_A_MODEL) — equal spec-pass ($A_ACC/$A_ACCTOT), A cheaper (\$$A_COST < \$$B_COST)";;
+            B) VERDICT="B ($LABEL_B / $ARM_B_MODEL) — equal spec-pass ($B_ACC/$B_ACCTOT), B cheaper (\$$B_COST < \$$A_COST)";;
+            *) VERDICT="TIE — equal spec-pass ($A_ACC/$A_ACCTOT) at equal cost (\$$A_COST)";;
+        esac
     fi
-elif landed "$A_GATE" "$A_COMMITTED"; then
-    VERDICT="A ($LABEL_A / $ARM_A_MODEL) — only A landed"
-elif landed "$B_GATE" "$B_COMMITTED"; then
-    VERDICT="B ($LABEL_B / $ARM_B_MODEL) — only B landed"
 else
-    VERDICT="INCONCLUSIVE — neither arm landed a gated commit"
+    # UNGRADED fallback: cost-only (gameable — see the 2026-06-15 finding).
+    if landed "$A_GATE" "$A_COMMITTED" && landed "$B_GATE" "$B_COMMITTED"; then
+        case "$(cheaper)" in
+            B) VERDICT="(UNGRADED) B ($LABEL_B / $ARM_B_MODEL) — both landed, B cheaper (\$$B_COST < \$$A_COST)";;
+            A) VERDICT="(UNGRADED) A ($LABEL_A / $ARM_A_MODEL) — both landed, A cheaper (\$$A_COST < \$$B_COST)";;
+            *) VERDICT="(UNGRADED) TIE — both landed at equal cost (\$$A_COST)";;
+        esac
+    elif landed "$A_GATE" "$A_COMMITTED"; then
+        VERDICT="(UNGRADED) A ($LABEL_A / $ARM_A_MODEL) — only A landed"
+    elif landed "$B_GATE" "$B_COMMITTED"; then
+        VERDICT="(UNGRADED) B ($LABEL_B / $ARM_B_MODEL) — only B landed"
+    else
+        VERDICT="INCONCLUSIVE — neither arm landed a gated commit"
+    fi
 fi
 
 {
 echo "=== ab_soak report: ${SPEC_SLUG} (${AB_STAMP}) ==="
 echo "spec: $AB_SPEC"
 echo "goal: $TASK_GOAL"
+echo "accept: ${ACCEPT_ABS:-<none — cost-only, UNGRADED>}"
 echo
-printf '%-12s %-28s %-6s %-9s %-10s %s\n' "arm" "model" "gate" "committed" "cost_usd" "branch"
-printf '%-12s %-28s %-6s %-9s %-10s %s\n' "$LABEL_A" "$ARM_A_MODEL" "$A_GATE" "$A_COMMITTED" "$A_COST" "$A_BRANCH"
-printf '%-12s %-28s %-6s %-9s %-10s %s\n' "$LABEL_B" "$ARM_B_MODEL" "$B_GATE" "$B_COMMITTED" "$B_COST" "$B_BRANCH"
+printf '%-12s %-28s %-6s %-9s %-10s %-10s %s\n' "arm" "model" "gate" "committed" "cost_usd" "spec_pass" "branch"
+printf '%-12s %-28s %-6s %-9s %-10s %-10s %s\n' "$LABEL_A" "$ARM_A_MODEL" "$A_GATE" "$A_COMMITTED" "$A_COST" "$A_ACC/$A_ACCTOT" "$A_BRANCH"
+printf '%-12s %-28s %-6s %-9s %-10s %-10s %s\n' "$LABEL_B" "$ARM_B_MODEL" "$B_GATE" "$B_COMMITTED" "$B_COST" "$B_ACC/$B_ACCTOT" "$B_BRANCH"
 echo
 echo "VERDICT: $VERDICT"
 echo

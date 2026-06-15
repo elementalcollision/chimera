@@ -105,9 +105,24 @@ model is a few declarative lines; OpenRouter is the transport
 > the only models that differ between the `code` and `sonnet` tiers — their
 > leads: `deepseek/deepseek-v4-pro` (incumbent) vs `moonshotai/kimi-k2.7-code`
 > (candidate). The probe spec lives in `mind/ab/` (outside the daily picker),
-> stays red on base (never merged), so the A/B is repeatable. **Still remaining
-> for A.1:** the live A/B run itself (spend-gated, operator-triggered) and, on a
-> kimi win, the default-routing flip (point CRAWL ACT at `code`).
+> stays red on base (never merged), so the A/B is repeatable.
+
+> **First live run (2026-06-15) + harness fix.** Ran the probe A/B live (full
+> writeup: `mind/research/ab-codetier-first-run-2026-06-15.md`). Both arms
+> passed their in-loop gate and committed (deepseek $0.14, kimi $0.35). But the
+> raw cost verdict was **misleading**: because each arm authors its own gate
+> test (Design 2), deepseek passed by under-implementing (no `d` unit, no
+> order/dedup enforcement, wrong exception type) AND under-testing in tandem.
+> Graded against a canonical acceptance test, kimi scored **18/18** vs
+> deepseek **13/18**. Two consequences: (1) **finding** — kimi-k2.7-code is the
+> better code model on a spec'd task; its cost premium bought correctness;
+> (2) **harness fix** — `ab_soak.sh` now grades each arm's produced module
+> against a fixed `<spec>.accept.py` and the verdict is quality-first (cost only
+> breaks a quality tie), so a cheaper-but-weaker arm can't win. **Still
+> remaining for A.1:** a re-run under accept-grading on a representative task
+> mix, then — on a graded kimi win worth the cost — the default-routing flip
+> (point CRAWL ACT at `code`). The flip stays evidence-gated; this run is
+> suggestive, not yet decision-grade across tasks.
 
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
