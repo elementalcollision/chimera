@@ -158,6 +158,17 @@ LADDER_GEMINI_31_PRO = ModelConfig(
     openrouter_model_id="google/gemini-3.1-pro-preview",
 )
 
+# Code specialist (code tier, ADR 0183) — tool-calling open model.
+LADDER_KIMI_K27_CODE = ModelConfig(
+    model_id="moonshotai/kimi-k2.7-code", max_calls_per_minute=10,
+    max_calls_per_hour=100, max_calls_per_day=2_000,
+    # Estimate consistent with the Kimi-K2 family (cheap-for-capability);
+    # VERIFY against the live OpenRouter catalog at activation
+    # (ADR 0183 ingestion checklist via `chimera tiers --json`).
+    input_cost_per_mtok=0.55, output_cost_per_mtok=2.30,
+    provider=Provider.OPENROUTER, openrouter_model_id="moonshotai/kimi-k2.7-code",
+)
+
 # Specialists (opus tier) — code + tool-optimized.
 LADDER_GPT5_CODEX_MAX = ModelConfig(
     model_id="openai/gpt-5.1-codex-max", max_calls_per_minute=5,
@@ -203,10 +214,26 @@ OPUS_LADDER: list[LadderRung] = [
     LadderRung(OPUS, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, reasoning_optimized=True, context_tokens=200_000)),
 ]
 
+# CODE_LADDER = the open-model "Opus-level" coding tier (ADR 0183, operator-
+# specified 2026-06-15). Tool-calling code specialists, kimi-led, with
+# claude-opus kept as the trailing safety-net rung (ADR 0072 resilience).
+# This is a SELECTABLE tier — orthogonal to the haiku→sonnet→opus cost-
+# escalation axis (MODEL_TIERS / escalation._TIER_ORDER stay 3-tier). ACT
+# routes to it via `select_rung("code")` / CHIMERA_ACT_FORCE_MODEL; making
+# it the default for CRAWL/code work is the A/B-gated activation (ADR 0183).
+CODE_LADDER: list[LadderRung] = [
+    LadderRung(LADDER_KIMI_K27_CODE, ModelCapabilities(supports_tools=True, supports_json_mode=True, reasoning_optimized=True, context_tokens=262_144)),
+    LadderRung(LADDER_DEEPSEEK_V4_PRO, ModelCapabilities(**_REASON_BIG)),
+    LadderRung(LADDER_GLM_5_1, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=202_752)),
+    LadderRung(LADDER_QWEN37_MAX, ModelCapabilities(**dict(_REASON, context_tokens=1_000_000))),
+    LadderRung(OPUS, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, reasoning_optimized=True, context_tokens=200_000)),
+]
+
 TIER_LADDERS: dict[str, list[LadderRung]] = {
     "haiku": HAIKU_LADDER,
     "sonnet": SONNET_LADDER,
     "opus": OPUS_LADDER,
+    "code": CODE_LADDER,
 }
 
 

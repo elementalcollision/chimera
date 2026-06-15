@@ -14,6 +14,7 @@ from .openrouter import OpenRouterProvider
 from .tiers import (
     HAIKU,
     HAIKU_LADDER,
+    CODE_LADDER,
     MODEL_TIERS,
     OPUS,
     OPUS_LADDER,
@@ -45,6 +46,7 @@ __all__ = [
     "LadderRung",
     "MODEL_TIERS",
     "TIER_LADDERS",
+    "CODE_LADDER",
     "HAIKU",
     "SONNET",
     "OPUS",
