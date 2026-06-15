@@ -88,6 +88,8 @@ REGISTRY: dict[str, FlagSpec] = dict(
         _f("CHIMERA_ACT_MAX_TOKENS", "int", None,
            "Global ACT max-tokens; per-tier CHIMERA_ACT_MAX_TOKENS_<TIER> wins."),
         _f("CHIMERA_ACT_FORCE_MODEL", "str", None, "Pin ACT to one model id."),
+        _f("CHIMERA_ACT_TIER", "str", None,
+           "Base ACT tier when the loop doesn't pass one (default haiku; CRAWL sets 'code')."),
         _f("CHIMERA_OPUS_PLAN_EVERY_N", "int", None, "Escalate PLAN to opus tier every N cycles."),
         _f("CHIMERA_ANSWER_TIMEOUT_S", "float", None, "Peer answer timeout."),
         _f("CHIMERA_TASK_GOAL", "str", None, "Current task goal (set by runner; read by gates)."),

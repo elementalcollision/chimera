@@ -410,6 +410,15 @@ def recommended_tier(
     Bound: never below ``default_tier`` (or the research floor,
     whichever is higher); never above ``opus``.
     """
+    # A tier outside the haiku→sonnet→opus cost-escalation axis (e.g. the
+    # dedicated `code` tier, ADR 0183) routes AS-IS: the research/complexity
+    # floors and the escalation-memory promotion below are all defined over
+    # _TIER_ORDER and would silently rewrite an unknown tier to sonnet. In-tier
+    # fallback for such tiers is handled by ACT's own eligible_rungs() ladder
+    # walk, not here.
+    if default_tier not in _TIER_ORDER:
+        return default_tier
+
     # v4.56: apply the research-task floor before consulting memory.
     floor = research_task_floor_tier(task_text)
     rank = {t: i for i, t in enumerate(_TIER_ORDER)}

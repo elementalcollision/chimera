@@ -602,6 +602,10 @@ class ActExecutor:
     _TIER_MAX_TOKENS: dict[str, int] = {
         "haiku": 4096,
         "sonnet": 8192,
+        # The code tier leads with a reasoning-then-code model (kimi) that
+        # front-loads thinking tokens; give it sonnet-equivalent headroom so a
+        # tight cap doesn't truncate it to an empty completion (ADR 0183 A.1).
+        "code": 8192,
         "opus": 16384,
     }
 
@@ -656,7 +660,7 @@ class ActExecutor:
         *,
         dispatcher: Dispatcher | None,
         db: sqlite3.Connection,
-        tier: str = "haiku",
+        tier: str | None = None,
     ) -> ActExecutor | None:
         """Construct using whichever provider env keys are available.
 
@@ -664,7 +668,22 @@ class ActExecutor:
 
         ``dispatcher`` may be None for helpers that only need provider
         access (e.g. the skills CLI uses this just to get .providers).
+
+        When the caller doesn't pass ``tier`` (the loop's path), the base ACT
+        tier comes from ``CHIMERA_ACT_TIER`` (default ``haiku``) — the knob that
+        routes CRAWL ACT at the ``code`` tier (ADR 0183 A.1). An explicit
+        ``tier`` argument always wins, so callers that need a specific tier
+        (e.g. the skills CLI) are unaffected.
         """
+        if tier is None:
+            tier = os.environ.get("CHIMERA_ACT_TIER", "haiku")
+            from ..providers.tiers import TIER_LADDERS
+            if tier not in TIER_LADDERS:
+                logger.warning(
+                    "CHIMERA_ACT_TIER=%r is not a known tier %s; using haiku",
+                    tier, list(TIER_LADDERS),
+                )
+                tier = "haiku"
         providers: dict[ProviderKind, Provider] = {}
         try:
             providers[ProviderKind.ANTHROPIC] = AnthropicProvider()
