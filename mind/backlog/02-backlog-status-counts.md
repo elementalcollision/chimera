@@ -3,7 +3,7 @@ goal: "Add a count_by_status(mind_dir) helper to chimera.core.backlog"
 files: chimera/core/backlog.py tests/test_backlog_status_counts.py
 test: tests/test_backlog_status_counts.py
 base: main
-done: false
+done: true  # landed via #310 (2026-06-15)
 ---
 Useful backlog overview for the dashboard / `chimera backlog list` header:
 add `count_by_status(mind_dir) -> dict[str, int]` returning counts keyed
