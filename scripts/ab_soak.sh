@@ -67,6 +67,11 @@ PY
 )"
 [ "${AB_SPEC_INVALID:-0}" = "1" ] && exit 2
 
+# A caller (e.g. ab_battery.sh) may pin the base to a fixed SHA so a concurrent
+# merge can't move the ref mid-run and trip the phase-2 sentinel. This override
+# wins over the spec's `base:` frontmatter.
+[ -n "${TASK_BASE_OVERRIDE:-}" ] && export TASK_BASE="$TASK_BASE_OVERRIDE"
+
 STATE_DIR="${CHIMERA_STATE_DIR:-$REPO_ROOT/state}"
 AB_STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 REPORT="$STATE_DIR/ab_soak_${SPEC_SLUG}_${AB_STAMP}.txt"

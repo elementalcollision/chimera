@@ -38,8 +38,21 @@ SUMMARY="$STATE_DIR/ab_battery_${STAMP}.txt"
 ROWS="$(mktemp -t ab-battery-rows.XXXXXX)"
 mkdir -p "$STATE_DIR"
 
+# Pin the base ref to a SHA ONCE, up front, and pass it to every probe as
+# TASK_BASE. A battery runs for hours; if it tracked the moving "main" ref and
+# someone merged mid-run, in-flight worktrees (branched from the old tip) would
+# see the new commits as a phantom diff and the phase-2 deliverable sentinel
+# would never fire — spinning each affected arm to its wall ceiling (observed
+# 2026-06-15). A fixed SHA immunises the whole battery from concurrent merges.
+AB_BASE="${AB_BASE:-${TASK_BASE:-main}}"
+BASE_SHA="$(git -C "$REPO_ROOT" rev-parse --verify "$AB_BASE" 2>/dev/null || echo "$AB_BASE")"
+# ab_soak resolves TASK_BASE from each spec's frontmatter; this override wins,
+# so every probe shares the one pinned SHA.
+export TASK_BASE_OVERRIDE="$BASE_SHA"
+
 echo "=== ab_battery: ${#PROBES[@]} probe(s) → graded A/B each ==="
 for p in "${PROBES[@]}"; do echo "  - $(basename "$p")"; done
+echo "  base    → ${AB_BASE} @ ${BASE_SHA} (pinned; immune to concurrent merges)"
 echo "  summary → $SUMMARY"
 echo
 

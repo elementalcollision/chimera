@@ -124,6 +124,24 @@ model is a few declarative lines; OpenRouter is the transport
 > (point CRAWL ACT at `code`). The flip stays evidence-gated; this run is
 > suggestive, not yet decision-grade across tasks.
 
+> **Battery run (2026-06-15) — full writeup
+> `mind/research/ab-codetier-battery-2026-06-15.md`.** Ran the graded A/B across
+> 4 varied probes (`scripts/ab_battery.sh`: slugify/easy, duration/medium,
+> roman/med-hard, intervals/hard). Result: **kimi 91/104 (88%) at $0.58 vs
+> deepseek 88/104 (85%) at $0.73** — quality a statistical dead heat (probe wins
+> 2–2; the +3 is within noise), but **kimi ~21% cheaper**. The decisive finding
+> is *methodological*: **run-to-run variance is large** — the duration probe
+> reversed winners vs the standalone run (kimi 18→12, deepseek 13→18), proving
+> one trial per cell is dominated by sampling noise. **Recommendation
+> (operator-gated): promote the kimi lead** — it is non-inferior on quality and
+> cheaper (the less-noisy signal), with CRAWL's bounded downside (draft-PR-only,
+> manual review, code-ladder fallbacks) and the daily ledger as the ongoing
+> monitor. **Before any quality-based claim is treated as robust:** add an
+> `AB_TRIALS` mode (n>1 per cell, compare distributions). Harness hardening
+> shipped alongside: `ab_battery.sh` pins `TASK_BASE` to a SHA so a concurrent
+> merge can't move the base ref mid-run (it did, once — a benign but real
+> footgun).
+
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
 - New: a model-ingestion smoke (the new rung resolves, prices, pings) and
