@@ -175,3 +175,18 @@ def validation_report(mind_dir: Path) -> list[tuple[str, tuple[str, ...]]]:
     """(`slug`, errors) for every INVALID spec — so the operator hears about
     a malformed file instead of it being silently skipped forever."""
     return [(s.slug, s.errors) for s in list_specs(mind_dir) if not s.valid]
+def count_by_status(mind_dir: Path) -> dict[str, int]:
+    """Count specs keyed "ready" (valid, not done), "done", and "invalid".
+
+    Returns ``{"ready": N, "done": N, "invalid": N}``, always with all three
+    keys even if some counts are zero.
+    """
+    counts: dict[str, int] = {"ready": 0, "done": 0, "invalid": 0}
+    for s in list_specs(mind_dir):
+        if not s.valid:
+            counts["invalid"] += 1
+        elif s.done:
+            counts["done"] += 1
+        else:
+            counts["ready"] += 1
+    return counts
