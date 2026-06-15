@@ -94,6 +94,21 @@ model is a few declarative lines; OpenRouter is the transport
 > because a 4th tier doesn't disturb the existing 3-tier escalation or the
 > witness/safety-net invariants.
 
+> **Built (A/B harness, 2026-06-15).** The A/B soak scenario now exists:
+> `scripts/ab_soak.sh` runs one backlog spec through the real soak loop twice,
+> pinning ACT to each model arm via `CHIMERA_ACT_FORCE_MODEL`, and scores them
+> head-to-head from the `[soak-outcome]` line into the outcome ledger
+> (arm-tagged run_ids). Enabling change: `CHIMERA_ACT_FORCE_MODEL` now resolves
+> **any** ladder model to its real rung (true provider + cost) — previously it
+> forced every id onto the Anthropic provider, so a kimi/deepseek (OpenRouter)
+> arm was impossible (`chimera/core/act.py:_forced_rung`). The default arms are
+> the only models that differ between the `code` and `sonnet` tiers — their
+> leads: `deepseek/deepseek-v4-pro` (incumbent) vs `moonshotai/kimi-k2.7-code`
+> (candidate). The probe spec lives in `mind/ab/` (outside the daily picker),
+> stays red on base (never merged), so the A/B is repeatable. **Still remaining
+> for A.1:** the live A/B run itself (spend-gated, operator-triggered) and, on a
+> kimi win, the default-routing flip (point CRAWL ACT at `code`).
+
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
 - New: a model-ingestion smoke (the new rung resolves, prices, pings) and
