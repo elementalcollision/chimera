@@ -102,11 +102,15 @@ echo "────────────────────────�
 # run_arm LABEL MODEL → echoes the parsed outcome as "gate committed cost branch run_id"
 run_arm() {
     local label="$1" model="$2"
+    # AB_RUN_TAG (set by ab_battery.sh per trial, e.g. "t2") disambiguates
+    # repeated runs of the same probe/arm so their branches, worktrees, and
+    # ledger slugs never collide across trials. Empty → single-shot, as before.
+    local tag="${AB_RUN_TAG:+-${AB_RUN_TAG}}"
     local out; out="$(mktemp -t ab-soak-"$label".XXXXXX)"
-    echo "── arm '$label' → CHIMERA_ACT_FORCE_MODEL=$model ──" >&2
+    echo "── arm '$label'${AB_RUN_TAG:+ [${AB_RUN_TAG}]} → CHIMERA_ACT_FORCE_MODEL=$model ──" >&2
     CHIMERA_ACT_FORCE_MODEL="$model" \
-    RUN_ID_SUFFIX="ab-${label}" \
-    WORKTREE="$REPO_ROOT/../chimera-soak-ab-${SPEC_SLUG}-${label}-${AB_STAMP}" \
+    RUN_ID_SUFFIX="ab-${label}${tag}" \
+    WORKTREE="$REPO_ROOT/../chimera-soak-ab-${SPEC_SLUG}-${label}${tag}-${AB_STAMP}" \
         bash "$REPO_ROOT/scripts/real_task_soak.sh" 2>&1 | tee "$out" >&2
     local line; line="$(grep '\[soak-outcome\]' "$out" | tail -1 || true)"
     rm -f "$out"
@@ -121,7 +125,7 @@ run_arm() {
     local branch="${O_branch:-}" base="${O_base:-main}" rid="${O_run_id:-ab-${label}}"
     # Record into the ledger (arm-tagged slug + run_id) for accrued evidence.
     uv run chimera crawl record --run-id "$rid" \
-        --slug "${SPEC_SLUG}-${label}" --gate "$gate" \
+        --slug "${SPEC_SLUG}-${label}${tag}" --gate "$gate" \
         --committed "$committed" --cost-usd "$cost" \
         --branch "$branch" --base "$base" >&2 2>&1 || true
     echo "$gate $committed $cost $branch $rid"

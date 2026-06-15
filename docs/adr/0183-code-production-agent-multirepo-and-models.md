@@ -153,8 +153,19 @@ model is a few declarative lines; OpenRouter is the transport
 > daily outcome ledger is the ongoing monitor; revert is a one-line env change.
 > This closes Pillar A.1 — composition, ingestion, pricing, graded A/B, and the
 > evidence-gated routing flip are all done. (A.2 — fold the result into the
-> standing ladder + keep the ingestion checklist — and an optional `AB_TRIALS`
-> n>1 mode remain as follow-ups.)
+> standing ladder + keep the ingestion checklist — remains a follow-up.)
+
+> **`AB_TRIALS` multi-trial mode (2026-06-15).** `ab_battery.sh` gained an
+> `AB_TRIALS=N` knob: each (probe, arm) cell runs N times and the scorecard
+> reports the *distribution* — mean spec-pass `[min–max]`, pooled rate, and
+> mean within-cell variance — not a single noisy sample. The verdict treats a
+> quality gap within ~5pp as a tie and decides on cost (the lower-variance
+> signal). This is the principled answer to the battery's headline finding
+> (one trial per cell can flip a winner). Trials are disambiguated via
+> `AB_RUN_TAG` (threaded through `ab_soak.sh`'s run-id/worktree/ledger slug).
+> Also: the code tier's per-completion OUTPUT cap was raised 8192→16384
+> (`CHIMERA_ACT_MAX_TOKENS_CODE`-overridable) so larger diffs aren't truncated —
+> distinct from kimi's 256K *input* context, which was never constrained.
 
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
