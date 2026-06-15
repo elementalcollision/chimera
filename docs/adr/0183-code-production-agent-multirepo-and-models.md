@@ -167,6 +167,20 @@ model is a few declarative lines; OpenRouter is the transport
 > (`CHIMERA_ACT_MAX_TOKENS_CODE`-overridable) so larger diffs aren't truncated —
 > distinct from kimi's 256K *input* context, which was never constrained.
 
+> **N-way arena (2026-06-15) — `scripts/ab_arena.sh`; full writeup
+> `mind/research/ab-arena-2026-06-15.md`.** Ran all four suggested open code
+> models on all four probes (16 soaks, graded). Leaderboard:
+> **qwen3.7-max 104/104 @ $0.135/run (rank 1, 3 probe-wins)**, kimi-k2.7-code
+> 104/104 @ $0.190 (rank 2), glm-5.1 99/104, deepseek-v4-pro 95/104 (last,
+> priciest). **Finding: qwen and kimi are co-quality-leaders (both perfect across
+> all difficulty tiers — a real tie, not noise), and qwen is ~29% cheaper.** The
+> current promoted lead (kimi) is co-best on quality but not the value pick. The
+> grader is discriminating (deepseek 91%, glm 95%), so the perfect scores are
+> credible. **Open decision:** confirm qwen's parity with a short `AB_TRIALS=3`
+> qwen-vs-kimi run, then consider re-ordering the code ladder value-first
+> (`qwen → kimi → glm → deepseek → opus`). Single-trial caveat applies to the
+> mid-pack; the top tie is solid (both maxed). Routing change stays operator-gated.
+
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
 - New: a model-ingestion smoke (the new rung resolves, prices, pings) and
