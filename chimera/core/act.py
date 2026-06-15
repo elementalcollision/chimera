@@ -602,10 +602,14 @@ class ActExecutor:
     _TIER_MAX_TOKENS: dict[str, int] = {
         "haiku": 4096,
         "sonnet": 8192,
-        # The code tier leads with a reasoning-then-code model (kimi) that
-        # front-loads thinking tokens; give it sonnet-equivalent headroom so a
-        # tight cap doesn't truncate it to an empty completion (ADR 0183 A.1).
-        "code": 8192,
+        # The code tier is the CRAWL production lead (ADR 0183 A.1). This is the
+        # per-completion OUTPUT cap (max_tokens), NOT the context window — kimi's
+        # 256K input context is unconstrained. Give code work the most output
+        # headroom (≥ opus) so larger diffs / multi-symbol edits aren't truncated
+        # mid-generation; kimi also front-loads reasoning tokens before code, so
+        # a tight cap can otherwise yield an empty completion. Operators can lift
+        # further with CHIMERA_ACT_MAX_TOKENS_CODE.
+        "code": 16384,
         "opus": 16384,
     }
 

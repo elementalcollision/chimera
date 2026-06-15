@@ -73,7 +73,15 @@ def test_from_env_unknown_tier_falls_back_to_haiku(monkeypatch):
 def test_code_tier_gets_token_headroom():
     from chimera.core.act import ActExecutor
 
-    assert ActExecutor._resolve_max_tokens("code") == 8192
+    # Output cap (≥ opus) so large diffs aren't truncated; not the context window.
+    assert ActExecutor._resolve_max_tokens("code") == 16384
+
+
+def test_code_tier_output_cap_is_operator_overridable(monkeypatch):
+    from chimera.core.act import ActExecutor
+
+    monkeypatch.setenv("CHIMERA_ACT_MAX_TOKENS_CODE", "32768")
+    assert ActExecutor._resolve_max_tokens("code") == 32768
 
 
 def test_default_no_env_stays_haiku(monkeypatch):
