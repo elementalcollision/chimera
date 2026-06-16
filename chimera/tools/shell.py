@@ -453,6 +453,22 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
             timed_out=True,
         )
         return f"$ {' '.join(argv)}\n[timeout after {timeout_s:.1f}s]"
+    finally:
+        # Kill any still-live child. ACT's per-phase budget wrapper
+        # (asyncio.wait_for) cancels the phase coroutine when a cycle runs long;
+        # that cancellation propagates into the awaited proc.communicate() as
+        # CancelledError but does NOT kill the OS process. Without this, a
+        # cancelled shell call — most often the pytest/uv gate run — orphans a
+        # memory-heavy child; across the many cycles a soak battery drives, those
+        # orphans pile up and exhaust memory (the 2026-06-16 testing-crash leak).
+        # The TimeoutError branch already reaped; this covers CancelledError and
+        # any other early exit. proc.kill() is synchronous (frees RSS at once);
+        # the zombie is reaped by the loop's child watcher / on process exit.
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
 
     duration_ms = (time.perf_counter() - _t0) * 1000.0
     out = stdout.decode("utf-8", errors="replace")
