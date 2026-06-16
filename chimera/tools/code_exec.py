@@ -200,6 +200,16 @@ async def code_exec_handler(args: dict[str, Any], context: DispatchContext) -> s
             proc.kill()
             await proc.wait()
             return f"$ python -I {script_path.name}\n[timeout after {timeout_s:.1f}s]"
+        finally:
+            # Kill any still-live child on CancelledError (ACT's per-phase budget
+            # cancels the coroutine mid-call) or any other early exit — otherwise
+            # the python subprocess orphans and accumulates across soak cycles
+            # (the 2026-06-16 testing-crash leak; see shell.py for the full note).
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
     finally:
         script_path.unlink(missing_ok=True)
 
