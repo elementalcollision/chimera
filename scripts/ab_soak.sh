@@ -13,7 +13,7 @@
 # INBOX. The `code` and `sonnet` tiers differ only in their LEAD rung, so the
 # faithful tier A/B is exactly these two leads on the same task:
 #   A (incumbent) = deepseek/deepseek-v4-pro    — sonnet lead == today's CRAWL lead
-#   B (code)      = moonshotai/kimi-k2.7-code   — code tier lead (the candidate)
+#   B (code)      = qwen/qwen3.7-max            — code tier lead (the candidate)
 #
 # Required env:
 #   AB_SPEC      path to the backlog spec to run both arms against
@@ -44,7 +44,7 @@ if [ -f .env ]; then set -a; . ./.env; set +a; fi
 [ -f "$AB_SPEC" ] || { echo "ab_soak: spec not found: $AB_SPEC" >&2; exit 2; }
 
 ARM_A_MODEL="${AB_ARM_A_MODEL:-deepseek/deepseek-v4-pro}"
-ARM_B_MODEL="${AB_ARM_B_MODEL:-moonshotai/kimi-k2.7-code}"
+ARM_B_MODEL="${AB_ARM_B_MODEL:-qwen/qwen3.7-max}"
 LABEL_A="${AB_LABEL_A:-incumbent}"
 LABEL_B="${AB_LABEL_B:-code}"
 

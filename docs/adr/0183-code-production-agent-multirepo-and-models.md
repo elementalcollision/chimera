@@ -181,6 +181,21 @@ model is a few declarative lines; OpenRouter is the transport
 > (`qwen → kimi → glm → deepseek → opus`). Single-trial caveat applies to the
 > mid-pack; the top tie is solid (both maxed). Routing change stays operator-gated.
 
+> **Lead switched to qwen3.7-max; kimi dropped (2026-06-17).** Per operator
+> decision, the code-tier lead is now **qwen3.7-max** and kimi-k2.7-code was
+> removed from the ladder. Rationale: the arena tied them on quality
+> (both 104/104) but qwen was ~29% cheaper, AND a guarded instrumented
+> reproduction found kimi repeatedly **stalls on the single-binary `shell`
+> tool protocol** (spamming `bash -c`, hitting `scope_evasion` at max_rounds
+> and getting trust-demoted) — a poor fit for the soak loop despite its arena
+> score. New `CODE_LADDER` (value-first): `qwen3.7-max → glm-5.2 →
+> deepseek-v4-pro → claude-opus` (safety-net). Also: **`z-ai/glm-5.1` →
+> `z-ai/glm-5.2`** (upstream replacement) across the sonnet + code ladders
+> (pricing carried from 5.1, verify at next ingestion). Same finding-record
+> as the crash post-mortem: the in-process memory profile of a single cycle
+> is flat (~116MB) — the crashes were concurrency (the resurrected daily
+> CRAWL running soaks alongside A/B runs), now mitigated.
+
 ### Validation
 - The flag-matrix / registry tests stay green (ladders are data).
 - New: a model-ingestion smoke (the new rung resolves, prices, pings) and

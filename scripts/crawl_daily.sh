@@ -26,10 +26,11 @@ REPO_ROOT="$(pwd)"
 
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
-# Route CRAWL ACT at the `code` tier (kimi-k2.7-code lead, with the
-# deepseek→glm→qwen→opus fallback ladder). Promoted on the 2026-06-15 graded
-# A/B battery: kimi is non-inferior on quality and ~21% cheaper (ADR 0183 A.1,
-# mind/research/ab-codetier-battery-2026-06-15.md). Operator-overridable.
+# Route CRAWL ACT at the `code` tier (qwen3.7-max lead, with the
+# glm-5.2→deepseek→opus fallback ladder). qwen led the 2026-06-15 arena on
+# quality (104/104) at the lowest cost; kimi was dropped (tied but pricier, and
+# stalled on the shell tool protocol). See ADR 0183 A.1 /
+# mind/research/ab-arena-2026-06-15.md. Operator-overridable.
 export CHIMERA_ACT_TIER="${CHIMERA_ACT_TIER:-code}"
 
 DISPATCH_LOG="${CHIMERA_STATE_DIR:-$REPO_ROOT/state}/crawl_dispatched.txt"

@@ -20,8 +20,8 @@ tiers (their leads):
 
 | arm | model | meaning |
 |---|---|---|
-| A (`incumbent`) | `deepseek/deepseek-v4-pro` | today's CRAWL lead (sonnet lead) |
-| B (`code`) | `moonshotai/kimi-k2.7-code` | the code-tier candidate lead |
+| A (`incumbent`) | `deepseek/deepseek-v4-pro` | sonnet-lead comparator |
+| B (`code`) | `qwen/qwen3.7-max` | the code-tier lead (2026-06-17) |
 
 Override with `AB_ARM_A_MODEL` / `AB_ARM_B_MODEL` (any `chimera tiers` model
 or alias). Any `real_task_soak.sh` knob (caps, walls) passes through to both
@@ -59,18 +59,19 @@ probe, grades each against the probe's `.accept.py`, and prints a leaderboard
 (pooled spec-pass %, mean $/run, probe wins).
 
 ```bash
-# Default field = the four suggested open code-tier models, all probes:
+# Default field = the current open code-tier models, all probes:
 bash scripts/ab_arena.sh
 
 # A subset / with trials:
 AB_TRIALS=2 bash scripts/ab_arena.sh mind/ab/roman-probe.md
-AB_MODELS="moonshotai/kimi-k2.7-code z-ai/glm-5.1" bash scripts/ab_arena.sh
+AB_MODELS="qwen/qwen3.7-max z-ai/glm-5.2" bash scripts/ab_arena.sh
 ```
 
 Default field (opus is the Anthropic safety-net, not a suggested code model —
-add via `AB_MODELS` if wanted): `moonshotai/kimi-k2.7-code`,
-`deepseek/deepseek-v4-pro`, `z-ai/glm-5.1`, `qwen/qwen3.7-max`. Same base-SHA
-pin, accept-grading, and `AB_TRIALS` distribution support as the battery; total
+add via `AB_MODELS` if wanted): `qwen/qwen3.7-max`, `z-ai/glm-5.2`,
+`deepseek/deepseek-v4-pro`. (kimi-k2.7-code was dropped from the tier
+2026-06-17 — add it via `AB_MODELS` only for ad-hoc re-comparison.) Same
+base-SHA pin, accept-grading, and `AB_TRIALS` distribution support; total
 soaks = `models × probes × trials`.
 
 ## What it measures (the decision rule)

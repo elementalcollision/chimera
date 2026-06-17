@@ -1,8 +1,10 @@
-"""The open-model 'code' tier (ADR 0183, operator-specified 2026-06-15).
+"""The open-model 'code' tier (ADR 0183).
 
-Kimi-led tool-calling code specialists with claude-opus as the trailing
-safety-net, selectable but orthogonal to the haiku→sonnet→opus cost-
-escalation axis.
+qwen3.7-max-led tool-calling code specialists with claude-opus as the trailing
+safety-net, selectable but orthogonal to the haiku→sonnet→opus cost-escalation
+axis. Ordered value-first per the 2026-06-15 arena (qwen led on quality at the
+lowest cost; kimi-k2.7-code was dropped — tied on quality, pricier, and stalled
+on the shell tool protocol). glm-5.1 → z-ai/glm-5.2 (2026-06-17 replacement).
 """
 
 from __future__ import annotations
@@ -24,27 +26,28 @@ def test_code_tier_registered():
 def test_code_tier_composition_and_order():
     ids = [r.config.openrouter_model_id for r in CODE_LADDER]
     assert ids == [
-        "moonshotai/kimi-k2.7-code",
-        "deepseek/deepseek-v4-pro",
-        "z-ai/glm-5.1",
         "qwen/qwen3.7-max",
+        "z-ai/glm-5.2",
+        "deepseek/deepseek-v4-pro",
         OPUS.openrouter_model_id or OPUS.model_id,  # claude-opus safety-net last
     ]
     # Claude-opus is the trailing safety-net rung (ADR 0072 invariant).
     assert CODE_LADDER[-1].config is OPUS
+    # kimi was removed from the tier (2026-06-17).
+    assert all("kimi" not in (r.config.model_id or "") for r in CODE_LADDER)
 
 
 def test_code_tier_all_tool_capable():
     assert all(r.capabilities.supports_tools for r in CODE_LADDER)
 
 
-def test_code_tier_leads_with_kimi():
-    # select_rung walks cheapest/first-capable; the operator ordered kimi first.
-    assert select_rung("code").config.model_id == "moonshotai/kimi-k2.7-code"
+def test_code_tier_leads_with_qwen():
+    # select_rung walks first-capable; qwen3.7-max is the value-first lead.
+    assert select_rung("code").config.model_id == "qwen/qwen3.7-max"
 
 
-def test_kimi_resolvable_by_alias():
-    assert resolve_rung("kimi-k2.7-code").config.model_id == "moonshotai/kimi-k2.7-code"
+def test_qwen_resolvable_by_alias():
+    assert resolve_rung("qwen3.7-max").config.model_id == "qwen/qwen3.7-max"
 
 
 def test_code_tier_outside_escalation_axis():
@@ -55,5 +58,5 @@ def test_code_tier_outside_escalation_axis():
 
 def test_code_tier_escalation_walk():
     rungs = [r.config.model_id for r in eligible_rungs("code", requires_tools=True)]
-    assert rungs[0] == "moonshotai/kimi-k2.7-code"
+    assert rungs[0] == "qwen/qwen3.7-max"
     assert rungs[-1] == OPUS.model_id
