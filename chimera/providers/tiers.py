@@ -135,10 +135,12 @@ LADDER_MINIMAX_M3 = ModelConfig(
     max_calls_per_day=2_000, input_cost_per_mtok=0.30, output_cost_per_mtok=1.20,
     provider=Provider.OPENROUTER, openrouter_model_id="minimax/minimax-m3",
 )
-LADDER_GLM_5_1 = ModelConfig(
-    model_id="z-ai/glm-5.1", max_calls_per_minute=10, max_calls_per_hour=100,
+LADDER_GLM_5_2 = ModelConfig(
+    model_id="z-ai/glm-5.2", max_calls_per_minute=10, max_calls_per_hour=100,
+    # Pricing carried from GLM-5.1 (which z-ai/glm-5.2 replaced, 2026-06-17) —
+    # verify against the live OpenRouter catalog at next ingestion.
     max_calls_per_day=2_000, input_cost_per_mtok=0.98, output_cost_per_mtok=3.08,
-    provider=Provider.OPENROUTER, openrouter_model_id="z-ai/glm-5.1",
+    provider=Provider.OPENROUTER, openrouter_model_id="z-ai/glm-5.2",
 )
 LADDER_QWEN37_MAX = ModelConfig(
     model_id="qwen/qwen3.7-max", max_calls_per_minute=10, max_calls_per_hour=100,
@@ -158,14 +160,11 @@ LADDER_GEMINI_31_PRO = ModelConfig(
     openrouter_model_id="google/gemini-3.1-pro-preview",
 )
 
-# Code specialist (code tier, ADR 0183) — tool-calling open model.
-LADDER_KIMI_K27_CODE = ModelConfig(
-    model_id="moonshotai/kimi-k2.7-code", max_calls_per_minute=10,
-    max_calls_per_hour=100, max_calls_per_day=2_000,
-    # Operator-confirmed pricing 2026-06-15 (was an estimate at ingestion).
-    input_cost_per_mtok=0.75, output_cost_per_mtok=3.50,
-    provider=Provider.OPENROUTER, openrouter_model_id="moonshotai/kimi-k2.7-code",
-)
+# NOTE: kimi-k2.7-code was the original code-tier lead (ADR 0183) but was
+# removed 2026-06-17: the arena tied it with qwen3.7-max on quality while qwen
+# was ~29% cheaper, and kimi repeatedly stalled on the single-binary `shell`
+# tool protocol (spamming `bash -c`, hitting scope_evasion). qwen3.7-max is the
+# new lead. See mind/research/ab-arena-2026-06-15.md.
 
 # Specialists (opus tier) — code + tool-optimized.
 LADDER_GPT5_CODEX_MAX = ModelConfig(
@@ -196,7 +195,7 @@ HAIKU_LADDER: list[LadderRung] = [
 SONNET_LADDER: list[LadderRung] = [
     LadderRung(LADDER_DEEPSEEK_V4_PRO, ModelCapabilities(**_REASON_BIG)),
     LadderRung(LADDER_MINIMAX_M3, ModelCapabilities(**_REASON_BIG)),
-    LadderRung(LADDER_GLM_5_1, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=202_752)),
+    LadderRung(LADDER_GLM_5_2, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=202_752)),
     LadderRung(LADDER_QWEN37_MAX, ModelCapabilities(**dict(_REASON, context_tokens=1_000_000))),
     LadderRung(LADDER_MISTRAL_MEDIUM, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=262_144)),
     LadderRung(LADDER_GEMINI_31_PRO, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, reasoning_optimized=True, context_tokens=1_048_576)),
@@ -212,18 +211,19 @@ OPUS_LADDER: list[LadderRung] = [
     LadderRung(OPUS, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, reasoning_optimized=True, context_tokens=200_000)),
 ]
 
-# CODE_LADDER = the open-model "Opus-level" coding tier (ADR 0183, operator-
-# specified 2026-06-15). Tool-calling code specialists, kimi-led, with
-# claude-opus kept as the trailing safety-net rung (ADR 0072 resilience).
-# This is a SELECTABLE tier — orthogonal to the haiku→sonnet→opus cost-
-# escalation axis (MODEL_TIERS / escalation._TIER_ORDER stay 3-tier). ACT
-# routes to it via `select_rung("code")` / CHIMERA_ACT_FORCE_MODEL; making
-# it the default for CRAWL/code work is the A/B-gated activation (ADR 0183).
+# CODE_LADDER = the open-model "Opus-level" coding tier (ADR 0183). Ordered
+# value-first per the 2026-06-15 arena (mind/research/ab-arena-2026-06-15.md):
+# qwen3.7-max led on quality (104/104) at the lowest cost, so it is the lead;
+# glm-5.2 and deepseek-v4-pro follow; claude-opus is the trailing safety-net
+# rung (ADR 0072 resilience). kimi-k2.7-code was dropped (tied on quality but
+# pricier, and stalled on the shell tool protocol — see the note above). This
+# is a SELECTABLE tier — orthogonal to the haiku→sonnet→opus cost-escalation
+# axis (MODEL_TIERS / escalation._TIER_ORDER stay 3-tier). ACT routes to it via
+# `select_rung("code")` / CHIMERA_ACT_TIER=code.
 CODE_LADDER: list[LadderRung] = [
-    LadderRung(LADDER_KIMI_K27_CODE, ModelCapabilities(supports_tools=True, supports_json_mode=True, reasoning_optimized=True, context_tokens=262_144)),
-    LadderRung(LADDER_DEEPSEEK_V4_PRO, ModelCapabilities(**_REASON_BIG)),
-    LadderRung(LADDER_GLM_5_1, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=202_752)),
     LadderRung(LADDER_QWEN37_MAX, ModelCapabilities(**dict(_REASON, context_tokens=1_000_000))),
+    LadderRung(LADDER_GLM_5_2, ModelCapabilities(supports_tools=True, supports_json_mode=True, context_tokens=202_752)),
+    LadderRung(LADDER_DEEPSEEK_V4_PRO, ModelCapabilities(**_REASON_BIG)),
     LadderRung(OPUS, ModelCapabilities(supports_tools=True, supports_json_mode=True, supports_vision=True, reasoning_optimized=True, context_tokens=200_000)),
 ]
 

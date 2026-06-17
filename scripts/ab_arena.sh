@@ -5,14 +5,16 @@
 # canonical <spec>.accept.py, and rank. Optional AB_TRIALS=N repeats each cell
 # for a distribution (the variance fix from the first battery).
 #
-# Default field — the four operator-suggested open code-tier models (opus is the
-# Anthropic safety-net, not a suggested code model; add it via AB_MODELS if wanted):
-#   moonshotai/kimi-k2.7-code  deepseek/deepseek-v4-pro  z-ai/glm-5.1  qwen/qwen3.7-max
+# Default field — the current open code-tier models (opus is the Anthropic
+# safety-net, not a suggested code model; add it via AB_MODELS if wanted).
+# kimi-k2.7-code was dropped from the tier 2026-06-17 (see ADR 0183); add it
+# back via AB_MODELS only for ad-hoc re-comparison:
+#   qwen/qwen3.7-max  z-ai/glm-5.2  deepseek/deepseek-v4-pro
 #
 # Usage:
 #   bash scripts/ab_arena.sh                          # all probes, default field
 #   AB_TRIALS=2 bash scripts/ab_arena.sh mind/ab/roman-probe.md
-#   AB_MODELS="moonshotai/kimi-k2.7-code z-ai/glm-5.1" bash scripts/ab_arena.sh
+#   AB_MODELS="qwen/qwen3.7-max z-ai/glm-5.2" bash scripts/ab_arena.sh
 #   TASK_DRYRUN=1 bash scripts/ab_arena.sh            # validate, no spend
 # Any real_task_soak.sh knob (caps, walls, CHIMERA_ACT_MAX_TOKENS) passes
 # through to every cell unchanged.
@@ -24,7 +26,7 @@ cd "$(dirname "$0")/.." || exit 2
 REPO_ROOT="$(pwd)"
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
-DEFAULT_MODELS="moonshotai/kimi-k2.7-code deepseek/deepseek-v4-pro z-ai/glm-5.1 qwen/qwen3.7-max"
+DEFAULT_MODELS="qwen/qwen3.7-max z-ai/glm-5.2 deepseek/deepseek-v4-pro"
 read -r -a MODELS <<<"${AB_MODELS:-$DEFAULT_MODELS}"
 
 PROBES=("$@")

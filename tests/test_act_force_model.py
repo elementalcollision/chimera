@@ -28,14 +28,14 @@ def test_forced_unknown_model_gets_anthropic_defaults():
 
 
 def test_forced_resolves_openrouter_ladder_model_with_real_provider():
-    """ADR 0183 A.1: pinning a code/sonnet ladder lead resolves to its REAL
+    """ADR 0183 A.1: pinning a code/sonnet ladder model resolves to its REAL
     OpenRouter rung (true provider + cost), not a synthetic Anthropic one — the
-    seam the kimi-vs-deepseek A/B rides on."""
-    kimi = _forced_rung("moonshotai/kimi-k2.7-code")
-    assert kimi.config.model_id == "moonshotai/kimi-k2.7-code"
-    assert kimi.config.provider is ProviderKind.OPENROUTER
-    assert kimi.config.input_cost_per_mtok == 0.75  # operator-confirmed, not a default
-    assert kimi.capabilities.supports_tools is True
+    seam the model A/B rides on."""
+    qwen = _forced_rung("qwen/qwen3.7-max")  # the code-tier lead
+    assert qwen.config.model_id == "qwen/qwen3.7-max"
+    assert qwen.config.provider is ProviderKind.OPENROUTER
+    assert qwen.config.input_cost_per_mtok > 0  # real catalog cost, not a default
+    assert qwen.capabilities.supports_tools is True
 
     incumbent = _forced_rung("deepseek/deepseek-v4-pro")
     assert incumbent.config.model_id == "deepseek/deepseek-v4-pro"

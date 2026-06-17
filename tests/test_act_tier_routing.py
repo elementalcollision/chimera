@@ -1,6 +1,6 @@
 """CHIMERA_ACT_TIER routes the base ACT tier (ADR 0183 A.1).
 
-Promoting the `code` tier (kimi-k2.7-code lead) for CRAWL means the loop's
+Promoting the `code` tier (qwen3.7-max lead) for CRAWL means the loop's
 ACT routes there by default. Two seams make that work end-to-end:
   - ActExecutor.from_env honours CHIMERA_ACT_TIER when no tier is passed;
   - recommended_tier leaves a non-ladder tier (`code`) intact instead of
@@ -15,10 +15,10 @@ from chimera.core.escalation import recommended_tier
 from chimera.providers.tiers import select_rung
 
 
-def test_code_tier_leads_with_kimi():
-    # The whole point of the promotion: select_rung("code") → kimi.
+def test_code_tier_leads_with_qwen():
+    # The whole point of the promotion: select_rung("code") → qwen3.7-max.
     rung = select_rung("code", requires_tools=True)
-    assert rung.config.openrouter_model_id == "moonshotai/kimi-k2.7-code"
+    assert rung.config.openrouter_model_id == "qwen/qwen3.7-max"
 
 
 def test_recommended_tier_passes_code_through_unchanged():

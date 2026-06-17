@@ -153,11 +153,11 @@ logger = logging.getLogger(__name__)
 def _forced_rung(model_id: str) -> LadderRung:
     """Resolve ``CHIMERA_ACT_FORCE_MODEL`` to a concrete rung.
 
-    A known ladder model or alias (``moonshotai/kimi-k2.7-code``,
+    A known ladder model or alias (``qwen/qwen3.7-max``,
     ``deepseek/deepseek-v4-pro``, ``claude-opus-4-7``, …) resolves to its REAL
     rung — true provider (OpenRouter *or* Anthropic), real costs + capabilities.
     This lets a soak pin ACT to any ladder model for an A/B (ADR 0183 A.1) — e.g.
-    the ``code`` tier's kimi lead vs. the ``sonnet`` lead deepseek — not just an
+    the ``code`` tier's qwen lead vs. the ``sonnet`` lead deepseek — not just an
     Anthropic one. An unknown id falls back to a synthetic Anthropic rung (the
     original create/self-determine use: pin a future ``claude-*`` model)."""
     from ..providers.tiers import resolve_rung
