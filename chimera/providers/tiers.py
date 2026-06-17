@@ -137,9 +137,8 @@ LADDER_MINIMAX_M3 = ModelConfig(
 )
 LADDER_GLM_5_2 = ModelConfig(
     model_id="z-ai/glm-5.2", max_calls_per_minute=10, max_calls_per_hour=100,
-    # Pricing carried from GLM-5.1 (which z-ai/glm-5.2 replaced, 2026-06-17) —
-    # verify against the live OpenRouter catalog at next ingestion.
-    max_calls_per_day=2_000, input_cost_per_mtok=0.98, output_cost_per_mtok=3.08,
+    # Operator-confirmed pricing 2026-06-17 (z-ai/glm-5.2 replaced GLM-5.1).
+    max_calls_per_day=2_000, input_cost_per_mtok=1.40, output_cost_per_mtok=4.40,
     provider=Provider.OPENROUTER, openrouter_model_id="z-ai/glm-5.2",
 )
 LADDER_QWEN37_MAX = ModelConfig(
