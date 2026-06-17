@@ -245,6 +245,54 @@ soak_phase1_verify_green() {
 # rather than `timeout(1)` because the latter is BSD-flavored on macOS
 # (signal semantics differ) and not guaranteed installed.
 #
+# ─────────────────────────────────────────────────────────────────────
+# Process-tree helpers (memory-guard support, 2026-06-16)
+# ─────────────────────────────────────────────────────────────────────
+# `chimera run` spawns a subprocess tree (uv → python → its own children, plus
+# any tool subprocesses like a `uv run … pytest` gate call). A runaway cycle —
+# e.g. a long, non-converging ACT phase — can grow that tree until the HOST
+# thrashes and crashes (observed 2026-06-16, twice). And a cleanly-exited run
+# can leave orphaned grandchildren (killing the direct child does not reap a
+# `uv→python→pytest` grandchild). These helpers let the watchdog measure the
+# whole tree's RSS, kill the whole tree, and sweep post-exit orphans.
+
+# Echo a root pid plus all its descendants, space-separated (BFS via pgrep -P).
+_soak_proc_tree() {
+    local work="$1" out="" cur kids
+    # Guard on non-whitespace content: appending empty `kids` leaves a trailing
+    # space, and once the worklist drains to only spaces `[ -n "$work" ]` would
+    # still be true while `set -- $work` yields nothing → cur="" → `pgrep -P ""`
+    # → infinite loop (the 2026-06-17 watchdog hang). `${work// /}` strips spaces.
+    while [ -n "${work// /}" ]; do
+        # shellcheck disable=SC2086  # intentional word-split of the pid worklist
+        set -- $work; cur="$1"; shift; work="$*"
+        [ -n "$cur" ] || continue
+        out="$out $cur"
+        kids="$(pgrep -P "$cur" 2>/dev/null | tr '\n' ' ')"
+        # Only extend the worklist with real child pids — never a bare space.
+        [ -n "${kids// /}" ] && work="$work $kids"
+    done
+    # Unquoted echo normalises the accumulated whitespace to single spaces.
+    # shellcheck disable=SC2086
+    echo $out
+}
+
+# Sum RSS (MB) of the given pids. `ps` reports RSS in KB.
+_soak_rss_mb_of() {
+    [ "$#" -gt 0 ] || { echo 0; return; }
+    local csv; csv="$(IFS=,; echo "$*")"
+    ps -o rss= -p "$csv" 2>/dev/null | awk '{s+=$1} END{print int(s/1024)}'
+}
+
+# SIGKILL a whole process tree, descendants first (avoid re-parent races).
+_soak_kill_tree() {
+    local pids rev="" p
+    # shellcheck disable=SC2046,SC2086
+    pids="$(_soak_proc_tree "$1")"
+    for p in $pids; do rev="$p $rev"; done
+    for p in $rev; do kill -KILL "$p" 2>/dev/null; done
+}
+
 soak_run_chimera_with_watchdog() {
     local worktree="$1"
     local log_file="$2"
@@ -268,20 +316,35 @@ soak_run_chimera_with_watchdog() {
     local poll_sec=5
     local hb_sec="${CHIMERA_RUN_HEARTBEAT_SEC:-15}"
     local next_hb="$hb_sec"
-    echo "  watchdog: chimera run started pid=$pid (idle_timeout=${idle_timeout}s, hb=${hb_sec}s)" >> "$log_file"
+    # Memory guard (2026-06-16): cap the chimera-run PROCESS-TREE RSS. A runaway
+    # cycle that would otherwise crash the host is converted into one killed
+    # cycle + a log line. Tune via CHIMERA_RUN_RSS_CAP_MB (default 5000).
+    local rss_cap_mb="${CHIMERA_RUN_RSS_CAP_MB:-5000}"
+    local peak_rss=0 last_tree="$pid"
+    echo "  watchdog: chimera run started pid=$pid (idle_timeout=${idle_timeout}s, hb=${hb_sec}s, rss_cap=${rss_cap_mb}MB)" >> "$log_file"
 
     while kill -0 "$pid" 2>/dev/null; do
-        if [ "$elapsed" -ge "$idle_timeout" ]; then
-            kill -TERM "$pid" 2>/dev/null
-            sleep 2
-            kill -KILL "$pid" 2>/dev/null  # belt+suspenders if SIGTERM ignored
+        # Snapshot the whole tree once per poll: reused for RSS, the cap check,
+        # and the post-exit orphan sweep.
+        last_tree="$(_soak_proc_tree "$pid")"
+        local tree_rss
+        # shellcheck disable=SC2086  # intentional word-split of the pid list
+        tree_rss="$(_soak_rss_mb_of $last_tree)"
+        [ "$tree_rss" -gt "$peak_rss" ] && peak_rss="$tree_rss"
+        if [ "$tree_rss" -gt "$rss_cap_mb" ]; then
+            _soak_kill_tree "$pid"
             wait "$pid" 2>/dev/null
-            local msg="  watchdog: chimera run pid=$pid killed after ${idle_timeout}s (silent-death guard, ADR 0120)"
-            echo "$msg" | tee -a "$log_file"
+            echo "  watchdog: chimera run pid=$pid tree RSS ${tree_rss}MB > cap ${rss_cap_mb}MB at ${elapsed}s — KILLED TREE (memory guard); peak=${peak_rss}MB" | tee -a "$log_file"
+            return 1
+        fi
+        if [ "$elapsed" -ge "$idle_timeout" ]; then
+            _soak_kill_tree "$pid"   # tree-kill, not just $pid — no orphans
+            wait "$pid" 2>/dev/null
+            echo "  watchdog: chimera run pid=$pid killed after ${idle_timeout}s (silent-death guard, ADR 0120; tree-kill); peak_rss=${peak_rss}MB" | tee -a "$log_file"
             return 1
         fi
         if [ "$elapsed" -ge "$next_hb" ]; then
-            echo "  watchdog heartbeat: pid=$pid alive at ${elapsed}s ($(date -u +%H:%M:%S))" >> "$log_file"
+            echo "  watchdog heartbeat: pid=$pid alive at ${elapsed}s rss=${tree_rss}MB ($(date -u +%H:%M:%S))" >> "$log_file"
             next_hb=$((next_hb + hb_sec))
         fi
         sleep "$poll_sec"
@@ -290,6 +353,19 @@ soak_run_chimera_with_watchdog() {
 
     wait "$pid" 2>/dev/null
     local rc=$?
+    # Sweep orphaned grandchildren: descendants tracked on the last poll that
+    # survived the run's exit (e.g. a uv→python→pytest tree from a gate call
+    # whose direct child was killed but grandchildren re-parented to init).
+    local p reaped=0
+    for p in $last_tree; do
+        [ "$p" = "$pid" ] && continue
+        if kill -0 "$p" 2>/dev/null; then
+            kill -KILL "$p" 2>/dev/null
+            reaped=$((reaped + 1))
+        fi
+    done
+    [ "$reaped" -gt 0 ] && echo "  watchdog: reaped ${reaped} orphaned descendant(s) after exit" >> "$log_file"
+    echo "  watchdog: peak tree RSS ${peak_rss}MB" >> "$log_file"
     if [ "$rc" -gt 128 ]; then
         local sig=$((rc - 128))
         local nm="SIG${sig}"
@@ -310,5 +386,5 @@ soak_run_chimera_with_watchdog() {
 # Print the lib version. Runners log this so post-mortems can correlate
 # soak behavior with the lib revision when the lib changes shape.
 soak_lib_version() {
-    echo "soak_lib.sh v7 — sentinels require >=1 allowlist path (mind/* journal auto-allow is permissive, not sufficient; 2026-06-12 Finding 2); watchdog heartbeat + signal-decoded exit"
+    echo "soak_lib.sh v8 — v7 + watchdog process-TREE kill, RSS cap (CHIMERA_RUN_RSS_CAP_MB), peak-RSS logging, and post-exit orphan sweep (2026-06-16 memory-guard)"
 }

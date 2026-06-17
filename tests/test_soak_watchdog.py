@@ -163,10 +163,34 @@ def test_watchdog_decodes_kill_signal(tmp_path: Path) -> None:
     assert "KILLED BY SIGNAL 9" in text and "external reap" in text
 
 
-def test_soak_lib_version_is_v7() -> None:
+def test_proc_tree_terminates_on_multilevel_tree(tmp_path: Path) -> None:
+    """Regression for the 2026-06-17 infinite-loop hang: _soak_proc_tree must
+    TERMINATE (the `_run` 60s timeout fails the test on a hang) and return the
+    root plus its descendants. The tree-KILL path is covered separately by
+    test_watchdog_fires_when_subprocess_hangs (which now tree-kills)."""
+    script = textwrap.dedent(f"""
+        source {SOAK_LIB}
+        bash -c "sleep 9.31 & sleep 9.31 & wait" &   # root bash + 2 child sleeps
+        root=$!
+        sleep 0.7
+        tree="$(_soak_proc_tree "$root")"            # must terminate (no hang)
+        # shellcheck disable=SC2086
+        echo "COUNT=$(echo $tree | wc -w | tr -d ' ')"
+        kill "$root" 2>/dev/null; pkill -P "$root" 2>/dev/null
+        echo DONE
+    """)
+    result = _run(script)
+    assert "DONE" in result.stdout, f"helper hung or errored: {result.stdout!r} {result.stderr!r}"
+    import re
+    m = re.search(r"COUNT=(\d+)", result.stdout)
+    assert m and int(m.group(1)) >= 3, f"expected root+2 children in tree: {result.stdout!r}"
+
+
+def test_soak_lib_version() -> None:
     result = _run(f"source {SOAK_LIB}; soak_lib_version")
-    assert "v7" in result.stdout, result.stdout
-    assert "mind/*" in result.stdout
+    assert "v8" in result.stdout, result.stdout
+    # v8 added the watchdog memory guard (tree-kill + RSS cap).
+    assert "RSS cap" in result.stdout, result.stdout
 
 
 # ─────────────────────────────────────────────────────────────────────
