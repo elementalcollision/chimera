@@ -3,7 +3,7 @@ goal: "Add HealthSummary.worst_dimensions() to chimera.core.health"
 files: chimera/core/health.py tests/test_health_worst_dimensions.py
 test: tests/test_health_worst_dimensions.py
 base: main
-done: false
+done: true  # landed 2026-06-17 — first qwen-led CRAWL deliverable (run realtask-2026-06-17-1527)
 ---
 Terse alerting helper: add a `worst_dimensions()` method to `HealthSummary`
 returning the list of `HealthDimension`s whose status equals the overall
