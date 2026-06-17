@@ -47,6 +47,16 @@ class HealthSummary:
             ],
         }
 
+    def worst_dimensions(self) -> list[HealthDimension]:
+        """Return dimensions whose status equals the overall verdict.
+
+        Empty when overall is ``green`` or ``unknown`` — those verdicts don't
+        have an actionable driver worth surfacing in an alert.
+        """
+        if self.overall in ("green", "unknown"):
+            return []
+        return [d for d in self.dimensions if d.status == self.overall]
+
 
 def _worst(a: HealthStatus, b: HealthStatus) -> HealthStatus:
     return b if _RANK[b] > _RANK[a] else a
