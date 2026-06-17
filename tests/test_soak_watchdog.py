@@ -167,20 +167,22 @@ def test_proc_tree_terminates_and_kills_whole_tree(tmp_path: Path) -> None:
     """Regression for the 2026-06-17 infinite-loop hang: _soak_proc_tree must
     TERMINATE on both a leaf and a multi-level tree (the `_run` 60s timeout
     fails the test on a hang), and _soak_kill_tree must reap descendants."""
+    # Unique fractional duration as the marker — valid for GNU (Linux) AND BSD
+    # (macOS) `sleep`, and matchable via `pgrep -f`. (A trailing word arg errors
+    # under GNU sleep.)
+    mark = "9.314159"
     script = textwrap.dedent(f"""
         source {SOAK_LIB}
-        # 2-level tree: a bash with two `sleep 9` grandchildren (unique marker).
-        bash -c "sleep 9 leakreg & sleep 9 leakreg & wait" &
+        # 2-level tree: a bash with two `sleep {mark}` children.
+        bash -c "sleep {mark} & sleep {mark} & wait" &
         root=$!
         sleep 0.7
-        tree="$(_soak_proc_tree "$root")"            # must terminate
+        tree="$(_soak_proc_tree "$root")"            # must terminate (no hang)
         # shellcheck disable=SC2086
         echo "COUNT=$(echo $tree | wc -w | tr -d ' ')"
-        leaf="$(_soak_proc_tree "$root" >/dev/null; echo ok)"  # leaf path terminates too
-        echo "LEAF=$leaf"
-        before=$(pgrep -f 'sleep 9 leakreg' | wc -l | tr -d ' ')
+        before=$(pgrep -f 'sleep {mark}' | wc -l | tr -d ' ')
         _soak_kill_tree "$root"; wait "$root" 2>/dev/null; sleep 0.5
-        after=$(pgrep -f 'sleep 9 leakreg' | wc -l | tr -d ' ')
+        after=$(pgrep -f 'sleep {mark}' | wc -l | tr -d ' ')
         echo "KILL before=$before after=$after"
         echo DONE
     """)
