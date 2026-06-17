@@ -259,14 +259,22 @@ soak_phase1_verify_green() {
 # Echo a root pid plus all its descendants, space-separated (BFS via pgrep -P).
 _soak_proc_tree() {
     local work="$1" out="" cur kids
-    while [ -n "$work" ]; do
+    # Guard on non-whitespace content: appending empty `kids` leaves a trailing
+    # space, and once the worklist drains to only spaces `[ -n "$work" ]` would
+    # still be true while `set -- $work` yields nothing → cur="" → `pgrep -P ""`
+    # → infinite loop (the 2026-06-17 watchdog hang). `${work// /}` strips spaces.
+    while [ -n "${work// /}" ]; do
         # shellcheck disable=SC2086  # intentional word-split of the pid worklist
         set -- $work; cur="$1"; shift; work="$*"
+        [ -n "$cur" ] || continue
         out="$out $cur"
         kids="$(pgrep -P "$cur" 2>/dev/null | tr '\n' ' ')"
-        work="$work $kids"
+        # Only extend the worklist with real child pids — never a bare space.
+        [ -n "${kids// /}" ] && work="$work $kids"
     done
-    echo "$out"
+    # Unquoted echo normalises the accumulated whitespace to single spaces.
+    # shellcheck disable=SC2086
+    echo $out
 }
 
 # Sum RSS (MB) of the given pids. `ps` reports RSS in KB.

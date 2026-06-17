@@ -163,10 +163,37 @@ def test_watchdog_decodes_kill_signal(tmp_path: Path) -> None:
     assert "KILLED BY SIGNAL 9" in text and "external reap" in text
 
 
-def test_soak_lib_version_is_v7() -> None:
+def test_proc_tree_terminates_and_kills_whole_tree(tmp_path: Path) -> None:
+    """Regression for the 2026-06-17 infinite-loop hang: _soak_proc_tree must
+    TERMINATE on both a leaf and a multi-level tree (the `_run` 60s timeout
+    fails the test on a hang), and _soak_kill_tree must reap descendants."""
+    script = textwrap.dedent(f"""
+        source {SOAK_LIB}
+        # 2-level tree: a bash with two `sleep 9` grandchildren (unique marker).
+        bash -c "sleep 9 leakreg & sleep 9 leakreg & wait" &
+        root=$!
+        sleep 0.7
+        tree="$(_soak_proc_tree "$root")"            # must terminate
+        # shellcheck disable=SC2086
+        echo "COUNT=$(echo $tree | wc -w | tr -d ' ')"
+        leaf="$(_soak_proc_tree "$root" >/dev/null; echo ok)"  # leaf path terminates too
+        echo "LEAF=$leaf"
+        before=$(pgrep -f 'sleep 9 leakreg' | wc -l | tr -d ' ')
+        _soak_kill_tree "$root"; wait "$root" 2>/dev/null; sleep 0.5
+        after=$(pgrep -f 'sleep 9 leakreg' | wc -l | tr -d ' ')
+        echo "KILL before=$before after=$after"
+        echo DONE
+    """)
+    result = _run(script)
+    assert "DONE" in result.stdout, f"helper hung or errored: {result.stdout!r} {result.stderr!r}"
+    assert "after=0" in result.stdout, f"tree-kill left survivors: {result.stdout!r}"
+
+
+def test_soak_lib_version() -> None:
     result = _run(f"source {SOAK_LIB}; soak_lib_version")
-    assert "v7" in result.stdout, result.stdout
-    assert "mind/*" in result.stdout
+    assert "v8" in result.stdout, result.stdout
+    # v8 added the watchdog memory guard (tree-kill + RSS cap).
+    assert "RSS cap" in result.stdout, result.stdout
 
 
 # ─────────────────────────────────────────────────────────────────────
