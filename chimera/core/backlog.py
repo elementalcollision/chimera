@@ -51,6 +51,12 @@ class BacklogSpec:
     # Provenance: "owner/repo#N" when this spec was ingested from a GitHub
     # issue (WALK, ADR 0182 phase 2); None for an operator-authored MD spec.
     issue: str | None = None
+    # Multi-repo (ADR 0186 B.1). `repo` = "owner/name" of a FOREIGN target repo;
+    # `verify_cmd` = that repo's own gate command (pytest / npm test / cargo test
+    # / …) since `chimera verify` can't express it. Both None → self-repo spec,
+    # byte-identical to pre-0186 behaviour. A spec with `repo` MUST set `verify_cmd`.
+    repo: str | None = None
+    verify_cmd: str | None = None
     errors: tuple[str, ...] = field(default=())
 
     @property
@@ -71,6 +77,12 @@ class BacklogSpec:
         }
         if self.test:
             env["TASK_TEST"] = self.test
+        # Multi-repo (ADR 0186 B.1): only emitted for a foreign-repo spec, so a
+        # self-repo spec's env is byte-identical to pre-0186.
+        if self.repo:
+            env["TASK_REPO"] = self.repo
+        if self.verify_cmd:
+            env["TASK_VERIFY_CMD"] = self.verify_cmd
         return env
 
 
@@ -123,9 +135,21 @@ def parse_spec(path: Path) -> BacklogSpec:
     issue = data.get("issue")
     issue = str(issue).strip() if issue else None
 
+    # Multi-repo (ADR 0186 B.1). A foreign-repo spec carries `repo` (owner/name)
+    # and its own `verify_cmd` gate. `repo` without `verify_cmd` is rejected (we
+    # have no gate for it); `verify_cmd` without `repo` is allowed (override the
+    # self-repo gate). Absent both → self-repo spec, unchanged.
+    repo = data.get("repo")
+    repo = str(repo).strip() if repo else None
+    verify_cmd = data.get("verify_cmd")
+    verify_cmd = str(verify_cmd).strip() if verify_cmd else None
+    if repo and not verify_cmd:
+        errors.append("`repo` is set but `verify_cmd` is missing (a foreign repo needs its own gate)")
+
     return BacklogSpec(
         path=path, goal=goal, files=files, test=test, base=base,
-        body=body, done=done, issue=issue, errors=tuple(errors),
+        body=body, done=done, issue=issue, repo=repo, verify_cmd=verify_cmd,
+        errors=tuple(errors),
     )
 
 
