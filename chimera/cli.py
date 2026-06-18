@@ -301,6 +301,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cycle number to report on (default: most recent).",
     )
 
+    cost_delta = sub.add_parser(
+        "cost-delta",
+        help="Token/cost delta between two soak api_calls DBs (baseline vs treatment).",
+    )
+    cost_delta.add_argument("--baseline", required=True, help="Baseline DB (e.g. flag OFF).")
+    cost_delta.add_argument("--treatment", required=True, help="Treatment DB (e.g. flag ON).")
+    cost_delta.add_argument("--json", action="store_true", help="Emit JSON instead of text.")
+
     health = sub.add_parser(
         "health",
         help="One-command production-health verdict (cost/drift/queue/hot "
@@ -1415,6 +1423,25 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if not result.failures else 1
         parser.error(f"unknown emergence subcommand: {sub_cmd}")
         return 2
+    if args.command == "cost-delta":
+        # ADR 0183 / flag graduation: deterministic, key-free token/cost delta
+        # between two soak api_calls DBs (baseline vs treatment).
+        import json as _json
+
+        from .core.cost_delta import compute_cost_delta
+
+        d = compute_cost_delta(args.baseline, args.treatment)
+        if args.json:
+            print(_json.dumps(d.to_dict(), indent=2))
+        else:
+            b, t = d.baseline, d.treatment
+            print(f"baseline : {b.calls} calls  {b.total_tokens:,} tok  ${b.cost_usd:.4f}")
+            print(f"treatment: {t.calls} calls  {t.total_tokens:,} tok  ${t.cost_usd:.4f}")
+            print(f"delta    : {d.token_delta:+,} tok ({d.token_pct:+.2f}%)  "
+                  f"${d.cost_delta:+.4f} ({d.cost_pct:+.2f}%)")
+            print(f"verdict  : {d.verdict()}")
+        return 0
+
     if args.command == "cost":
         # v4.58 (ADR 0077): operator-facing windowed spend report.
         # Mirrors the dashboard cost-rate widget for headless / SSH use.
