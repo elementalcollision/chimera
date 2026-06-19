@@ -45,6 +45,21 @@ Procedure (run in a keyed env, scheduler off to avoid concurrent soaks):
 > tool-definition input tokens specifically** (instrument the prefilter to log
 > pruned-schema token counts) rather than total cost.
 
+> **Cost side SETTLED 2026-06-19** (deterministic, offline; writeup:
+> `mind/research/prefilter-savings-0184-2026-06-19.md`). The instrumentation
+> (`prefilter_savings`) measured the tool-definition-token lever directly across
+> representative tasks: **one-directional** (pruning only removes tools — ON is
+> never costlier than OFF), **safety-floored** (empty/token-less task → full
+> catalog; core never pruned), and it **scales with toolset size**: ~3% in
+> today's MCP-less self-soak (almost nothing to prune) → **~38% mean (up to 50%
+> on focused code tasks)** at ~29 dynamic/mcp tools. So the cost gate is met and
+> the cost risk is zero by construction. **Remaining for graduation: the QUALITY
+> check only** — does the lexical router ever prune a tool the task needed
+> (→ gate regression)? Measure with `scripts/flag_soak.sh` (both-arm-green,
+> multi-trial) in a keyed scheduler-off window, OR accept the floored low-risk
+> argument (today graduation is nearly a no-op that future-proofs the loop as
+> the dynamic/MCP toolset grows).
+
 ## Decision (on evidence)
 
 Flip the registry default: `CHIMERA_TOOL_PREFILTER` `None → "1"` in
