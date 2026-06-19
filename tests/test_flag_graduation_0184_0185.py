@@ -20,8 +20,8 @@ from chimera.tools.tool_selection import tool_prefilter_enabled
 _GRAD = "ADR 0184/0185: un-skip at graduation (registry default → '1' on cost-delta evidence)"
 
 
-@pytest.mark.skip(reason=_GRAD)
 def test_tool_prefilter_default_on_after_graduation(monkeypatch):
+    # GRADUATED 2026-06-19 (ADR 0184): registry default is now "1".
     monkeypatch.delenv("CHIMERA_TOOL_PREFILTER", raising=False)
     assert tool_prefilter_enabled() is True
 

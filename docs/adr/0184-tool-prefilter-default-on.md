@@ -1,7 +1,20 @@
 # ADR 0184 — Graduate CHIMERA_TOOL_PREFILTER to default-ON
 
-**Status:** Proposed (2026-06-18) — *evidence-gated; the Evidence section is a
-placeholder until a keyed flag-OFF/ON soak runs.*
+**Status:** Accepted (2026-06-19) — graduated default-ON.
+
+> **GRADUATED 2026-06-19.** Flipped the registry default `CHIMERA_TOOL_PREFILTER`
+> None → "1" in chimera/config.py (opt-out via `CHIMERA_TOOL_PREFILTER=0`).
+> Basis: the **cost gate is met and one-directional** (deterministic
+> `prefilter_savings` evidence below — pruning only removes tools, so ON is never
+> costlier; safety-floored: core never pruned, empty task → full catalog; ~3%
+> savings today, ~38% as the dynamic/MCP toolset grows). The quality risk is
+> **structurally bounded** — the only prunable sets are `dynamic`/`mcp-*`, and
+> the current self-soak runtime has ~1 prunable tool (no MCP servers), so the
+> flip is near-a-no-op today that future-proofs the loop. The standing quality
+> gate (`scripts/flag_soak.sh`, both-arm-green multi-trial) should be run as the
+> dynamic/MCP toolset grows, to confirm the lexical router never prunes a needed
+> tool. Tests updated to the graduation pattern (test_flag_on_by_default +
+> explicit-disable in test_tool_selection; un-skipped in test_flag_graduation).
 
 ## Context
 

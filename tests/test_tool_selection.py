@@ -62,13 +62,21 @@ def _names(schemas: list[dict]) -> set[str]:
 # ── flag OFF: identical to registry.schemas() ──────────────────────
 
 
-def test_flag_off_returns_full_catalog(monkeypatch):
-    monkeypatch.delenv("CHIMERA_TOOL_PREFILTER", raising=False)
+def test_flag_explicit_disable_returns_full_catalog(monkeypatch):
+    # ADR 0184: default-ON now, so the full-catalog (no-prune) behaviour requires
+    # an EXPLICIT opt-out (CHIMERA_TOOL_PREFILTER=0).
+    monkeypatch.setenv("CHIMERA_TOOL_PREFILTER", "0")
     reg = _registry()
     assert not tool_prefilter_enabled()
     got = select_tool_schemas(reg, "anything at all here")
     assert got == reg.schemas()
     assert _names(got) == {"shell", "code_exec", "reverse_string", "mcp-weather-forecast"}
+
+
+def test_flag_on_by_default(monkeypatch):
+    # ADR 0184 graduation: unset → ON (registry default "1").
+    monkeypatch.delenv("CHIMERA_TOOL_PREFILTER", raising=False)
+    assert tool_prefilter_enabled()
 
 
 # ── flag ON ────────────────────────────────────────────────────────
