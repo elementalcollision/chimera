@@ -25,7 +25,12 @@ from .git_commit import register_git_commit_tool
 from .mind_search import register_mind_search
 from .shell import SAFE_COMMANDS, register_shell_tool
 from .subagent import SubAgentConfig, SubAgentRunner, register_sub_agent_tool
-from .tool_selection import select_tool_schemas, tool_prefilter_enabled
+from .tool_selection import (
+    prefilter_savings,
+    select_tool_schemas,
+    tool_prefilter_enabled,
+    tool_schema_tokens,
+)
 from .web import register_web_tools, web_search_available
 from .write_intent import (
     extract_target_paths,
@@ -60,8 +65,10 @@ __all__ = [
     "register_web_tools",
     "SubAgentConfig",
     "SubAgentRunner",
+    "prefilter_savings",
     "select_tool_schemas",
     "tool_prefilter_enabled",
+    "tool_schema_tokens",
     "web_search_available",
     "add_global_deny",
     "clear_global_deny",
