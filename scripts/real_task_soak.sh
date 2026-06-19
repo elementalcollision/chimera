@@ -424,16 +424,37 @@ phase_loop() {
         soak_run_chimera_with_watchdog "$WORKTREE" "$LOG" || log "  watchdog fired ($phase_name iter $iter)"
         if [ "$engines_enabled" = "1" ] && [ "$CHIMERA_SOAK_AUTOCOMMIT" = "1" ]; then
             local msg="[agent] ${TASK_GOAL} — harness-committed (ADR 0148): agent authored+verified; runner executed the commit."
-            local files_py="["; local first=1
-            for f in $TASK_FILES; do
-                [ "$first" = "1" ] && first=0 || files_py="$files_py, "
-                files_py="$files_py'$f'"
-            done
-            files_py="$files_py]"
-            local st; st="$(cd "$WORKTREE" && CHIMERA_V40_GATE=1 uv run python -c "
+            if [ "$FOREIGN_MODE" = "1" ]; then
+                # Foreign repo: there is no chimera package to import for
+                # soak_autocommit, so run the foreign repo's OWN gate
+                # ($GATE_VERIFY_CMD = TASK_VERIFY_CMD) and, if green, commit the
+                # allowlisted files in the foreign checkout. The chimera scope
+                # (ADR 0146) / critic (ADR 0160) gates do not apply to a foreign
+                # repo (FAITH_CMD/REVIEW_CMD are empty in foreign mode). DRAFT-only:
+                # NO push, NO merge — the branch stays in the foreign checkout.
+                local st
+                if ( cd "$WORKTREE" && eval "$GATE_VERIFY_CMD" >>"$LOG" 2>&1 ); then
+                    # shellcheck disable=SC2086  # intentional word-split of the allowlist
+                    st="$(cd "$WORKTREE" && git add -- $TASK_FILES 2>/dev/null; \
+                        if git diff --cached --quiet; then echo no_changes_in_scope; \
+                        elif git commit -q -m "$msg"; then echo committed; \
+                        else echo commit_failed; fi)"
+                else
+                    st="gate_red"
+                fi
+                log "  harness-autocommit (foreign): ${st:-error}"
+            else
+                local files_py="["; local first=1
+                for f in $TASK_FILES; do
+                    [ "$first" = "1" ] && first=0 || files_py="$files_py, "
+                    files_py="$files_py'$f'"
+                done
+                files_py="$files_py]"
+                local st; st="$(cd "$WORKTREE" && CHIMERA_V40_GATE=1 uv run python -c "
 from chimera.soak_autocommit import autocommit_if_ready
 print(autocommit_if_ready('.', ${files_py}, '''$msg''', test_cmd=['bash','-c','''${GATE_VERIFY_CMD}''']))" 2>>"$LOG")"
-            log "  harness-autocommit: ${st:-error}"
+                log "  harness-autocommit: ${st:-error}"
+            fi
         fi
         if [ "$engines_enabled" = "1" ]; then
             if soak_phase2_deliverable_landed "$WORKTREE" "$TASK_FILES" "$GATE_VERIFY_CMD" "$TASK_BASE"; then
