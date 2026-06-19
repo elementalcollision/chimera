@@ -24,10 +24,13 @@ Public surface:
 
   * :func:`tool_prefilter_enabled` — honours ``CHIMERA_TOOL_PREFILTER``.
   * :func:`select_tool_schemas` — the ACT call-site replacement.
+  * :func:`tool_schema_tokens` — stable token estimate for a schema list.
+  * :func:`prefilter_savings` — flag-independent 0184 cost evidence.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -124,7 +127,27 @@ def select_tool_schemas(
     """
     if not tool_prefilter_enabled():
         return registry.schemas()
+    return _prefiltered_schemas(
+        registry, task_text, always_on_toolsets=always_on_toolsets
+    )
 
+
+def _prefiltered_schemas(
+    registry: Any,
+    task_text: str,
+    *,
+    always_on_toolsets: frozenset[str] = DEFAULT_ALWAYS_ON,
+) -> list[dict[str, Any]]:
+    """The pruning core, **independent of the flag**.
+
+    This is the exact relevance computation the live prefilter performs
+    once ``CHIMERA_TOOL_PREFILTER`` is on: an empty / token-less task
+    returns the full available catalog, otherwise the catalog pruned to
+    ``always_on_toolsets`` plus any lexically-relevant tool. Factored out
+    so :func:`select_tool_schemas` (flag-gated) and
+    :func:`prefilter_savings` (flag-independent measurement) share one
+    implementation — the measured prune can never drift from the live one.
+    """
     task_tokens = _tokens(task_text)
     if not task_tokens:
         # No signal to route on — fall back to the full catalog.
@@ -152,8 +175,88 @@ def select_tool_schemas(
     return selected
 
 
+# Bytes-per-token divisor for the deterministic estimate. Tool schemas are
+# dense JSON (field names, type keywords, nested braces), so the commonly
+# cited "~4 chars per token" English heuristic is a stable, conservative
+# proxy here — it needs no tokenizer/model dependency and never varies
+# across machines, which is exactly what the ADR 0184 cost evidence needs.
+_CHARS_PER_TOKEN = 4
+
+
+def tool_schema_tokens(schemas: list[dict[str, Any]]) -> int:
+    """Deterministic, offline token estimate for a list of tool schemas.
+
+    Serialises ``schemas`` to compact JSON (``stdlib json`` only, no
+    whitespace) and divides the character count by ``_CHARS_PER_TOKEN``
+    (the ~4-chars-per-token heuristic). This is a *stable proxy*, not an
+    exact tokenizer count: the goal is a reproducible, model-independent
+    number so two schema lists can be compared apples-to-apples. The same
+    serialisation + divisor is applied to both sides of a savings
+    computation, so any heuristic bias cancels in the difference.
+
+    Returns ``0`` for an empty list (``json.dumps([]) == "[]"`` → ``2 //
+    4 == 0``).
+    """
+    blob = json.dumps(schemas, separators=(",", ":"))
+    return len(blob) // _CHARS_PER_TOKEN
+
+
+def prefilter_savings(
+    task_text: str,
+    registry: Any = None,
+    *,
+    context: Any = None,
+) -> dict[str, int]:
+    """Deterministic, offline tool-prefilter cost evidence (ADR 0184).
+
+    Measures how many tool-definition input tokens the
+    ``CHIMERA_TOOL_PREFILTER`` lever (ADR 0165) would save for one task,
+    **independently of whether the flag is currently on**. The "full"
+    side is the unpruned catalog (``registry.schemas()``); the "pruned"
+    side is computed by the *exact same* relevance code the live
+    prefilter runs (:func:`_prefiltered_schemas`), so the measurement can
+    never drift from production behaviour. No soak, no API, no env
+    mutation.
+
+    ``registry`` defaults to the process-global default registry.
+    ``context`` is accepted for forward-compatibility with a future
+    embedding-backed selector seam (ADR 0134 §"#6.b") and is unused by the
+    lexical v0 path.
+
+    Returns a dict with::
+
+        full_tokens   pruned_tokens   saved_tokens
+        full_count    pruned_count
+
+    where ``saved_tokens == full_tokens - pruned_tokens`` and
+    ``pruned_count <= full_count``. On a token-less / empty task the
+    pruned set equals the full catalog, so ``saved_tokens == 0`` and
+    ``pruned_count == full_count``.
+    """
+    del context  # reserved; lexical v0 routes on task_text only
+    if registry is None:
+        from .registry import default_registry
+
+        registry = default_registry()
+
+    full = registry.schemas()
+    pruned = _prefiltered_schemas(registry, task_text)
+
+    full_tokens = tool_schema_tokens(full)
+    pruned_tokens = tool_schema_tokens(pruned)
+    return {
+        "full_tokens": full_tokens,
+        "pruned_tokens": pruned_tokens,
+        "saved_tokens": full_tokens - pruned_tokens,
+        "full_count": len(full),
+        "pruned_count": len(pruned),
+    }
+
+
 __all__ = [
     "DEFAULT_ALWAYS_ON",
+    "prefilter_savings",
     "select_tool_schemas",
     "tool_prefilter_enabled",
+    "tool_schema_tokens",
 ]
