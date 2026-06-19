@@ -30,8 +30,20 @@ Procedure (run in a keyed env, scheduler off to avoid concurrent soaks):
 3. Graduate **iff** treatment is cheaper (fewer input tokens / lower cost) AND
    both runs reach a green gate (parity quality — no completion regression).
 
-> _Evidence: pending the keyed run. Drop the `cost-delta` verdict + both gate
-> results here, then move Status → Accepted._
+> _Evidence: pending a VALID keyed run. Drop the `cost-delta` verdict + both
+> gate results here, then move Status → Accepted._
+
+> **First attempt 2026-06-19 — INCONCLUSIVE** (writeup:
+> `mind/research/flag-soak-0184-first-attempt-2026-06-19.md`). Two confounds make
+> the naive soak unusable as evidence: (1) the OFF arm *failed its gate* (n=1
+> variance), so the arms did unequal work — a flag soak is only valid when **both
+> arms reach a green gate** (use **multi-trial**, ≥3, median); (2) total-token
+> cost-delta can't isolate this flag — TOOL_PREFILTER prunes *tool-definition*
+> input tokens, which are dwarfed by conversation/file tokens on a real soak (ON
+> even showed MORE total input tokens, purely from running more rounds). Before
+> re-attempting: require both-arm gate-pass + multi-trial, and **measure
+> tool-definition input tokens specifically** (instrument the prefilter to log
+> pruned-schema token counts) rather than total cost.
 
 ## Decision (on evidence)
 
