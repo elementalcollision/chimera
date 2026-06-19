@@ -3,7 +3,7 @@ goal: "Add HealthSummary.alert_line() — terse one-line health alert string"
 files: chimera/core/health.py tests/test_health_alert_line.py
 test: tests/test_health_alert_line.py
 base: main
-done: false
+done: true  # landed 2026-06-19 — qwen CRAWL deliverable (run realtask-2026-06-19-2014)
 ---
 Build on `worst_dimensions()` (landed): add an `alert_line()` method to
 `HealthSummary` returning a single terse string for alerts/logs.

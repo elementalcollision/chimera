@@ -57,6 +57,24 @@ class HealthSummary:
             return []
         return [d for d in self.dimensions if d.status == self.overall]
 
+    def alert_line(self) -> str:
+        """Return a terse one-line health alert string.
+
+        - ``green`` → ``"OK"``
+        - ``unknown`` → ``"UNKNOWN"``
+        - ``amber`` → ``"WATCH: <key1>, <key2>"``
+        - ``red`` → ``"DEGRADED: <key1>, <key2>"``
+
+        Keys are drawn from :meth:`worst_dimensions` in their existing order.
+        """
+        if self.overall == "green":
+            return "OK"
+        if self.overall == "unknown":
+            return "UNKNOWN"
+        label = "DEGRADED" if self.overall == "red" else "WATCH"
+        keys = ", ".join(d.key for d in self.worst_dimensions())
+        return f"{label}: {keys}"
+
 
 def _worst(a: HealthStatus, b: HealthStatus) -> HealthStatus:
     return b if _RANK[b] > _RANK[a] else a
