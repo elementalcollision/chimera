@@ -86,13 +86,20 @@ def test_flag_parsing(monkeypatch, val, expected):
     assert complexity_routing_enabled() is expected
 
 
+def test_flag_on_by_default(monkeypatch):
+    # ADR 0185 graduation (2026-06-20): unset → ON (registry default "1").
+    monkeypatch.delenv("CHIMERA_COMPLEXITY_ROUTING", raising=False)
+    assert complexity_routing_enabled()
+
+
 # ── integration: recommended_tier ──────────────────────────────────
 
 
-def test_flag_off_keeps_default_tier(monkeypatch, db):
-    monkeypatch.delenv("CHIMERA_COMPLEXITY_ROUTING", raising=False)
-    # A clearly-complex task, but flag off → byte-identical to v4.119
-    # (no escalation history → stays at default haiku).
+def test_flag_explicit_disable_keeps_default_tier(monkeypatch, db):
+    # ADR 0185: default-ON now, so the no-lift (v4.119) behaviour requires an
+    # EXPLICIT opt-out (CHIMERA_COMPLEXITY_ROUTING=0). A clearly-complex task with
+    # no escalation history then stays at the default haiku tier.
+    monkeypatch.setenv("CHIMERA_COMPLEXITY_ROUTING", "0")
     task = "Refactor chimera/core/act.py and then run python tests"
     assert recommended_tier(db, task_text=task, default_tier="haiku") == "haiku"
 

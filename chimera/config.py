@@ -140,8 +140,8 @@ REGISTRY: dict[str, FlagSpec] = dict(
         _f("CHIMERA_TASK_BUDGET_USD", "float", None, "Per-task cost cap (ADR 0079)."),
         # ── ACT routing / sub-tasking (the entropy family) ────
         _f("CHIMERA_TOOL_PREFILTER", "bool", "1", "Semantic tool pre-filter (ADR 0165; default-ON via ADR 0184)."),
-        _f("CHIMERA_COMPLEXITY_ROUTING", "bool", None,
-           "Lexical task-complexity model selection (ADR 0166)."),
+        _f("CHIMERA_COMPLEXITY_ROUTING", "bool", "1",
+           "Lexical task-complexity model selection (ADR 0166; default-ON via ADR 0185)."),
         _f("CHIMERA_PEER_SELECTION", "bool", None,
            "Power-of-two-choices peer selection (ADR 0167).",
            ("CHIMERA_MODEL_PEERS",)),

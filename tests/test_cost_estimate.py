@@ -54,8 +54,12 @@ def test_research_text_floors_to_sonnet(db):
     assert est.estimated_usd > 0.005
 
 
-def test_history_overrides_fallback(db):
+def test_history_overrides_fallback(monkeypatch, db):
     """When api_calls has cycles for the target model, use the median."""
+    # Isolate the history-override mechanic from the ADR 0185 complexity floor
+    # (default-ON would lift "Refactor…" haiku→sonnet, mismatching the recorded
+    # haiku-rung history). This test is about history override, not routing.
+    monkeypatch.setenv("CHIMERA_COMPLEXITY_ROUTING", "0")
     # Three cycles on the haiku rung-0 model, varying spend.
     for cycle, in_tok in zip((1, 2, 3), (1_000_000, 2_000_000, 3_000_000)):
         record_api_call(
@@ -105,7 +109,11 @@ def test_inbox_skips_done_tasks(tmp_path, db):
     assert len(report.tasks) == 1
 
 
-def test_inbox_sums_across_tasks(tmp_path, db):
+def test_inbox_sums_across_tasks(monkeypatch, tmp_path, db):
+    # Isolate the inbox-rollup mechanic from the ADR 0185 complexity floor:
+    # default-ON lifts "Refactor…" to sonnet (= the research tier), erasing the
+    # research>refactor differential this test asserts. Routing has its own tests.
+    monkeypatch.setenv("CHIMERA_COMPLEXITY_ROUTING", "0")
     inbox = _write_inbox(tmp_path / "INBOX.md", [
         "- [ ] Refactor module A",
         "- [ ] Refactor module B",

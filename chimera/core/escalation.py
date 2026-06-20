@@ -293,7 +293,7 @@ def research_task_floor_tier(task_text: str) -> str | None:
 
 
 def complexity_routing_enabled() -> bool:
-    """Honour ``CHIMERA_COMPLEXITY_ROUTING`` (default: off, ADR 0166)."""
+    """Honour ``CHIMERA_COMPLEXITY_ROUTING`` (ADR 0166; default-ON via ADR 0185)."""
     return flag_enabled("CHIMERA_COMPLEXITY_ROUTING")
 
 

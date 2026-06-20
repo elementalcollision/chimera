@@ -26,8 +26,8 @@ def test_tool_prefilter_default_on_after_graduation(monkeypatch):
     assert tool_prefilter_enabled() is True
 
 
-@pytest.mark.skip(reason=_GRAD)
 def test_complexity_routing_default_on_after_graduation(monkeypatch):
+    # GRADUATED 2026-06-20 (ADR 0185): registry default is now "1".
     monkeypatch.delenv("CHIMERA_COMPLEXITY_ROUTING", raising=False)
     assert complexity_routing_enabled() is True
 
