@@ -129,6 +129,40 @@ def test_skips_when_trust_below_t4(tmp_path, monkeypatch):
     assert spy.calls == []
 
 
+def test_default_trust_reads_standing_state_dir_not_clone(tmp_path, monkeypatch):
+    # B.4 RCA: with no explicit trust_state_path the gate reads STANDING trust
+    # from state_dir, NOT the clone's per-run copy. Seed standing T5 + clone T0;
+    # the clone copy must be IGNORED and the PR fire.
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR", "1")
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "trust_state.json").write_text(json.dumps({"current_tier": 5}))
+    wt = _worktree_with_gate(tmp_path, allowed=True)
+    (wt / "state" / "trust_state.json").write_text(json.dumps({"current_tier": 0}))
+    record_verify_cmd_review(state_dir, REPO, ts="t0")
+    spy = _spy()
+    res = maybe_foreign_pr(
+        worktree=wt, repo_root=wt, foreign_repo=REPO, foreign_base="main",
+        state_dir=state_dir, submit_fn=spy)  # NO trust_state_path → default
+    assert res.fired and len(spy.calls) == 1
+
+
+def test_default_trust_standing_below_floor_skips(tmp_path, monkeypatch):
+    # Standing trust < T4 still blocks (even if the clone copy were high).
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR", "1")
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "trust_state.json").write_text(json.dumps({"current_tier": 3}))
+    wt = _worktree_with_gate(tmp_path, allowed=True)
+    record_verify_cmd_review(state_dir, REPO, ts="t0")
+    spy = _spy()
+    res = maybe_foreign_pr(
+        worktree=wt, repo_root=wt, foreign_repo=REPO, state_dir=state_dir, submit_fn=spy)
+    assert not res.fired and "foreign-PR floor" in res.skipped_reason
+
+
 def test_skips_when_no_gate_approved_commit(tmp_path, monkeypatch):
     wt = _worktree_with_gate(tmp_path, allowed=False)
     res, spy = _call(tmp_path, monkeypatch, worktree=wt)
