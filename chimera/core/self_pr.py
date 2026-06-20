@@ -118,8 +118,8 @@ def _foreign_gate_approved(worktree: Path, verify_cmd: str | None) -> bool:
     committed change is at HEAD, so a green ``verify_cmd`` confirms the PR's content
     is good. Fail-closed: no ``verify_cmd``, or any non-zero exit / error / timeout
     → False (no PR)."""
-    if not verify_cmd:
-        return False
+    if not verify_cmd or not verify_cmd.strip():
+        return False  # empty/whitespace-only → cannot confirm → fail-closed
     try:
         proc = subprocess.run(
             verify_cmd, shell=True, cwd=str(worktree),

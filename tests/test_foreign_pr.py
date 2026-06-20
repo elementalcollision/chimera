@@ -188,6 +188,25 @@ def test_skips_when_verify_cmd_not_reviewed(tmp_path, monkeypatch):
     assert spy.calls == []
 
 
+def test_verify_cmd_not_executed_until_reviewed(tmp_path, monkeypatch):
+    # Gate ORDER (B.4e safety): the foreign verify_cmd must NOT be executed before
+    # the review gate clears. Spy subprocess.run; an UNREVIEWED repo must skip at
+    # the review gate WITHOUT ever running the verify_cmd.
+    import chimera.core.self_pr as sp
+
+    ran = []
+
+    class _FakeProc:
+        returncode = 0
+
+    monkeypatch.setattr(sp.subprocess, "run",
+                        lambda *a, **k: (ran.append(a) or _FakeProc()))
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    res, _ = _call(tmp_path, monkeypatch, reviewed=False, verify_cmd="true")
+    assert not res.fired and "not operator-reviewed" in res.skipped_reason
+    assert ran == []  # verify_cmd never executed — review gate short-circuited it
+
+
 # ── approval gate (first 5) ─────────────────────────────────
 
 

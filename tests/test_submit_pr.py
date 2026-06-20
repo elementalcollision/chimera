@@ -317,6 +317,19 @@ def test_submit_pr_self_path_unchanged_when_not_foreign(tmp_path: Path) -> None:
     assert captured_gh[0][captured_gh[0].index("--base") + 1] == "main"
 
 
+def test_validate_foreign_skips_chimera_specific_gates(tmp_path: Path) -> None:
+    # B.4e: validate(foreign=True) skips the chimera-layout fix-without-test gate
+    # (chimera/ source touched without a tests/ counterpart) that self-mode enforces.
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _make_soak_worktree(repo)
+    _commit(repo, "chimera/x.py", "x = 1\n", "[agent] add x (no test)")
+    _, _, self_errors = validate(repo, base="main", foreign=False)
+    assert any("fix_without_test" in e for e in self_errors), self_errors
+    _, _, foreign_errors = validate(repo, base="main", foreign=True)
+    assert not any("fix_without_test" in e for e in foreign_errors), foreign_errors
+
+
 def test_foreign_push_env_strips_provider_keys_keeps_vcs_auth(monkeypatch) -> None:
     # The foreign push/PR subprocess env strips LLM/provider secrets but KEEPS
     # the VCS auth tokens git/gh need (review #3 — the naive full-strip would

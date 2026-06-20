@@ -89,6 +89,21 @@ def test_submit_skips_when_not_reviewed(env, capsys, monkeypatch):
     assert "not operator-reviewed" in capsys.readouterr().out
 
 
+def test_submit_skips_when_verify_cmd_omitted(env, capsys, monkeypatch):
+    # B.4e: with --verify-cmd omitted (verify_cmd=None) the gate-approved check
+    # fails-closed → SKIPPED, no PR. (Reviewed + approved so we reach gate 6.)
+    tmp, state = env
+    wt = _worktree(tmp)
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR", "1")
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    main(["foreign-pr", "review", "--repo", REPO, "--state-dir", str(state)])
+    capsys.readouterr()
+    rc = main(["foreign-pr", "submit", "--repo", REPO, "--worktree", str(wt),
+               "--state-dir", str(state)])  # no --verify-cmd
+    assert rc == 0
+    assert "verify_cmd did not pass" in capsys.readouterr().out
+
+
 def test_submit_skips_when_needs_approval(env, capsys, monkeypatch):
     tmp, state = env
     wt = _worktree(tmp)
