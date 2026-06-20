@@ -598,13 +598,25 @@ log "[soak-outcome] run_id=${RUN_ID} branch=${BRANCH} gate=${SOAK_GATE} committe
 # with the soak branch in the foreign clone for review; it does NOT auto-merge
 # and does NOT push to the foreign origin (its pushurl is disabled above).
 #
-# TODO(ADR 0186 B.4): generalize maybe_self_pr() to open a trust-gated DRAFT PR
-# against the FOREIGN remote (still ≥ T4, draft-only, never merges). That cross-
-# repo PR-targeting work is OUT OF SCOPE for B.2 — see chimera/core/self_pr.py
-# (maybe_self_pr targets repo_root's OWN origin today). Until B.4 lands, foreign
-# runs are manual-handoff: the operator opens the PR against the target repo.
+# ADR 0186 B.4: foreign draft-PR targeting has LANDED — maybe_foreign_pr (via the
+# `chimera foreign-pr submit` verb below) opens a trust-gated DRAFT PR on the
+# target (≥ T4, draft-only, never merges, allowlist + verify_cmd-review + first-5
+# approval). It is OFF by default (CHIMERA_FOREIGN_PR unset) → foreign runs stay
+# manual-handoff exactly as before until the operator opts in AND approves.
 if [ "$FOREIGN_MODE" = "1" ]; then
-    log "── foreign mode: manual-handoff — branch '$BRANCH' left in $WORKTREE for review (no push, no auto-merge; self-PR is B.4, not B.2) ──"
+    # ADR 0186 B.4d: when opted in (CHIMERA_FOREIGN_PR set), attempt a trust-gated
+    # DRAFT PR on the target. EVERY gate lives in maybe_foreign_pr (opt-in,
+    # allowlist, trust>=T4, gate-approved-commit, verify_cmd-review, first-5
+    # approval) — this is a no-op when not opted in/approved. Run from RUNNER_ROOT
+    # (chimera is installed there, not in the foreign clone) and point the
+    # GOVERNANCE ledger at the operator's PERSISTENT state, NOT the throwaway
+    # clone's CHIMERA_STATE_DIR (which is deleted with the workspace).
+    if [ -n "${CHIMERA_FOREIGN_PR:-}" ]; then
+        ( cd "${RUNNER_ROOT:-$REPO_ROOT}" && uv run chimera foreign-pr submit \
+            --repo "$TASK_REPO" --worktree "$WORKTREE" --base "$TASK_BASE" \
+            --run-id "$RUN_ID" --state-dir "${RUNNER_ROOT:-$REPO_ROOT}/state" ) 2>&1 | tee -a "$LOG" || true
+    fi
+    log "── foreign mode: branch '$BRANCH' left in $WORKTREE for review ──"
     log "Review: cd $WORKTREE && git log --oneline $TASK_BASE..HEAD"
     exit 0
 fi

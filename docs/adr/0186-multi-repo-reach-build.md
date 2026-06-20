@@ -37,8 +37,13 @@ increment.
 >     `maybe_foreign_pr` adds a fail-closed verify-review gate + the first-5
 >     approval gate (`CHIMERA_FOREIGN_PR_REQUIRE_APPROVAL` + per-run
 >     `CHIMERA_FOREIGN_PR_APPROVED`), graduating after 5.
->   - **B.4d** first real-repo dry-run + the operator CLI/soak wiring (this is the
->     only LIVE outward action; B.4b/B.4c above are default-off library + tests) — ⬜ pending.
+>   - **B.4d operator CLI + soak wiring** — ✅ `chimera foreign-pr {review,status,
+>     submit}` (governance ledger uses the operator's PERSISTENT state, not the
+>     throwaway clone); real_task_soak.sh's foreign block calls `foreign-pr submit`
+>     (default-off no-op). **The one remaining step is the first LIVE run** — a
+>     supervised draft PR on `elementalcollision/claude-daemon`, which requires the
+>     operator to `foreign-pr review` the repo AND grant `CHIMERA_FOREIGN_PR_APPROVED=1`
+>     per PR for the first 5. All code is default-off; no PR opens without that.
 
 ## Context
 
