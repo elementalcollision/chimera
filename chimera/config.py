@@ -73,6 +73,10 @@ REGISTRY: dict[str, FlagSpec] = dict(
         # ── core layout / identity ────────────────────────────
         _f("CHIMERA_MIND_DIR", "path", None, "Mind (knowledge) directory; default ./mind."),
         _f("CHIMERA_STATE_DIR", "path", None, "State (db/journal) directory; default ./state."),
+        _f("CHIMERA_FOREIGN_REPO", "str", None,
+           "Foreign target repo 'owner/name' for a multi-repo soak (ADR 0186 B.3); "
+           "set by real_task_soak.sh's foreign block. When set, the agent's system "
+           "prompt uses a neutral repo-framed voice instead of Chimera's self-identity."),
         _f("CHIMERA_AGENT_ID", "str", None, "Stable agent identity override."),
         _f("CHIMERA_VOICE", "str", None, "Persona/voice selector for prompts."),
         _f("CHIMERA_LOG_LEVEL", "str", None, "Python logging level."),

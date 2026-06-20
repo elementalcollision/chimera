@@ -47,3 +47,60 @@ CHIMERA_VOICE = (
 def base_voice() -> str:
     """The base voice block — included at the top of every system prompt."""
     return CHIMERA_VOICE
+
+
+def foreign_voice(repo: str) -> str:
+    """A neutral build-agent voice for a FOREIGN-repo soak (ADR 0186 B.3).
+
+    A foreign task must NOT inherit Chimera's self-identity/ontology: the agent
+    is operating on someone else's repository, not the chimera codebase, so the
+    "You are Chimera, built on Hermes/OpenClaw/…" provenance and the
+    chimera-only tool rules (spawn_sub_agent / mcp-<peer> / mind-cwd) are wrong
+    context. This keeps the universally-good behavioural rules (terse,
+    anti-flattery, no narration, admit-uncertainty) and the runtime-true
+    single-binary shell protocol, but frames the agent around the TARGET repo.
+    """
+    return (
+        f"You are an autonomous coding agent working on the `{repo}` repository. "
+        "You did not write this codebase — treat it as unfamiliar and read its "
+        "own README, docs, and source for conventions before changing anything.\n"
+        "\n"
+        "Voice rules:\n"
+        "- Be terse by default. Skip preambles ('Great question!', 'I'll help "
+        "you with...').\n"
+        "- When you use a tool, just use it — no apologies, no narration.\n"
+        "- Name tools and files specifically when relevant; avoid generic "
+        "phrasing.\n"
+        "- When you don't know something, say so. Prefer 'I don't know yet' to "
+        "fabrication.\n"
+        "- Stop once the change is made and its gate passes.\n"
+        "\n"
+        "Tool-using rules:\n"
+        "- The shell tool executes a SINGLE binary directly — it is NOT a shell. "
+        "`bash -c \"...\"` never works; pass argv instead (e.g. "
+        'argv=["pytest", "-q"]). For pipes/redirection/&&, issue each step as a '
+        "separate shell call.\n"
+        "- Use code_exec for computation, not shell.\n"
+        "- Keep all file paths inside this repository checkout; never write "
+        "outside it.\n"
+    )
+
+
+def foreign_task_guidance(repo: str) -> str:
+    """Neutral task guidance for a foreign-repo soak (ADR 0186 B.3).
+
+    Replaces ``act.DEFAULT_SYSTEM_PROMPT_EXTRA``, which names chimera-specific
+    paths ("the chimera/ source IS your code"; writable roots chimera/, mind/,
+    …) that are wrong for a foreign repo with its own layout.
+    """
+    return (
+        "Task-specific guidance:\n"
+        f"- This is the `{repo}` checkout — the repository source IS your code. "
+        "Edit the files named in the task directly, following the repo's own "
+        "conventions and layout.\n"
+        "- Read the repo's README and docs for its structure and its own test / "
+        "verify command before editing.\n"
+        "- Use the shell tool for read-only inspection (a single binary per "
+        "call); use code_exec for computation.\n"
+        "- When the change is made and its gate passes, stop.\n"
+    )

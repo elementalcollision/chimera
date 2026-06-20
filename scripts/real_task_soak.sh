@@ -180,6 +180,12 @@ if [ -n "$TASK_REPO" ]; then
     # (Surfaces on a self-clone smoke where the foreign repo is chimera itself;
     # harmless for non-chimera foreign repos.)
     export CHIMERA_ALLOW_MAIN_BRANCH_DRIFT=1
+
+    # ADR 0186 B.3: signal foreign-repo context to the agent's prompt builder so
+    # it adopts a neutral repo-framed voice/guidance instead of Chimera's
+    # self-identity (which would tell the agent it is editing the chimera
+    # codebase). Self-mode (TASK_REPO unset) never sets this → byte-identical.
+    export CHIMERA_FOREIGN_REPO="$TASK_REPO"
 fi
 
 PHASE1_CAP_USD="${PHASE1_CAP_USD:-2.50}"
