@@ -19,9 +19,11 @@ increment.
 >     failing gate output and the soak's foreign block appends it to the phase-1
 >     INBOX. The helper is pure/offline (no foreign-code execution); the soak
 >     runs the gate (same surface the B.2 gate already uses, sandboxed by B.4).
-> - **B.4** PR targeting + safety envelope — ⬜ not started (the real-risk phase:
->   draft-PR to the target repo, trust-gated; ADR 0175 sandbox for the foreign
->   `verify_cmd`; secrets/network review before first use).
+> - **B.4** PR targeting + safety envelope — 📝 **design drafted** (the real-risk
+>   phase: draft-PR to the target repo, trust-gated; ADR 0175 sandbox for the
+>   foreign `verify_cmd`; secrets/network review before first use). Detailed
+>   design + increments (B.4a sandbox → B.4b foreign draft-PR → B.4c checklist →
+>   B.4d first real repo): `mind/research/b4-foreign-pr-safety-envelope-design-2026-06-20.md`.
 
 ## Context
 
@@ -82,7 +84,9 @@ goal, the foreign checkout, the target repo's own README/docs, and the failing
 machinery (it's operational), but scoped to the workspace, not chimera's `mind/`.
 
 **B.4 — PR targeting + safety envelope (the real risk).** Open the draft PR
-against the *target* repo. Acting on other people's repos demands:
+against the *target* repo. **Detailed design + threat model + increments:**
+`mind/research/b4-foreign-pr-safety-envelope-design-2026-06-20.md`. Acting on
+other people's repos demands:
 - **Repo allowlist** — start `elementalcollision/*` ONLY; enforced before any
   clone or agent action (fail-closed on a non-allowlisted `repo`).
 - **Draft-PR-only, manual-handoff** — NO cross-repo auto-merge, ever, in this
