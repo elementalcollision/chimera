@@ -80,6 +80,19 @@ increment.
 >     a DRAFT carrying EXACTLY the 2 allowlisted files (`+42/-0`), base `main`,
 >     unmerged, one `[agent]` commit. The full safety envelope held end-to-end over
 >     the network. Ledger: 1/5 toward approval-graduation.
+>   - **🎓 APPROVAL-FLOOR GRADUATION (cross-repo)** — ✅ 2026-06-20: ran real
+>     (non-noop) test-coverage tasks across THREE repos to exercise + graduate the
+>     first-5 per-PR approval floor. PRs 2–4 on
+>     [claude-daemon](https://github.com/elementalcollision/claude-daemon/pull/72)
+>     (#72 compute_progress, #73 logging helpers, #74 _lerp_color), #5 on
+>     [drift-monitor#1](https://github.com/elementalcollision/drift-monitor/pull/1)
+>     (_length_shift), and #6 —
+>     [GraphMemory-IDE#3](https://github.com/elementalcollision/GraphMemory-IDE/pull/3)
+>     (formatting helpers) — fired with `CHIMERA_FOREIGN_PR_APPROVED` UNSET,
+>     proving the floor graduated (opened=5 ≥ FLOOR). Every PR carried ONLY its
+>     allowlisted test file; B.4h prevented the ruff sprawl (B.4g reverted only
+>     `uv.lock` drift). GraphMemory used a `--no-project --with pytest` root-test
+>     verify_cmd to dodge its heavy kuzu/transformers `tests/conftest.py`.
 >   - **B.4h ruff charter-scope guard (agent-side prevention)** — ✅ the B.4g root
 >     cause was the agent running `ruff --fix` TREE-WIDE; B.4g reverts that residue,
 >     B.4h stops it at the source. `chimera/core/ruff_scope.py` (pure, exhaustively
