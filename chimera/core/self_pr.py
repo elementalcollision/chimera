@@ -54,6 +54,20 @@ FOREIGN_PR_APPROVAL_FLOOR = 5
 # Operational default allowlist (mirrors real_task_soak.sh); fail-closed.
 _DEFAULT_ALLOWLIST = "elementalcollision"
 
+# Operational footprint the soak/runtime writes INTO a foreign clone but which is
+# never part of a foreign PR — so it must not trip submit_pr.validate()'s
+# clean-tree gate (ADR 0186, dirty-tree gap caught by the first claude-daemon
+# dry run). The self path only needs "mind/" because chimera's own .gitignore
+# already covers state/ and the venv; an arbitrary foreign repo does NOT, so the
+# foreign path must ignore its full footprint explicitly:
+#   mind/    — the soak's agent journal (INBOX/HEARTBEAT/SESSION_LOG/research/soak)
+#   state/   — the agent's CHIMERA_STATE_DIR (trust_state.json, chimera.db, crawl/)
+#   uv.lock  — mutated as a side-effect of `uv run` (agent + verify_cmd resolve)
+# The autocommit stages ONLY $TASK_FILES (B.4e: `git add -- $TASK_FILES`), so the
+# PR carries the allowlisted change alone; this gate just stops the operational
+# residue left UNCOMMITTED alongside it from reading as "dirty worktree".
+_FOREIGN_IGNORE_DIRTY = ("mind/", "state/", "uv.lock")
+
 
 # Strict GitHub "owner/name" shape — rejects path-traversal / injection in the
 # repo string before it ever reaches the push URL or `gh --repo` (B.4 review).
@@ -291,7 +305,7 @@ def maybe_foreign_pr(
         base=foreign_base,
         draft=True,
         dry_run=dry_run,
-        ignore_dirty_prefixes=("mind/",),
+        ignore_dirty_prefixes=_FOREIGN_IGNORE_DIRTY,
         foreign_repo=foreign_repo,
         foreign_base=foreign_base,
         gh_runner=gh_runner,
