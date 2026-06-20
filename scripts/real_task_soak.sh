@@ -612,9 +612,15 @@ if [ "$FOREIGN_MODE" = "1" ]; then
     # GOVERNANCE ledger at the operator's PERSISTENT state, NOT the throwaway
     # clone's CHIMERA_STATE_DIR (which is deleted with the workspace).
     if [ -n "${CHIMERA_FOREIGN_PR:-}" ]; then
+        # CHIMERA_FOREIGN_PR_DRY_RUN=1 exercises the WHOLE path (gates → submit)
+        # without pushing or opening a PR — the safe rehearsal before a first live
+        # foreign run on a new repo (ADR 0186 B.4d).
+        _fpr_dry=""
+        [ -n "${CHIMERA_FOREIGN_PR_DRY_RUN:-}" ] && _fpr_dry="--dry-run"
+        # shellcheck disable=SC2086  # _fpr_dry is a single optional flag
         ( cd "${RUNNER_ROOT:-$REPO_ROOT}" && uv run chimera foreign-pr submit \
             --repo "$TASK_REPO" --worktree "$WORKTREE" --base "$TASK_BASE" \
-            --run-id "$RUN_ID" --state-dir "${RUNNER_ROOT:-$REPO_ROOT}/state" ) 2>&1 | tee -a "$LOG" || true
+            --run-id "$RUN_ID" --state-dir "${RUNNER_ROOT:-$REPO_ROOT}/state" $_fpr_dry ) 2>&1 | tee -a "$LOG" || true
     fi
     log "── foreign mode: branch '$BRANCH' left in $WORKTREE for review ──"
     log "Review: cd $WORKTREE && git log --oneline $TASK_BASE..HEAD"
