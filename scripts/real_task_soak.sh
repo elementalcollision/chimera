@@ -33,6 +33,29 @@
 #
 # Manual-handoff: the runner stops with the branch in the worktree — NO
 # auto-push/PR/merge. The operator reviews and opens the PR.
+#
+# ── Multi-repo (ADR 0186 B.2) ──────────────────────────────────────────
+# When TASK_REPO ("owner/name") AND TASK_VERIFY_CMD are set, the runner soaks
+# a FOREIGN target repo instead of the chimera self-repo:
+#   TASK_REPO        owner/name of the foreign target repo (e.g.
+#                    elementalcollision/claude-daemon). MUST match
+#                    CHIMERA_REPO_ALLOWLIST (fail-closed otherwise).
+#   TASK_VERIFY_CMD  the foreign repo's OWN gate command — pytest / npm test /
+#                    cargo test / … — `chimera verify` cannot express it, so it
+#                    becomes GATE_VERIFY_CMD against the foreign checkout.
+#   CHIMERA_REPO_ALLOWLIST  space/comma-separated allowlist of "owner" or
+#                    "owner/name" entries (default: the single owner
+#                    `elementalcollision`). A non-allowlisted TASK_REPO is
+#                    REFUSED before any clone or agent action (fail-closed).
+# In foreign mode the runner clones the target into a managed workspace dir,
+# points REPO_ROOT/WORKTREE/gate at that checkout, sets FAITH_CMD/REVIEW_CMD
+# empty (they assume the chimera codebase), and stays draft-PR-only /
+# manual-handoff — NO cross-repo push, NO auto-merge. self_pr generalization to
+# foreign remotes is OUT OF SCOPE for B.2 (see the foreign self-PR TODO below).
+#
+# HARD CONSTRAINT: when TASK_REPO is UNSET the behaviour is byte-identical to
+# the self-repo path the live daily loop depends on — every foreign-mode line is
+# gated behind a `[ -n "${TASK_REPO:-}" ]` check and never runs in self-mode.
 
 set -uo pipefail
 
@@ -84,6 +107,81 @@ FAITH_CMD=""
 REVIEW_CMD="uv run chimera review${TARGET_ARGS} --base ${TASK_BASE} --goal \"${TASK_GOAL}\""
 [ -n "$TASK_TEST" ] && REVIEW_CMD="${REVIEW_CMD} --test ${TASK_TEST}"
 
+# ── Multi-repo foreign-target overrides (ADR 0186 B.2) ─────────────────
+# EVERYTHING in this block runs ONLY when TASK_REPO is set. When TASK_REPO is
+# unset the block is skipped entirely and REPO_ROOT/WORKTREE/GATE_VERIFY_CMD/
+# FAITH_CMD/REVIEW_CMD keep the self-repo values computed above — so the
+# self-repo path is byte-identical to pre-0186.
+TASK_REPO="${TASK_REPO:-}"
+FOREIGN_MODE=0
+FOREIGN_CLONE_TARGET=""
+FOREIGN_ALLOW_DECISION=""
+if [ -n "$TASK_REPO" ]; then
+    FOREIGN_MODE=1
+    TASK_VERIFY_CMD="${TASK_VERIFY_CMD:-}"
+    # A foreign repo MUST supply its own gate (chimera verify can't express it).
+    : "${TASK_VERIFY_CMD:?TASK_VERIFY_CMD is required when TASK_REPO is set (the foreign repo own gate: pytest/npm/cargo)}"
+
+    # ALLOWLIST — fail-closed BEFORE any clone or agent action (B.4 safety).
+    # CHIMERA_REPO_ALLOWLIST is space/comma-separated; an entry is either a bare
+    # owner ("elementalcollision" → any repo under it) or a full "owner/name".
+    # Default: the single owner elementalcollision.
+    CHIMERA_REPO_ALLOWLIST="${CHIMERA_REPO_ALLOWLIST:-elementalcollision}"
+    _repo_owner="${TASK_REPO%%/*}"
+    _allow_ok=0
+    for _entry in $(echo "$CHIMERA_REPO_ALLOWLIST" | tr ',' ' '); do
+        [ -z "$_entry" ] && continue
+        if [ "$_entry" = "$TASK_REPO" ] || [ "$_entry" = "$_repo_owner" ]; then
+            _allow_ok=1
+            break
+        fi
+    done
+    if [ "$_allow_ok" = "1" ]; then
+        FOREIGN_ALLOW_DECISION="ALLOWED (matches '$CHIMERA_REPO_ALLOWLIST')"
+    else
+        FOREIGN_ALLOW_DECISION="REFUSED (not in '$CHIMERA_REPO_ALLOWLIST')"
+        echo "FATAL: TASK_REPO '$TASK_REPO' is not in CHIMERA_REPO_ALLOWLIST ('$CHIMERA_REPO_ALLOWLIST')." >&2
+        echo "       Refusing to clone or act on a non-allowlisted repo (ADR 0186 B.4 fail-closed)." >&2
+        echo "       Allow it with: CHIMERA_REPO_ALLOWLIST='$TASK_REPO' (or its owner)." >&2
+        exit 3
+    fi
+
+    # Managed workspace for the foreign checkout — a sibling of REPO_ROOT so it
+    # never lands inside the chimera worktree. <sanitized-repo>-<runid> keeps
+    # back-to-back runs isolated.
+    _repo_sanitized="$(echo "$TASK_REPO" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')"
+    FOREIGN_CLONE_TARGET="$REPO_ROOT/../chimera-foreign-${_repo_sanitized}-${RUN_ID}"
+
+    # RUNNER_ROOT is the chimera self-checkout (where soak_lib.sh, the log, and
+    # the runner's own state live). In foreign mode REPO_ROOT/WORKTREE move to
+    # the target clone, but the runner still sources its libs + writes its log
+    # from RUNNER_ROOT. (In self mode this whole block is skipped and the
+    # original lines run untouched.)
+    RUNNER_ROOT="$REPO_ROOT"
+
+    # Point the soak at the TARGET checkout. WORKTREE IS the clone (the foreign
+    # repo is cloned directly, not `git worktree add`'d off the self-repo).
+    REPO_ROOT="$FOREIGN_CLONE_TARGET"
+    WORKTREE="$FOREIGN_CLONE_TARGET"
+
+    # The gate IS the foreign repo's own command. Red→green gate-visibility uses
+    # the existing verify_at_ref against this repo_root (already parameterized).
+    GATE_VERIFY_CMD="$TASK_VERIFY_CMD"
+    # FAITH_CMD / REVIEW_CMD assume the chimera codebase (chimera faithfulness /
+    # chimera review run inside uberagent) — empty for a foreign repo.
+    FAITH_CMD=""
+    REVIEW_CMD=""
+
+    # `chimera run`'s ADR 0141 branch-drift guard refuses to operate when it
+    # detects a non-main branch in what looks like a main worktree. A foreign
+    # clone is INTENTIONALLY on a dedicated soak branch and is a throwaway
+    # checkout (not the operator's main working copy), so the guard is a false
+    # positive here — set the documented operator override for foreign mode only.
+    # (Surfaces on a self-clone smoke where the foreign repo is chimera itself;
+    # harmless for non-chimera foreign repos.)
+    export CHIMERA_ALLOW_MAIN_BRANCH_DRIFT=1
+fi
+
 PHASE1_CAP_USD="${PHASE1_CAP_USD:-2.50}"
 PHASE2_CAP_USD="${PHASE2_CAP_USD:-1.00}"
 SAFETY_BUFFER_USD="${SAFETY_BUFFER_USD:-0.25}"
@@ -113,7 +211,11 @@ OPERATOR_SUPPRESS_PROPOSALS="${CHIMERA_SUPPRESS_PROPOSALS:-}"
 CHIMERA_SOAK_AUTOCOMMIT="${CHIMERA_SOAK_AUTOCOMMIT:-1}"
 export CHIMERA_SOAK_AUTOCOMMIT
 
-LOG="$REPO_ROOT/state/real_task_${RUN_ID}.log"
+# LOG lives in the RUNNER's state dir (the chimera self-checkout). In self mode
+# RUNNER_ROOT is unset so this resolves to $REPO_ROOT — byte-identical to before.
+# In foreign mode RUNNER_ROOT is the self-checkout while REPO_ROOT is the foreign
+# clone (not yet created), so the log must NOT live under REPO_ROOT.
+LOG="${RUNNER_ROOT:-$REPO_ROOT}/state/real_task_${RUN_ID}.log"
 
 design_note() {
     # ADR 0146 pre-commit scope check: write a design note whose
@@ -180,6 +282,36 @@ journal notes under mind/ are allowed. Anything else is out of scope.
 INBOX_EOF
 }
 
+if [ "${TASK_DRYRUN:-0}" = "1" ] && [ "$FOREIGN_MODE" = "1" ]; then
+    # Foreign-repo dryrun (ADR 0186 B.2): print the RESOLVED foreign config —
+    # repo, allowlist decision, clone target, the foreign gate — and exit
+    # WITHOUT cloning or running any soak. The allowlist already fail-closed
+    # above for a non-allowlisted repo, so reaching here means ALLOWED.
+    echo "=== real_task_soak.sh config (dryrun · FOREIGN repo · ADR 0186 B.2) ==="
+    echo "  goal        = $TASK_GOAL"
+    echo "  files       = $TASK_FILES"
+    echo "  test        = ${TASK_TEST:-<full suite>}"
+    echo "  base        = $TASK_BASE"
+    echo "  run id      = $RUN_ID"
+    echo "  repo        = $TASK_REPO"
+    echo "  allowlist   = $CHIMERA_REPO_ALLOWLIST"
+    echo "  allow       = $FOREIGN_ALLOW_DECISION"
+    echo "  clone target= $FOREIGN_CLONE_TARGET"
+    echo "  gate cmd    = $GATE_VERIFY_CMD   (= TASK_VERIFY_CMD, the foreign repo's own gate)"
+    echo "  faith cmd   = <none: foreign repo (chimera faithfulness assumes the self-repo)>"
+    echo "  review cmd  = <none: foreign repo (chimera review assumes the self-repo)>"
+    echo "  autocommit  = $CHIMERA_SOAK_AUTOCOMMIT"
+    echo "  worktree    = $WORKTREE"
+    echo "  handoff     = draft-PR-only / manual-handoff — NO cross-repo push, NO auto-merge"
+    echo "  scope note  = mind/research/realtask-${RUN_ID}-design.md"
+    echo "--- scope design note (ADR 0146 allowlist) ---"
+    design_note
+    echo "--- phase-1 INBOX ---"
+    phase1_inbox
+    echo "--- (dryrun) NOT cloning, NOT running a soak ---"
+    exit 0
+fi
+
 if [ "${TASK_DRYRUN:-0}" = "1" ]; then
     echo "=== real_task_soak.sh config (dryrun) ==="
     echo "  goal      = $TASK_GOAL"
@@ -200,7 +332,10 @@ if [ "${TASK_DRYRUN:-0}" = "1" ]; then
     exit 0
 fi
 
-mkdir -p "$REPO_ROOT/state"
+# In self mode RUNNER_ROOT is unset → resolves to $REPO_ROOT (byte-identical).
+# In foreign mode the runner's state dir (for the log) lives under RUNNER_ROOT,
+# not the foreign clone.
+mkdir -p "${RUNNER_ROOT:-$REPO_ROOT}/state"
 START_EPOCH="$(date +%s)"
 log() { echo "[$(date -u +%H:%M:%S)] $*" | tee -a "$LOG"; }
 
@@ -210,19 +345,44 @@ log "  gate cmd = $GATE_VERIFY_CMD"
 log "─────────────────────────────────────────────────────────────"
 
 if [ -e "$WORKTREE" ]; then log "FATAL: worktree exists: $WORKTREE"; exit 2; fi
-git worktree add -b "$BRANCH" "$WORKTREE" "$TASK_BASE" 2>&1 | tee -a "$LOG"
-cd "$WORKTREE" || { log "FATAL: cd worktree"; exit 2; }
-git config extensions.worktreeConfig true 2>&1 | tee -a "$LOG" || true
-git config --worktree remote.origin.pushurl "no-push://disabled-${RUN_ID}" 2>&1 | tee -a "$LOG" || true
+if [ "$FOREIGN_MODE" = "1" ]; then
+    # ── Foreign-repo checkout (ADR 0186 B.2) ──────────────────────────────
+    # Clone the ALLOWLISTED target into the managed workspace and create the
+    # soak branch there. The foreign repo IS the WORKTREE (a standalone clone,
+    # not a `git worktree add` off the self-repo). Prefer `gh repo clone`
+    # (honours auth/SSO); fall back to an HTTPS `git clone`.
+    log "── foreign mode (ADR 0186 B.2): repo=$TASK_REPO allow=$FOREIGN_ALLOW_DECISION ──"
+    log "  cloning $TASK_REPO → $WORKTREE"
+    if command -v gh >/dev/null 2>&1 && gh repo clone "$TASK_REPO" "$WORKTREE" -- --branch "$TASK_BASE" 2>&1 | tee -a "$LOG"; then
+        :
+    else
+        log "  gh clone unavailable/failed; falling back to https git clone"
+        git clone --branch "$TASK_BASE" "https://github.com/${TASK_REPO}.git" "$WORKTREE" 2>&1 | tee -a "$LOG" \
+            || { log "FATAL: clone of $TASK_REPO failed"; exit 2; }
+    fi
+    cd "$WORKTREE" || { log "FATAL: cd foreign clone"; exit 2; }
+    git checkout -b "$BRANCH" 2>&1 | tee -a "$LOG" || { log "FATAL: create soak branch"; exit 2; }
+    # Disable push on the foreign remote — draft-PR-only / manual-handoff: the
+    # runner NEVER pushes to a foreign origin in B.2 (no cross-repo push).
+    git config remote.origin.pushurl "no-push://foreign-disabled-${RUN_ID}" 2>&1 | tee -a "$LOG" || true
+else
+    git worktree add -b "$BRANCH" "$WORKTREE" "$TASK_BASE" 2>&1 | tee -a "$LOG"
+    cd "$WORKTREE" || { log "FATAL: cd worktree"; exit 2; }
+    git config extensions.worktreeConfig true 2>&1 | tee -a "$LOG" || true
+    git config --worktree remote.origin.pushurl "no-push://disabled-${RUN_ID}" 2>&1 | tee -a "$LOG" || true
+fi
 
 WORKTREE_STATE="$WORKTREE/state"; WORKTREE_DB="$WORKTREE_STATE/chimera.db"
 mkdir -p "$WORKTREE_STATE"
-[ -f "$REPO_ROOT/state/trust_state.json" ] && cp "$REPO_ROOT/state/trust_state.json" "$WORKTREE_STATE/"
+# Trust + calibration records are the RUNNER's (chimera's) state; in self mode
+# RUNNER_ROOT is unset → $REPO_ROOT (byte-identical). In foreign mode the source
+# is the chimera self-checkout, not the foreign clone.
+[ -f "${RUNNER_ROOT:-$REPO_ROOT}/state/trust_state.json" ] && cp "${RUNNER_ROOT:-$REPO_ROOT}/state/trust_state.json" "$WORKTREE_STATE/"
 # ADR 0162: carry the calibration record into the worktree so the in-loop critic
 # gate's calibration-gated activation can verify it (enforce-ON soaks need it; a
 # no-op when absent / enforcement off).
-[ -f "$REPO_ROOT/state/critic-calibration-latest.json" ] && \
-    cp "$REPO_ROOT/state/critic-calibration-latest.json" "$WORKTREE_STATE/"
+[ -f "${RUNNER_ROOT:-$REPO_ROOT}/state/critic-calibration-latest.json" ] && \
+    cp "${RUNNER_ROOT:-$REPO_ROOT}/state/critic-calibration-latest.json" "$WORKTREE_STATE/"
 export CHIMERA_STATE_DIR="$WORKTREE_STATE"
 export CHIMERA_MIND_DIR="$WORKTREE/mind"
 mkdir -p "$WORKTREE/mind/research"
@@ -238,8 +398,10 @@ log "scope design note written: mind/research/realtask-${RUN_ID}-design.md (allo
 
 # Source soak_lib from the RUNNER checkout (REPO_ROOT, captured pre-cd), NOT a
 # relative path — after `cd "$WORKTREE"` a relative source loads the worktree's
-# (possibly stale) copy, which silently ran an old soak_lib all session.
-source "$REPO_ROOT/scripts/soak_lib.sh"
+# (possibly stale) copy, which silently ran an old soak_lib all session. In
+# foreign mode REPO_ROOT is the foreign clone (no soak_lib), so source from
+# RUNNER_ROOT; in self mode RUNNER_ROOT is unset → $REPO_ROOT (byte-identical).
+source "${RUNNER_ROOT:-$REPO_ROOT}/scripts/soak_lib.sh"
 log "$(soak_lib_version)"
 
 phase_loop() {
@@ -271,16 +433,37 @@ phase_loop() {
         soak_run_chimera_with_watchdog "$WORKTREE" "$LOG" || log "  watchdog fired ($phase_name iter $iter)"
         if [ "$engines_enabled" = "1" ] && [ "$CHIMERA_SOAK_AUTOCOMMIT" = "1" ]; then
             local msg="[agent] ${TASK_GOAL} — harness-committed (ADR 0148): agent authored+verified; runner executed the commit."
-            local files_py="["; local first=1
-            for f in $TASK_FILES; do
-                [ "$first" = "1" ] && first=0 || files_py="$files_py, "
-                files_py="$files_py'$f'"
-            done
-            files_py="$files_py]"
-            local st; st="$(cd "$WORKTREE" && CHIMERA_V40_GATE=1 uv run python -c "
+            if [ "$FOREIGN_MODE" = "1" ]; then
+                # Foreign repo: there is no chimera package to import for
+                # soak_autocommit, so run the foreign repo's OWN gate
+                # ($GATE_VERIFY_CMD = TASK_VERIFY_CMD) and, if green, commit the
+                # allowlisted files in the foreign checkout. The chimera scope
+                # (ADR 0146) / critic (ADR 0160) gates do not apply to a foreign
+                # repo (FAITH_CMD/REVIEW_CMD are empty in foreign mode). DRAFT-only:
+                # NO push, NO merge — the branch stays in the foreign checkout.
+                local st
+                if ( cd "$WORKTREE" && eval "$GATE_VERIFY_CMD" >>"$LOG" 2>&1 ); then
+                    # shellcheck disable=SC2086  # intentional word-split of the allowlist
+                    st="$(cd "$WORKTREE" && git add -- $TASK_FILES 2>/dev/null; \
+                        if git diff --cached --quiet; then echo no_changes_in_scope; \
+                        elif git commit -q -m "$msg"; then echo committed; \
+                        else echo commit_failed; fi)"
+                else
+                    st="gate_red"
+                fi
+                log "  harness-autocommit (foreign): ${st:-error}"
+            else
+                local files_py="["; local first=1
+                for f in $TASK_FILES; do
+                    [ "$first" = "1" ] && first=0 || files_py="$files_py, "
+                    files_py="$files_py'$f'"
+                done
+                files_py="$files_py]"
+                local st; st="$(cd "$WORKTREE" && CHIMERA_V40_GATE=1 uv run python -c "
 from chimera.soak_autocommit import autocommit_if_ready
 print(autocommit_if_ready('.', ${files_py}, '''$msg''', test_cmd=['bash','-c','''${GATE_VERIFY_CMD}''']))" 2>>"$LOG")"
-            log "  harness-autocommit: ${st:-error}"
+                log "  harness-autocommit: ${st:-error}"
+            fi
         fi
         if [ "$engines_enabled" = "1" ]; then
             if soak_phase2_deliverable_landed "$WORKTREE" "$TASK_FILES" "$GATE_VERIFY_CMD" "$TASK_BASE"; then
@@ -367,6 +550,21 @@ SOAK_COMMITTED="$(cd "$WORKTREE" && git log --format='%s' "$TASK_BASE"..HEAD 2>/
 SOAK_COST="$(cd "$WORKTREE" && uv run chimera cost --json 2>/dev/null | uv run python -c 'import sys,json; print(json.load(sys.stdin).get("total_usd", 0))' 2>/dev/null || echo 0)"
 log "[soak-outcome] run_id=${RUN_ID} branch=${BRANCH} gate=${SOAK_GATE} committed=${SOAK_COMMITTED:-0} cost_usd=${SOAK_COST:-0} base=${TASK_BASE}"
 
+# ADR 0186 B.2 — FOREIGN repo: draft-PR-only / manual-handoff. The runner stops
+# with the soak branch in the foreign clone for review; it does NOT auto-merge
+# and does NOT push to the foreign origin (its pushurl is disabled above).
+#
+# TODO(ADR 0186 B.4): generalize maybe_self_pr() to open a trust-gated DRAFT PR
+# against the FOREIGN remote (still ≥ T4, draft-only, never merges). That cross-
+# repo PR-targeting work is OUT OF SCOPE for B.2 — see chimera/core/self_pr.py
+# (maybe_self_pr targets repo_root's OWN origin today). Until B.4 lands, foreign
+# runs are manual-handoff: the operator opens the PR against the target repo.
+if [ "$FOREIGN_MODE" = "1" ]; then
+    log "── foreign mode: manual-handoff — branch '$BRANCH' left in $WORKTREE for review (no push, no auto-merge; self-PR is B.4, not B.2) ──"
+    log "Review: cd $WORKTREE && git log --oneline $TASK_BASE..HEAD"
+    exit 0
+fi
+
 # ADR 0163: trust-gated autonomous self-PR. Centralized HERE (the lowest common
 # denominator — both real-task and self-determined/charter runs funnel through
 # this runner) so the originate→build→gate→commit→self-PR chain completes in ONE
@@ -374,6 +572,7 @@ log "[soak-outcome] run_id=${RUN_ID} branch=${BRANCH} gate=${SOAK_GATE} committe
 # itself re-checks every gate (trust ≥ T4, a gate-approved commit, full
 # submit_pr.validate()) and opens a DRAFT PR that never merges. Inert when unset
 # → the manual-handoff status quo. The PR targets SELF_PR_BASE (default main).
+# (Self-repo only — the foreign-mode early-exit above prevents reaching this.)
 if [ "${CHIMERA_SELF_PR:-0}" = "1" ]; then
     has_agent="$(cd "$WORKTREE" && git log --format='%s' "$TASK_BASE"..HEAD 2>/dev/null | grep -c '\[agent\]')"
     if [ "${has_agent:-0}" -ge 1 ]; then
