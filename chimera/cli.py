@@ -1660,6 +1660,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "foreign-pr":
         from pathlib import Path as _Path
 
+        from .core import LoopConfig
         from .core.foreign_pr_ledger import (
             count_foreign_prs_opened,
             is_verify_cmd_reviewed,
@@ -1667,6 +1668,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         from .core.self_pr import maybe_foreign_pr
 
+        cfg = LoopConfig.from_env()
         sub_cmd = getattr(args, "foreign_pr_command", None)
         state_dir = _Path(args.state_dir) if getattr(args, "state_dir", None) else cfg.state_dir
 

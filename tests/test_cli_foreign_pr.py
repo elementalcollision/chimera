@@ -144,3 +144,62 @@ def test_submit_dry_run_does_not_open_or_record(env, capsys, monkeypatch):
     assert rc == 0
     assert "dry-run" in capsys.readouterr().out
     assert count_foreign_prs_opened(state) == 0  # dry-run never recorded
+
+
+# ── --state-dir default + edge cases (B.4d review) ──────────
+
+
+def test_review_uses_config_state_dir_when_flag_omitted(env, capsys):
+    # Regression for the review-caught crash: --state-dir omitted must fall back
+    # to cfg.state_dir (CHIMERA_STATE_DIR), not raise NameError.
+    tmp, state = env
+    rc = main(["foreign-pr", "review", "--repo", REPO])  # no --state-dir
+    assert rc == 0
+    assert is_verify_cmd_reviewed(state, REPO)  # written to CHIMERA_STATE_DIR
+
+
+def test_status_without_state_dir_or_repo(env, capsys):
+    tmp, state = env
+    record_foreign_pr_opened(state, REPO, "r1", ts="t1")
+    rc = main(["foreign-pr", "status"])  # no --state-dir, no --repo
+    assert rc == 0
+    assert "foreign PRs opened : 1" in capsys.readouterr().out
+
+
+def test_review_is_idempotent(env, capsys):
+    tmp, state = env
+    assert main(["foreign-pr", "review", "--repo", REPO, "--state-dir", str(state)]) == 0
+    assert main(["foreign-pr", "review", "--repo", REPO, "--state-dir", str(state)]) == 0
+    assert is_verify_cmd_reviewed(state, REPO)
+
+
+def test_submit_returns_rc1_on_submit_failure(env, capsys, monkeypatch):
+    tmp, state = env
+    wt = _worktree(tmp)
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR", "1")
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    main(["foreign-pr", "review", "--repo", REPO, "--state-dir", str(state)])
+    capsys.readouterr()
+
+    def _fail(**kwargs):
+        return SubmitPrResult(ok=False, branch="b", validation_errors=["nope"])
+
+    monkeypatch.setattr("chimera.core.self_pr.submit_pr", _fail)
+    rc = main(["foreign-pr", "submit", "--repo", REPO, "--worktree", str(wt),
+               "--state-dir", str(state)])
+    assert rc == 1
+    assert "FAILED" in capsys.readouterr().out
+    assert count_foreign_prs_opened(state) == 0  # failed PR not counted
+
+
+def test_status_failsoft_on_corrupt_ledger(env, capsys):
+    # An unreadable governance ledger (here: the path is a directory) must NOT
+    # crash status — it fails soft to 0.
+    from chimera.core.foreign_pr_ledger import governance_path
+    tmp, state = env
+    gp = governance_path(state)
+    gp.parent.mkdir(parents=True, exist_ok=True)
+    gp.mkdir()
+    rc = main(["foreign-pr", "status", "--state-dir", str(state)])
+    assert rc == 0
+    assert "foreign PRs opened : 0" in capsys.readouterr().out
