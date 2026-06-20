@@ -235,6 +235,18 @@ def test_fires_when_approval_disabled(tmp_path, monkeypatch):
     assert res.fired and len(spy.calls) == 1
 
 
+def test_ignores_full_operational_footprint(tmp_path, monkeypatch):
+    # Regression for the first claude-daemon dry run: validate()'s clean-tree gate
+    # tripped on state/ + uv.lock (which an arbitrary foreign repo, unlike chimera,
+    # does not .gitignore). The foreign path must tell validate to ignore its whole
+    # operational footprint — not just mind/ as the self path does.
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    res, spy = _call(tmp_path, monkeypatch)
+    assert res.fired
+    ignored = set(spy.calls[0]["ignore_dirty_prefixes"])
+    assert {"mind/", "state/", "uv.lock"} <= ignored
+
+
 def test_approval_still_required_at_floor_minus_one(tmp_path, monkeypatch):
     # Boundary: exactly FLOOR-1 prior PRs → the next (FLOOR-th) STILL needs approval.
     state_dir = tmp_path / "state"
