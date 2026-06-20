@@ -308,5 +308,7 @@ def test_complexity_flag_strips_whitespace_and_casefolds(monkeypatch):
     assert complexity_routing_enabled() is True
     monkeypatch.setenv("CHIMERA_COMPLEXITY_ROUTING", "ON")
     assert complexity_routing_enabled() is True
-    monkeypatch.delenv("CHIMERA_COMPLEXITY_ROUTING")
+    # ADR 0185: default-ON now, so test the parser's falsey path with an explicit
+    # whitespace-wrapped opt-out (not the unset default, which is now ON).
+    monkeypatch.setenv("CHIMERA_COMPLEXITY_ROUTING", "  off  ")
     assert complexity_routing_enabled() is False

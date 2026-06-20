@@ -1,7 +1,18 @@
 # ADR 0185 — Graduate CHIMERA_COMPLEXITY_ROUTING to default-ON
 
-**Status:** Proposed (2026-06-18) — *evidence-gated; the Evidence section is a
-placeholder until a keyed flag-OFF/ON soak runs.*
+**Status:** Accepted (2026-06-20) — graduated default-ON.
+
+> **GRADUATED 2026-06-20.** Flipped the registry default
+> `CHIMERA_COMPLEXITY_ROUTING` None → "1" in chimera/config.py (opt-out via
+> `CHIMERA_COMPLEXITY_ROUTING=0`). Basis: the keyed tier-routing soak below — ON
+> ~halves rounds (52→28, −46%) and cuts total tokens −37% at parity gate quality
+> and flat absolute cost (median <1¢), by skipping a doomed cheap-rung attempt.
+> This meets the ADR criterion (cost read WITH rounds: a modest cost change is
+> acceptable iff it buys fewer wasted rounds); the falsification trigger (cost up,
+> no round reduction) did NOT fire. Caveat: n=2 with a trial-dependent cost
+> direction — graduated on the strong, consistent rounds+tokens efficiency signal.
+> Tests updated to the graduation pattern (test_flag_on_by_default +
+> explicit-disable in test_complexity_routing; un-skipped in test_flag_graduation).
 
 ## Context
 
