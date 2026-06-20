@@ -304,22 +304,64 @@ def _worktree_branch(worktree: Path) -> str:
     return proc.stdout.strip()
 
 
+def _dirty_paths(worktree: Path, ignore_prefixes: tuple[str, ...] = ()) -> list[str]:
+    """Worktree paths that are dirty (modified/untracked/staged) after dropping any
+    matching ``ignore_prefixes``. The single source of truth for "what is dirty" —
+    used by :func:`_porcelain_clean` (cleanliness), :func:`validate` (to name the
+    offenders in its error), and :func:`revert_out_of_scope_residue` (to revert)."""
+    proc = _run_git("status", "--porcelain", cwd=worktree)
+    out: list[str] = []
+    for ln in proc.stdout.splitlines():
+        if not ln.strip():
+            continue
+        path = ln[3:].strip()  # porcelain: "XY <path>"
+        if " -> " in path:  # rename: keep the destination
+            path = path.split(" -> ", 1)[1]
+        if ignore_prefixes and any(path.startswith(p) for p in ignore_prefixes):
+            continue
+        out.append(path)
+    return out
+
+
 def _porcelain_clean(worktree: Path, ignore_prefixes: tuple[str, ...] = ()) -> bool:
     """True if the worktree is clean. ``ignore_prefixes`` (e.g. ``("mind/",)``)
     excludes operational-journal noise that is never part of a deliverable PR —
     the agent's mind/* heartbeat/inbox/session writes happen AFTER its commit and
     are not pushed, so they must not block an otherwise-clean self-PR."""
-    proc = _run_git("status", "--porcelain", cwd=worktree)
-    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
-    if not ignore_prefixes:
-        return not lines
-    for ln in lines:
-        path = ln[3:].strip()  # porcelain: "XY <path>"
-        if " -> " in path:  # rename: keep the destination
-            path = path.split(" -> ", 1)[1]
-        if not any(path.startswith(p) for p in ignore_prefixes):
-            return False
-    return True
+    return not _dirty_paths(worktree, ignore_prefixes)
+
+
+def revert_out_of_scope_residue(
+    worktree: Path | str, *, keep_prefixes: tuple[str, ...] = ()
+) -> list[str]:
+    """Revert a foreign clone's working tree to ``HEAD`` + operational paths,
+    returning the sorted out-of-scope paths it reverted/removed (ADR 0186 B.4g).
+
+    A faithful scoped foreign run commits ONLY its allowlist (B.4e
+    ``git add -- $TASK_FILES``). Anything else the run leaves UNCOMMITTED in the
+    tree is by definition out of scope and must never reach the PR — most often a
+    tree-wide ``ruff --fix`` that deleted unused imports across the whole foreign
+    repo (the first claude-daemon dry run left ~44 such files), or a scratch file.
+    Because the allowlist is already in ``HEAD``, reverting every uncommitted change
+    preserves it and strips only the residue. ``keep_prefixes`` (e.g. ``mind/``,
+    ``state/``, ``.venv/``) are operational dirs the soak writes that the clean-tree
+    gate already ignores — left in place for forensics.
+
+    This ENFORCES the scope invariant on the working tree (chimera's in-loop
+    ``scope_check`` is staged-index-only and is blind to unstaged sprawl); the
+    caller MUST log the returned paths loudly so an over-running agent is visible,
+    never silently masked. Self runs never call this (their tree stays clean)."""
+    worktree = Path(worktree)
+    residue = _dirty_paths(worktree, ignore_prefixes=keep_prefixes)
+    if not residue:
+        return []
+    _run_git("reset", "-q", "HEAD", cwd=worktree)         # unstage everything → HEAD
+    _run_git("checkout", "-q", "--", ".", cwd=worktree)   # revert tracked → HEAD
+    clean_args = ["clean", "-fdq"]
+    for p in keep_prefixes:                                # keep operational untracked
+        clean_args += ["-e", p.rstrip("/")]
+    _run_git(*clean_args, cwd=worktree)                    # remove untracked residue
+    return sorted(residue)
 
 
 def _commits_between(worktree: Path, base: str, head: str) -> list[tuple[str, str]]:
@@ -384,7 +426,13 @@ def validate(
         )
 
     if not _porcelain_clean(worktree, ignore_prefixes=ignore_dirty_prefixes):
-        errors.append("worktree has uncommitted changes (git status not clean)")
+        _dirty = _dirty_paths(worktree, ignore_dirty_prefixes)
+        _shown = ", ".join(_dirty[:10]) + (
+            f" (+{len(_dirty) - 10} more)" if len(_dirty) > 10 else ""
+        )
+        errors.append(
+            f"worktree has uncommitted changes (git status not clean): {_shown}"
+        )
 
     commits = _commits_between(worktree, base, "HEAD")
     if not commits:
