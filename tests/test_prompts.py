@@ -10,9 +10,20 @@ from chimera.memory import open_and_init, record_api_call
 from chimera.prompts import (
     base_voice,
     build_system_prompt,
+    foreign_task_guidance,
+    foreign_voice,
     probe_hardware,
     recent_history,
 )
+
+
+@pytest.fixture(autouse=True)
+def _self_mode(monkeypatch):
+    """Default every test to SELF mode (ADR 0186 B.3). Without this, an ambient
+    CHIMERA_FOREIGN_REPO in the environment would flip build_system_prompt to the
+    foreign voice and break the self-mode assertions — the same env-leakage class
+    fixed for the critic gate. Foreign tests opt in with monkeypatch.setenv."""
+    monkeypatch.delenv("CHIMERA_FOREIGN_REPO", raising=False)
 
 
 # ── voice ───────────────────────────────────────────────────
@@ -138,3 +149,47 @@ def test_build_system_prompt_without_extra(db):
     prompt = build_system_prompt(db, cycle=1)
     assert "Chimera" in prompt
     assert "runtime:" in prompt
+
+
+# ── foreign-repo context (ADR 0186 B.3) ─────────────────────
+
+
+def test_foreign_voice_strips_chimera_identity():
+    v = foreign_voice("acme/widget")
+    # Frames the agent around the TARGET repo, not Chimera-the-self.
+    assert "acme/widget" in v
+    assert "autonomous coding agent" in v.lower()
+    # No chimera self-identity / provenance / peer-tool ontology leaks.
+    assert "Chimera" not in v
+    assert "Hermes" not in v and "OpenClaw" not in v
+    assert "spawn_sub_agent" not in v and "mcp-" not in v
+    # Keeps the universally-good rules + the runtime-true shell protocol.
+    assert "great question" in v.lower()
+    assert "bash -c" in v
+
+
+def test_foreign_task_guidance_is_repo_framed_not_chimera():
+    g = foreign_task_guidance("acme/widget")
+    assert "acme/widget" in g
+    # Must NOT assert chimera's layout as the agent's own.
+    assert "chimera/ source" not in g
+    assert "README" in g
+
+
+def test_build_system_prompt_foreign_mode_swaps_voice_and_extra(db, monkeypatch):
+    monkeypatch.setenv("CHIMERA_FOREIGN_REPO", "acme/widget")
+    # Caller still passes the chimera-specific extra; foreign mode must REPLACE
+    # it with neutral guidance, not append it.
+    prompt = build_system_prompt(
+        db, cycle=2, extra="The chimera/ source IS your code.")
+    assert "acme/widget" in prompt
+    assert "Chimera" not in prompt          # no self-identity leak
+    assert "chimera/ source IS your code" not in prompt  # chimera extra dropped
+    assert "runtime:" in prompt             # hardware/history sections intact
+
+
+def test_build_system_prompt_self_mode_byte_identical(db, monkeypatch):
+    # Env unset (the autouse default) → unchanged: chimera voice + caller extra.
+    prompt = build_system_prompt(db, cycle=1, extra="Task-specific extra.")
+    assert "Chimera" in prompt
+    assert "Task-specific extra." in prompt

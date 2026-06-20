@@ -1,6 +1,22 @@
 # ADR 0186 — Multi-repo reach (build ADR for ADR 0183 Pillar B)
 
-**Status:** Proposed (2026-06-18) — *build plan; no implementation in this PR.*
+**Status:** Accepted — *in progress.* Build plan being implemented increment by
+increment.
+
+> **Progress.**
+> - **B.1** spec model (`repo`/`verify_cmd`) — ✅ merged.
+> - **B.2** target-repo soak generalization — ✅ merged (#340); validated by a
+>   self-clone smoke (clone → foreign gate → foreign autocommit → handoff).
+> - **B.3** foreign-repo agent context — *in progress.*
+>   - **B.3a identity isolation** — ✅ the agent's system prompt no longer
+>     inherits Chimera's self-identity in foreign mode: `CHIMERA_FOREIGN_REPO`
+>     (exported by the soak's foreign block) swaps `base_voice`/chimera extra for
+>     a neutral `foreign_voice(repo)` + `foreign_task_guidance(repo)`. mind_dir /
+>     state / history were already workspace-scoped (clone-local). Self-mode is
+>     byte-identical.
+>   - **B.3b context enrichment** — ⬜ inject the target README/docs + the
+>     failing `verify_cmd` output into the foreign context (remaining ADR bullet).
+> - **B.4** PR targeting + safety envelope — ⬜ not started.
 
 ## Context
 
