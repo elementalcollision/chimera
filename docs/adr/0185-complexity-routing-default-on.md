@@ -39,6 +39,28 @@ Procedure (keyed env, scheduler off):
 > _Evidence: pending the keyed run. Drop the `cost-delta` verdict + the
 > gate/round comparison here, then move Status → Accepted._
 
+> **Keyed tier-routing soak 2026-06-20 — FAVOURABLE** (writeup:
+> `mind/research/flag-soak-0185-tier-routing-2026-06-20.md`). The standard
+> `flag_soak.sh` could not measure 0185 — it pins the model per arm, which makes
+> a tier-routing flag inert (same confound class as the 0184 first attempt). Fix:
+> a `FLAG_NO_FORCE_MODEL=1` tier-routing mode (unpinned; base tier haiku; the
+> ROUTER picks each arm's tier — the flag stays the only difference). Probe
+> `mind/ab/complexity-probe.md` (goal trips `complexity_floor_tier`→sonnet over
+> the doable `duration.py` task). 2/2 valid both-green pairs. Median delta
+> (ON−OFF): **rounds 52→28 (−46%)**, **total tokens −36.8%**, **cost +$0.0068
+> (under 1¢; t1 −23%, t2 +70% on a tiny base)**, **gate parity (all 4 arms
+> green)**. Mechanism confirmed: OFF starts the cheap haiku rung (`gpt-5-nano`),
+> flails on the shell protocol, escalates to the sonnet rung
+> (`deepseek-v4-pro`); ON starts at `deepseek-v4-pro` directly, skipping the
+> doomed cheap-rung attempts. Per this ADR's criterion (cost read WITH rounds: a
+> modest cost change is acceptable iff it buys fewer wasted rounds), this is
+> favourable — a large, consistent round/token reduction at parity quality and
+> flat absolute cost; the falsification trigger (cost up with NO round reduction)
+> did NOT fire. **Caveat:** n=2 with a trial-dependent cost direction (the 0184
+> bar is ≥3 for a stable median) — graduate on the consistent rounds+tokens
+> signal, or run AB_TRIALS=3 first to firm the cost median. Decision is
+> operator-gated.
+
 ## Decision (on evidence)
 
 Flip the registry default: `CHIMERA_COMPLEXITY_ROUTING` `None → "1"` in
