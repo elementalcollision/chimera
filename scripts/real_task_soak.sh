@@ -171,6 +171,15 @@ if [ -n "$TASK_REPO" ]; then
     # chimera review run inside uberagent) — empty for a foreign repo.
     FAITH_CMD=""
     REVIEW_CMD=""
+
+    # `chimera run`'s ADR 0141 branch-drift guard refuses to operate when it
+    # detects a non-main branch in what looks like a main worktree. A foreign
+    # clone is INTENTIONALLY on a dedicated soak branch and is a throwaway
+    # checkout (not the operator's main working copy), so the guard is a false
+    # positive here — set the documented operator override for foreign mode only.
+    # (Surfaces on a self-clone smoke where the foreign repo is chimera itself;
+    # harmless for non-chimera foreign repos.)
+    export CHIMERA_ALLOW_MAIN_BRANCH_DRIFT=1
 fi
 
 PHASE1_CAP_USD="${PHASE1_CAP_USD:-2.50}"
