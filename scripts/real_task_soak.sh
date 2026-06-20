@@ -448,7 +448,7 @@ phase_loop() {
                 # repo (FAITH_CMD/REVIEW_CMD are empty in foreign mode). DRAFT-only:
                 # NO push, NO merge — the branch stays in the foreign checkout.
                 local st
-                if ( cd "$WORKTREE" && eval "$GATE_VERIFY_CMD" >>"$LOG" 2>&1 ); then
+                if soak_gate_run "$WORKTREE" "$GATE_VERIFY_CMD" >>"$LOG" 2>&1; then
                     # shellcheck disable=SC2086  # intentional word-split of the allowlist
                     st="$(cd "$WORKTREE" && git add -- $TASK_FILES 2>/dev/null; \
                         if git diff --cached --quiet; then echo no_changes_in_scope; \
@@ -497,11 +497,14 @@ if [ "$FOREIGN_MODE" = "1" ]; then
     # executed unsandboxed by the B.2 gate, so this is the same surface (B.4
     # sandboxes ALL foreign-code runs). Bounded by a portable timeout when one is
     # available so a hung suite can't stall setup. cwd is the clone (WORKTREE).
+    # Secrets are stripped from the capture too (ADR 0186 B.4 M1) — env -u via
+    # soak_secret_unset_args, before the optional timeout wrapper. cwd is the clone.
     _to_bin="$(command -v timeout || command -v gtimeout || true)"
+    # shellcheck disable=SC2046  # intentional word-split of the -u flag list
     if [ -n "$_to_bin" ]; then
-        _gate_out="$("$_to_bin" "${FOREIGN_GATE_TIMEOUT:-300}" sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
+        _gate_out="$(env $(soak_secret_unset_args) "$_to_bin" "${FOREIGN_GATE_TIMEOUT:-300}" sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
     else
-        _gate_out="$(sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
+        _gate_out="$(env $(soak_secret_unset_args) sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
     fi
     # Build the context block with the chimera helper, run from RUNNER_ROOT (the
     # chimera package is NOT in a non-chimera foreign clone). The helper reads the
@@ -576,7 +579,7 @@ phase_loop "phase2" "$PHASE2_CAP_USD" "$P2_ISO" "1" "$MAX_WALL_SECONDS"
 log "── branch commits (expect 1 [agent] commit) ──"
 ( cd "$WORKTREE" && git log --oneline "$TASK_BASE"..HEAD ) 2>&1 | tee -a "$LOG"
 log "── gate (post-fix) ──"
-( cd "$WORKTREE" && eval "$GATE_VERIFY_CMD" ) 2>&1 | tee -a "$LOG"
+soak_gate_run "$WORKTREE" "$GATE_VERIFY_CMD" 2>&1 | tee -a "$LOG"
 GATE_RC=${PIPESTATUS[0]}
 log "Review: cd $WORKTREE && git log --oneline $TASK_BASE..HEAD"
 

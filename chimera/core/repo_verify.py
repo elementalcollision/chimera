@@ -17,12 +17,29 @@ the detail, not an exception.
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from ..tools.sandbox_env import sanitized_subprocess_env
+
+#: Kill-switch values that DISABLE the ADR 0186 B.4 M1 gate sandbox.
+_SANDBOX_OFF = frozenset({"0", "false", "off", "no", ""})
+
+
+def _gate_subprocess_env() -> dict[str, str] | None:
+    """Sanitized env for a gate subprocess (ADR 0186 B.4 M1) — secret-named vars
+    stripped so an untrusted ``verify_cmd`` can't read provider keys. Returns
+    ``None`` (inherit the full env) when ``CHIMERA_GATE_SANDBOX`` is off. The gate
+    is ruff/pytest, which needs no secrets (CI runs it keyless), so this is the
+    default for self and foreign gates alike."""
+    if os.environ.get("CHIMERA_GATE_SANDBOX", "1").strip().lower() in _SANDBOX_OFF:
+        return None
+    return sanitized_subprocess_env()
 
 # How much of a failing check's output to keep as actionable detail.
 _DETAIL_TAIL_CHARS = 4000
@@ -91,6 +108,7 @@ def run_check(name: str, argv: list[str], cwd: Path | str, timeout: float) -> Ch
     try:
         proc = subprocess.run(
             argv, cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
+            env=_gate_subprocess_env(),
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
         return CheckResult(name, False, f"{name} did not run: {exc}", None)
