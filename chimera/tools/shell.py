@@ -371,9 +371,14 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
     # source. Conservative: inert for non-mutating ruff and when there is no locked
     # allowlist (outside a scoped soak). Override: CHIMERA_ALLOW_UNSCOPED_RUFF=1.
     from chimera.config import flag_enabled
-    from chimera.core.ruff_scope import ruff_scope_violation, ruff_subargv
+    from chimera.core.ruff_scope import _is_mutating, ruff_scope_violation, ruff_subargv
 
-    if ruff_subargv(argv) is not None and not flag_enabled("CHIMERA_ALLOW_UNSCOPED_RUFF"):
+    _ruff_sub = ruff_subargv(argv)
+    if (
+        _ruff_sub is not None
+        and _is_mutating(_ruff_sub)  # report-only `ruff check` needs no charter I/O
+        and not flag_enabled("CHIMERA_ALLOW_UNSCOPED_RUFF")
+    ):
         from chimera.core.scope_check import (
             extract_ready_for_remediation,
             find_active_design_note,
@@ -381,18 +386,38 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
             resolve_repo_root,
         )
 
+        # Resolve the charter from a STABLE root — CHIMERA_MIND_DIR's repo (the soak
+        # sets it to <worktree>/mind) — INDEPENDENT of the agent-supplied cwd, so the
+        # agent cannot relocate the lookup to a dir without mind/research and thereby
+        # self-disable the guard (B.4h review, cwd-relocation). Falls back to the cwd
+        # root outside a soak.
+        repo_root: Path | None = None
         allowed: tuple[str, ...] = ()
         try:
-            note = find_active_design_note(
-                resolve_repo_root(_resolve_cwd(args.get("cwd")))
+            mind = os.environ.get("CHIMERA_MIND_DIR")
+            repo_root = resolve_repo_root(
+                Path(mind).parent if mind else _resolve_cwd(args.get("cwd"))
             )
+            note = find_active_design_note(repo_root)
             if note is not None:
                 section = extract_ready_for_remediation(note.read_text())
                 if section:
                     allowed = parse_recommendation(section).allowed_paths
         except (OSError, ValueError):
-            allowed = ()
-        violation = ruff_scope_violation(argv, allowed)
+            repo_root, allowed = None, ()
+        violation = ruff_scope_violation(
+            argv, allowed, repo_root=str(repo_root) if repo_root else None
+        )
+        # Fail-CLOSED inside a scoped soak: a soak ALWAYS writes a design-note
+        # allowlist, so an empty charter here is an anomaly (corrupt/missing note,
+        # or a resolution miss) — refuse to run a mutating ruff repo-wide rather
+        # than fall through to the conservative warn-only allow (B.4h review).
+        if violation is None and not allowed and os.environ.get("CHIMERA_SOAK_RUN_ID"):
+            violation = (
+                "mutating `ruff` in a scoped soak but no charter allowlist could be "
+                "resolved — refusing to run repo-wide (the soak always writes a "
+                "design-note allowlist; its absence is anomalous)."
+            )
         if violation:
             raise PermissionError(
                 f"ruff blocked by charter scope guard (ADR 0186 B.4h): {violation}\n\n"

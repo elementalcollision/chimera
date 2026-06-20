@@ -140,8 +140,24 @@ def _operands(sub: list[str]) -> list[str]:
     return operands
 
 
+def _resolve_for_compare(path: str, repo_root: str | None) -> str:
+    """Canonicalise a path for charter comparison. With ``repo_root`` set (the
+    production path) use ``os.path.realpath`` against it — this collapses ``..``
+    AND resolves symlinks, matching the load-bearing ``Path.resolve()`` discipline
+    in ``shell._resolve_cwd`` so a symlinked operand can't point outside the
+    charter (B.4h review). With ``repo_root`` None (pure unit tests) fall back to
+    lexical ``normpath`` — still ``..``-safe, just not symlink-aware."""
+    if repo_root is None:
+        return os.path.normpath(path)
+    base = path if os.path.isabs(path) else os.path.join(repo_root, path)
+    return os.path.realpath(base)
+
+
 def ruff_scope_violation(
-    argv: list[str], allowed_paths: tuple[str, ...]
+    argv: list[str],
+    allowed_paths: tuple[str, ...],
+    *,
+    repo_root: str | None = None,
 ) -> str | None:
     """Return a human-readable violation message if ``argv`` is a *mutating* ruff
     command that would touch files outside ``allowed_paths``, else ``None``.
@@ -149,31 +165,37 @@ def ruff_scope_violation(
     Conservative — returns ``None`` (no enforcement) when:
       * this is not a mutating ruff command (non-ruff, or report-only ``check``), or
       * ``allowed_paths`` is empty — there is no locked charter to enforce against
-        (outside a scoped soak), matching ``scope_check``'s warn-only posture.
+        (outside a scoped soak), matching ``scope_check``'s warn-only posture. (The
+        shell wiring layers a fail-CLOSED check on top of this for the in-soak
+        anomaly where a charter *should* exist but could not be resolved.)
 
     Otherwise a mutating ruff command is a violation unless it lists path operands
     that are ALL within the charter: no operands (tree-wide), a directory operand
-    (e.g. ``.`` or ``tools/``), or any file outside the allowlist all fail."""
+    (e.g. ``.`` or ``tools/``), or any file outside the allowlist all fail.
+    ``repo_root`` enables symlink-resolving comparison (see :func:`_resolve_for_compare`)."""
     sub = ruff_subargv(argv)
     if sub is None or not _is_mutating(sub):
         return None
     if not allowed_paths:
         return None
-    allowed = {os.path.normpath(p) for p in allowed_paths}
+    allowed = {_resolve_for_compare(p, repo_root) for p in allowed_paths}
     operands = _operands(sub)
-    example = ", ".join(repr(p) for p in sorted(allowed))
+    shown = sorted(allowed_paths)
+    example = ", ".join(repr(p) for p in shown)
     if not operands:
         return (
             "`ruff` would run TREE-WIDE (no path operand given), rewriting files "
             f"across the whole repo. A scoped task may only --fix its charter "
-            f"files: {sorted(allowed)}. Pass them explicitly, e.g. "
+            f"files: {shown}. Pass them explicitly, e.g. "
             f'argv=["uv","run","ruff","check","--fix", {example}].'
         )
-    bad = sorted({op for op in operands if os.path.normpath(op) not in allowed})
+    bad = sorted(
+        {op for op in operands if _resolve_for_compare(op, repo_root) not in allowed}
+    )
     if bad:
         return (
             f"`ruff` targets out-of-charter paths {bad} (charter allows only "
-            f"{sorted(allowed)}). A scoped task may only --fix its own files — "
+            f"{shown}). A scoped task may only --fix its own files — "
             "pass the charter files explicitly as operands (no directories)."
         )
     return None

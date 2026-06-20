@@ -273,33 +273,117 @@ async def test_shell_handler_blocks_tree_wide_ruff(tmp_path, monkeypatch):
     from chimera.tools.shell import shell_handler
 
     repo = _repo_with_charter(tmp_path)
-    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo))
+    # CHIMERA_MIND_DIR is the soak's <worktree>/mind; the guard resolves the charter
+    # from its parent (the repo root), independent of the agent-supplied cwd.
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
     monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo))
     monkeypatch.delenv("CHIMERA_ALLOW_UNSCOPED_RUFF", raising=False)
+    monkeypatch.delenv("CHIMERA_SOAK_RUN_ID", raising=False)
 
     with pytest.raises(PermissionError, match="B.4h"):
         await shell_handler(
-            {"argv": ["uv", "run", "ruff", "check", "--fix"], "cwd": str(repo)},
+            {"argv": ["uv", "run", "ruff", "check", "--fix"]},
             DispatchContext(elevated=True),
         )
 
 
 @pytest.mark.asyncio
-async def test_shell_handler_override_lets_unscoped_ruff_through(tmp_path, monkeypatch):
-    # With the operator override set, the guard is inert (it then proceeds to exec,
-    # which we don't care about — we only assert the guard did NOT raise).
+async def test_shell_handler_cwd_relocation_cannot_disable_guard(tmp_path, monkeypatch):
+    # The agent points cwd at an unrelated dir with no charter; the guard must STILL
+    # resolve the charter from CHIMERA_MIND_DIR and block (B.4h review, cwd-relocation).
     from chimera.tools.dispatch import DispatchContext
     from chimera.tools.shell import shell_handler
 
     repo = _repo_with_charter(tmp_path)
-    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo))
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(elsewhere))
+    monkeypatch.delenv("CHIMERA_ALLOW_UNSCOPED_RUFF", raising=False)
+
+    with pytest.raises(PermissionError, match="B.4h"):
+        await shell_handler(
+            {"argv": ["uv", "run", "ruff", "check", "--fix"], "cwd": str(elsewhere)},
+            DispatchContext(elevated=True),
+        )
+
+
+@pytest.mark.asyncio
+async def test_shell_handler_fail_closed_in_soak_without_charter(tmp_path, monkeypatch):
+    # In a scoped soak (CHIMERA_SOAK_RUN_ID) but with NO resolvable charter, a
+    # mutating ruff must fail CLOSED, not fall through to conservative-allow.
+    import subprocess
+
+    from chimera.tools.dispatch import DispatchContext
+    from chimera.tools.shell import shell_handler
+
+    repo = tmp_path / "repo"  # git repo but NO mind/research design note
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", repo], check=True, capture_output=True)
+    (repo / "mind").mkdir()
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo))
+    monkeypatch.setenv("CHIMERA_SOAK_RUN_ID", "soak-x")
+    monkeypatch.delenv("CHIMERA_ALLOW_UNSCOPED_RUFF", raising=False)
+
+    with pytest.raises(PermissionError, match="B.4h"):
+        await shell_handler(
+            {"argv": ["uv", "run", "ruff", "check", "--fix"]},
+            DispatchContext(elevated=True),
+        )
+
+
+@pytest.mark.asyncio
+async def test_shell_handler_override_bypasses_guard(tmp_path, monkeypatch):
+    # With the operator override set, the guard is skipped entirely — proven by the
+    # call reaching subprocess exec (intercepted by a sentinel) without a B.4h raise.
+    from chimera.tools import shell as shell_mod
+    from chimera.tools.dispatch import DispatchContext
+
+    repo = _repo_with_charter(tmp_path)
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
     monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo))
     monkeypatch.setenv("CHIMERA_ALLOW_UNSCOPED_RUFF", "1")
 
-    try:
-        await shell_handler(
-            {"argv": ["uv", "run", "ruff", "version"], "cwd": str(repo)},
+    class _Reached(Exception):
+        pass
+
+    async def _boom(*a, **k):
+        raise _Reached()
+
+    monkeypatch.setattr(shell_mod.asyncio, "create_subprocess_exec", _boom)
+    with pytest.raises(_Reached):
+        await shell_mod.shell_handler(
+            {"argv": ["uv", "run", "ruff", "check", "--fix"], "cwd": str(repo / "mind")},
             DispatchContext(elevated=True),
         )
-    except PermissionError as exc:  # the scope guard must NOT be the blocker
-        assert "B.4h" not in str(exc)
+
+
+# ── B.4h review: symlink-resolving comparison (repo_root) ────────────
+
+
+def test_symlink_operand_outside_charter_blocked(tmp_path):
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "noop_probe.py").write_text("x = 1\n")
+    (tmp_path / "secret.py").write_text("y = 1\n")
+    (tmp_path / "tools" / "link.py").symlink_to(tmp_path / "secret.py")
+    # tools/link.py is lexically "in tools/" but resolves to ../secret.py.
+    v = ruff_scope_violation(
+        ["uv", "run", "ruff", "check", "--fix", "tools/link.py"],
+        ("tools/noop_probe.py",),
+        repo_root=str(tmp_path),
+    )
+    assert v is not None
+
+
+def test_repo_root_comparison_accepts_in_charter(tmp_path):
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "noop_probe.py").write_text("x = 1\n")
+    assert (
+        ruff_scope_violation(
+            ["uv", "run", "ruff", "check", "--fix", "./tools/noop_probe.py"],
+            ("tools/noop_probe.py",),
+            repo_root=str(tmp_path),
+        )
+        is None
+    )
