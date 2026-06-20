@@ -19,6 +19,44 @@
 # Darwin and Linux.
 
 # ─────────────────────────────────────────────────────────────────────
+# Gate sandbox (ADR 0186 B.4 M1)
+# ─────────────────────────────────────────────────────────────────────
+# An untrusted FOREIGN verify_cmd — and, by the 2026-06-20 decision, chimera's
+# own gate too — must run WITHOUT our provider secrets in its environment, so a
+# careless/malicious test suite can't read ANTHROPIC_API_KEY / OPENROUTER_API_KEY
+# / GH_TOKEN from os.environ. The gate is ruff/pytest (needs no secrets), so this
+# is behaviour-equivalent to the keyless CI environment. The denylist MIRRORS
+# chimera/tools/sandbox_env.py::_SECRET_NAME_PATTERNS (kept in sync by a guard
+# test). Kill-switch: CHIMERA_GATE_SANDBOX=0 disables stripping (escape hatch).
+# NB: the AGENT (chimera run) keeps its keys — only the GATE subprocess is stripped.
+_SOAK_SECRET_RE='API_KEY|APIKEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|PRIVATE_KEY|SESSION_KEY|ANTHROPIC|OPENROUTER|OPENAI|HUGGINGFACE|EXA_API|TAVILY|BRAVE_'
+
+soak_secret_unset_args() {
+    # Emit "-u NAME" for each env var whose NAME matches a secret pattern, for
+    # use as `env $(soak_secret_unset_args) <cmd>`. Empty output (kill-switch off
+    # or no matches) → env runs <cmd> with the full environment (original path).
+    case "${CHIMERA_GATE_SANDBOX:-1}" in
+        0|false|off|no|"") return 0 ;;
+    esac
+    local name
+    while IFS='=' read -r name _; do
+        [ -n "$name" ] || continue
+        case "$name" in *[!A-Za-z0-9_]*) continue ;; esac
+        if printf '%s' "$name" | grep -qiE "$_SOAK_SECRET_RE"; then
+            printf ' -u %s' "$name"
+        fi
+    done < <(env)
+}
+
+soak_gate_run() {
+    # soak_gate_run <dir> <cmd>: run <cmd> via bash -c in <dir> with provider
+    # secrets stripped from the environment (ADR 0186 B.4 M1).
+    local dir="$1" cmd="$2"
+    # shellcheck disable=SC2046  # intentional word-split of the -u flag list
+    ( cd "$dir" && env $(soak_secret_unset_args) bash -c "$cmd" )
+}
+
+# ─────────────────────────────────────────────────────────────────────
 # Phase budget + cycle telemetry helpers (shared)
 # ─────────────────────────────────────────────────────────────────────
 #
@@ -363,7 +401,7 @@ soak_phase1_deliverable_landed() {
         [ "$found" -eq 1 ] || return 1
     fi
 
-    if ! ( cd "$worktree" && bash -c "$test_cmd" ) >/dev/null 2>&1; then
+    if ! soak_gate_run "$worktree" "$test_cmd" >/dev/null 2>&1; then
         return 1
     fi
 

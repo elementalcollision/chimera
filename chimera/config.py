@@ -77,6 +77,10 @@ REGISTRY: dict[str, FlagSpec] = dict(
            "Foreign target repo 'owner/name' for a multi-repo soak (ADR 0186 B.3); "
            "set by real_task_soak.sh's foreign block. When set, the agent's system "
            "prompt uses a neutral repo-framed voice instead of Chimera's self-identity."),
+        _f("CHIMERA_GATE_SANDBOX", "bool", "1",
+           "Gate sandbox (ADR 0186 B.4 M1): strip provider secrets from the "
+           "ruff/pytest gate subprocess (self + foreign). Default-on; set 0 to "
+           "disable (escape hatch). The agent keeps its keys — only the gate is stripped."),
         _f("CHIMERA_AGENT_ID", "str", None, "Stable agent identity override."),
         _f("CHIMERA_VOICE", "str", None, "Persona/voice selector for prompts."),
         _f("CHIMERA_LOG_LEVEL", "str", None, "Python logging level."),

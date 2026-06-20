@@ -7,6 +7,11 @@
 # a chimera-soak/* branch forked from main. They are read-only against
 # the worktree state (no commits, no pushes); the caller decides what
 # to do with the return value.
+#
+# soak_gate_run (the ADR 0186 B.4 M1 gate sandbox) is defined in _soak_common.sh.
+# Every real runner sources that first, but guard-source it here so soak_lib.sh's
+# soft-sentinels can always strip secrets from the gate even if sourced alone.
+command -v soak_gate_run >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/_soak_common.sh"
 
 # ─────────────────────────────────────────────────────────────────────
 # soak_phase2_deliverable_landed
@@ -126,7 +131,7 @@ soak_phase2_deliverable_landed() {
     fi
 
     # 3. Test command exits 0
-    if ! ( cd "$worktree" && bash -c "$test_cmd" ) >/dev/null 2>&1; then
+    if ! soak_gate_run "$worktree" "$test_cmd" >/dev/null 2>&1; then
         return 1
     fi
 
@@ -209,7 +214,7 @@ soak_phase1_verify_green() {
     fi
 
     # 3. The repo's real verification passes.
-    if ! ( cd "$worktree" && bash -c "$gate_cmd" ) >/dev/null 2>&1; then
+    if ! soak_gate_run "$worktree" "$gate_cmd" >/dev/null 2>&1; then
         return 1
     fi
 

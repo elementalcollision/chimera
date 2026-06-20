@@ -19,11 +19,14 @@ increment.
 >     failing gate output and the soak's foreign block appends it to the phase-1
 >     INBOX. The helper is pure/offline (no foreign-code execution); the soak
 >     runs the gate (same surface the B.2 gate already uses, sandboxed by B.4).
-> - **B.4** PR targeting + safety envelope — 📝 **design drafted** (the real-risk
->   phase: draft-PR to the target repo, trust-gated; ADR 0175 sandbox for the
->   foreign `verify_cmd`; secrets/network review before first use). Detailed
->   design + increments (B.4a sandbox → B.4b foreign draft-PR → B.4c checklist →
->   B.4d first real repo): `mind/research/b4-foreign-pr-safety-envelope-design-2026-06-20.md`.
+> - **B.4** PR targeting + safety envelope — *in progress* (the real-risk phase).
+>   Design + decisions: `mind/research/b4-foreign-pr-safety-envelope-design-2026-06-20.md`.
+>   - **B.4a gate sandbox (M1)** — ✅ the ruff/pytest gate runs with provider
+>     secrets stripped (self + foreign) via `soak_gate_run` (shell) +
+>     `_gate_subprocess_env` (Python `run_check`); kill-switch
+>     `CHIMERA_GATE_SANDBOX`. The agent keeps its keys; only the gate is stripped.
+>   - **B.4b** foreign draft-PR targeting → **B.4c** checklist/approval/ledger →
+>     **B.4d** first real-repo dry-run — ⬜ pending.
 
 ## Context
 
