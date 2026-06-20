@@ -18,7 +18,12 @@ from chimera.core.foreign_pr_ledger import (
     record_foreign_pr_opened,
     record_verify_cmd_review,
 )
-from chimera.core.self_pr import maybe_foreign_pr
+from chimera.core.self_pr import (
+    FOREIGN_PR_APPROVAL_FLOOR,
+    _gate_approved_commit,
+    _repo_allowed,
+    maybe_foreign_pr,
+)
 from chimera.core.submit_pr import SubmitPrResult
 
 REPO = "elementalcollision/claude-daemon"
@@ -165,12 +170,25 @@ def test_fires_when_approval_disabled(tmp_path, monkeypatch):
     assert res.fired and len(spy.calls) == 1
 
 
-def test_graduates_after_floor_reached(tmp_path, monkeypatch):
+def test_approval_still_required_at_floor_minus_one(tmp_path, monkeypatch):
+    # Boundary: exactly FLOOR-1 prior PRs → the next (FLOOR-th) STILL needs approval.
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    for i in range(5):  # 5 prior foreign PRs → graduated, no grant needed
+    for i in range(FOREIGN_PR_APPROVAL_FLOOR - 1):
         record_foreign_pr_opened(state_dir, REPO, f"r{i}", ts=f"t{i}")
-    res, spy = _call(tmp_path, monkeypatch, state_dir=state_dir)
+    res, spy = _call(tmp_path, monkeypatch, state_dir=state_dir)  # no grant
+    assert not res.fired and "needs operator approval" in res.skipped_reason
+    assert f"{FOREIGN_PR_APPROVAL_FLOOR}/{FOREIGN_PR_APPROVAL_FLOOR}" in res.skipped_reason
+    assert spy.calls == []
+
+
+def test_graduates_exactly_at_floor(tmp_path, monkeypatch):
+    # Boundary: exactly FLOOR prior PRs → graduated, no grant needed.
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    for i in range(FOREIGN_PR_APPROVAL_FLOOR):
+        record_foreign_pr_opened(state_dir, REPO, f"r{i}", ts=f"t{i}")
+    res, spy = _call(tmp_path, monkeypatch, state_dir=state_dir)  # no grant
     assert res.fired and len(spy.calls) == 1
 
 
@@ -201,3 +219,66 @@ def test_dry_run_does_not_record(tmp_path, monkeypatch):
     assert res.fired
     assert spy.calls[0]["dry_run"] is True
     assert count_foreign_prs_opened(state_dir) == 0
+
+
+# ── _repo_allowed: malformed-repo rejection (B.4 review #5) ──
+
+
+def test_repo_allowed_accepts_well_formed_allowlisted():
+    # autouse _clean_env unsets CHIMERA_REPO_ALLOWLIST → default 'elementalcollision'.
+    assert _repo_allowed("elementalcollision/claude-daemon")
+
+
+@pytest.mark.parametrize("bad", [
+    "elementalcollision/../evil",      # path traversal (two slashes)
+    "elementalcollision/",             # empty name
+    "/claude-daemon",                  # empty owner
+    "elementalcollision/re po",        # space
+    "elementalcollision/a/b",          # extra slash
+    "noslash",                         # no slash at all
+    "",                                # empty
+    "elementalcollision/x;rm -rf",     # shell metachars
+])
+def test_repo_allowed_rejects_malformed(bad):
+    # Even an allowlisted OWNER must not rescue a malformed name (it flows into
+    # the push URL / gh --repo).
+    assert not _repo_allowed(bad)
+
+
+def test_repo_allowed_rejects_non_allowlisted_owner():
+    assert not _repo_allowed("evilcorp/malware")
+
+
+# ── _gate_approved_commit: fail-closed edge cases (B.4 review #4) ──
+
+
+def _gate_log(tmp_path: Path, content: str) -> Path:
+    wt = tmp_path / "gw"
+    (wt / "state").mkdir(parents=True)
+    (wt / "state" / "critic-gate-log.jsonl").write_text(content)
+    return wt
+
+
+def test_gate_approved_missing_log(tmp_path):
+    assert _gate_approved_commit(tmp_path / "nope") is False
+
+
+@pytest.mark.parametrize("content", [
+    "",                                       # empty file
+    "   \n  \n",                              # whitespace only
+    "not json\n",                            # malformed line
+    json.dumps({"escalated": True}) + "\n",  # missing "allowed" key
+    json.dumps({"allowed": False}) + "\n",   # explicitly blocked
+    json.dumps({"allowed": None}) + "\n",    # null
+    json.dumps({"allowed": "yes"}) + "\n",   # truthy-but-not-True
+])
+def test_gate_approved_fail_closed(tmp_path, content):
+    assert _gate_approved_commit(_gate_log(tmp_path, content)) is False
+
+
+def test_gate_approved_true_only_when_last_allowed_true(tmp_path):
+    log = (
+        json.dumps({"allowed": False}) + "\n"
+        + json.dumps({"allowed": True}) + "\n"  # LAST line wins
+    )
+    assert _gate_approved_commit(_gate_log(tmp_path, log)) is True

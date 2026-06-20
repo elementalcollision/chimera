@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,10 +53,17 @@ FOREIGN_PR_APPROVAL_FLOOR = 5
 _DEFAULT_ALLOWLIST = "elementalcollision"
 
 
+# Strict GitHub "owner/name" shape — rejects path-traversal / injection in the
+# repo string before it ever reaches the push URL or `gh --repo` (B.4 review).
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
 def _repo_allowed(repo: str) -> bool:
-    """True iff ``repo`` (owner/name) is in CHIMERA_REPO_ALLOWLIST — an entry is a
-    bare owner or a full owner/name (mirrors real_task_soak.sh). Fail-closed."""
-    if "/" not in repo:
+    """True iff ``repo`` (owner/name) is well-formed AND in CHIMERA_REPO_ALLOWLIST
+    — an entry is a bare owner or a full owner/name (mirrors real_task_soak.sh).
+    Fail-closed: a malformed repo (e.g. ``owner/../evil``) is refused even if its
+    owner is allowlisted, since the string flows into the push URL / gh --repo."""
+    if not _REPO_RE.match(repo):
         return False
     raw = os.environ.get("CHIMERA_REPO_ALLOWLIST") or _DEFAULT_ALLOWLIST
     owner = repo.split("/", 1)[0]
@@ -120,7 +128,9 @@ def maybe_self_pr(
     submit_fn = submit_fn or submit_pr
 
     # 1. Opt-in. Default behaviour = manual-handoff status quo (no-op).
-    if os.environ.get(SELF_PR_ENV) != "1":
+    #    Registry-backed read (ADR 0176) — honours the bool contract, matching
+    #    maybe_foreign_pr; identical to the old != "1" check for unset/"1".
+    if not flag_enabled(SELF_PR_ENV):
         return SelfPrResult(skipped_reason=f"{SELF_PR_ENV} != 1 (off by default)")
 
     # 2. Trust gate — must have earned T4+ (ADAPTIVE).

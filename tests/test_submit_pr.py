@@ -11,6 +11,7 @@ from chimera.core.submit_pr import (
     HIGH_ENTROPY_PATTERN,
     _check_fix_without_test,
     _entropy_hits,
+    _foreign_push_env,
     _has_secret_path,
     submit_pr,
     validate,
@@ -314,6 +315,22 @@ def test_submit_pr_self_path_unchanged_when_not_foreign(tmp_path: Path) -> None:
     assert "origin" in pushed[0]
     assert "--repo" not in captured_gh[0]
     assert captured_gh[0][captured_gh[0].index("--base") + 1] == "main"
+
+
+def test_foreign_push_env_strips_provider_keys_keeps_vcs_auth(monkeypatch) -> None:
+    # The foreign push/PR subprocess env strips LLM/provider secrets but KEEPS
+    # the VCS auth tokens git/gh need (review #3 — the naive full-strip would
+    # drop GH_TOKEN and break auth).
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or")
+    monkeypatch.setenv("GH_TOKEN", "gho_xxx")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_yyy")
+    env = _foreign_push_env()
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "OPENROUTER_API_KEY" not in env
+    assert env.get("GH_TOKEN") == "gho_xxx"        # VCS auth preserved
+    assert env.get("GITHUB_TOKEN") == "ghp_yyy"
+    assert "PATH" in env                            # operational var preserved
 
 
 def test_submit_pr_validation_failure_skips_push(tmp_path: Path) -> None:

@@ -13,11 +13,34 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from ..tools.sandbox_env import sanitized_subprocess_env
+
+# ADR 0186 B.4b review: the foreign push/PR step runs TRUSTED tools (git/gh) that
+# legitimately need VCS credentials — unlike the gate (B.4a) we cannot strip
+# everything (that would drop GH_TOKEN and break auth). For a FOREIGN target,
+# strip the LLM/search PROVIDER keys (never needed by git/gh) but RESTORE the VCS
+# auth tokens. The self-repo path passes env=None → byte-identical inherited env.
+_VCS_AUTH_KEEP = (
+    "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
+)
+
+
+def _foreign_push_env() -> dict[str, str]:
+    """Env for a FOREIGN push/PR subprocess: provider secrets stripped, VCS auth
+    kept (ADR 0186 B.4b/M1 — narrows the secret surface without breaking gh)."""
+    env = sanitized_subprocess_env()
+    for k in _VCS_AUTH_KEEP:
+        v = os.environ.get(k)
+        if v is not None:
+            env[k] = v
+    return env
 
 
 # Charter soaks name branches chimera-soak/v<N>-...; real-task / self-determined
@@ -682,8 +705,10 @@ def submit_pr(
     # and it scopes the push to exactly one branch on exactly the target repo.
     push_target = f"https://github.com/{foreign_repo}.git" if foreign_repo else "origin"
     push_cmd = ["git", "-C", str(repo_root), "push", push_target, f"{branch}:{branch}"]
+    # Foreign push/PR: strip provider keys, keep VCS auth. Self path: inherit (None).
+    push_env = _foreign_push_env() if foreign_repo else None
     if push_runner is None:
-        push_proc = subprocess.run(push_cmd, capture_output=True, text=True)
+        push_proc = subprocess.run(push_cmd, capture_output=True, text=True, env=push_env)
         push_ok = push_proc.returncode == 0
         push_err = push_proc.stderr
     else:
@@ -715,7 +740,7 @@ def submit_pr(
     if draft:
         gh_cmd.append("--draft")
     if gh_runner is None:
-        gh_proc = subprocess.run(gh_cmd, capture_output=True, text=True, cwd=str(repo_root))
+        gh_proc = subprocess.run(gh_cmd, capture_output=True, text=True, cwd=str(repo_root), env=push_env)
         gh_ok = gh_proc.returncode == 0
         gh_out = gh_proc.stdout.strip()
         gh_err = gh_proc.stderr.strip()
