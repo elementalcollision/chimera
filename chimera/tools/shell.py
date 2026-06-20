@@ -363,6 +363,43 @@ async def shell_handler(args: dict[str, Any], context: DispatchContext) -> str:
     # Conservative refusal: missing design note / missing section /
     # ambiguous classification → warn-only. Override knob:
     # CHIMERA_ALLOW_OFF_CHARTER_COMMIT=1.
+    # ADR 0186 B.4h: confine `ruff --fix` / `ruff format` to the locked charter
+    # allowlist at the SAME shell chokepoint as the commit scope check below. The
+    # ACT prompt tells the agent to clear lint on its SCOPE files, but on a foreign
+    # repo it ran ruff TREE-WIDE, rewriting ~44 out-of-charter files (the B.4g root
+    # cause). B.4g reverts that residue after the fact; this prevents it at the
+    # source. Conservative: inert for non-mutating ruff and when there is no locked
+    # allowlist (outside a scoped soak). Override: CHIMERA_ALLOW_UNSCOPED_RUFF=1.
+    from chimera.config import flag_enabled
+    from chimera.core.ruff_scope import ruff_scope_violation, ruff_subargv
+
+    if ruff_subargv(argv) is not None and not flag_enabled("CHIMERA_ALLOW_UNSCOPED_RUFF"):
+        from chimera.core.scope_check import (
+            extract_ready_for_remediation,
+            find_active_design_note,
+            parse_recommendation,
+            resolve_repo_root,
+        )
+
+        allowed: tuple[str, ...] = ()
+        try:
+            note = find_active_design_note(
+                resolve_repo_root(_resolve_cwd(args.get("cwd")))
+            )
+            if note is not None:
+                section = extract_ready_for_remediation(note.read_text())
+                if section:
+                    allowed = parse_recommendation(section).allowed_paths
+        except (OSError, ValueError):
+            allowed = ()
+        violation = ruff_scope_violation(argv, allowed)
+        if violation:
+            raise PermissionError(
+                f"ruff blocked by charter scope guard (ADR 0186 B.4h): {violation}\n\n"
+                "Override (operator-aware, single-use): "
+                "export CHIMERA_ALLOW_UNSCOPED_RUFF=1"
+            )
+
     if program == "git" and len(argv) >= 2 and argv[1] == "commit":
         from chimera.core.scope_check import (
             ScopeCheckRefusal,
