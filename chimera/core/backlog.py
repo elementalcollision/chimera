@@ -199,6 +199,19 @@ def validation_report(mind_dir: Path) -> list[tuple[str, tuple[str, ...]]]:
     """(`slug`, errors) for every INVALID spec — so the operator hears about
     a malformed file instead of it being silently skipped forever."""
     return [(s.slug, s.errors) for s in list_specs(mind_dir) if not s.valid]
+
+
+def ready_slugs(mind_dir: Path) -> list[str]:
+    """Slugs (filename stems) of every valid, not-done spec.
+
+    Used by callers that need an allowlist of actionable task ids (for
+    example, a CLI listing or a picker that fans out across runs). Order
+    matches :func:`list_specs` — filename-then-mtime — so output is
+    deterministic.
+    """
+    return [s.slug for s in list_specs(mind_dir) if s.valid and not s.done]
+
+
 def count_by_status(mind_dir: Path) -> dict[str, int]:
     """Count specs keyed "ready" (valid, not done), "done", and "invalid".
 
