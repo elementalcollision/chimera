@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +39,7 @@ from .foreign_pr_ledger import (
     is_verify_cmd_reviewed,
     record_foreign_pr_opened,
 )
+from .repo_verify import _gate_subprocess_env
 from .submit_pr import SubmitPrResult, submit_pr
 
 SELF_PR_ENV = "CHIMERA_SELF_PR"
@@ -107,6 +109,28 @@ def _gate_approved_commit(worktree: Path) -> bool:
     return last.get("allowed") is True
 
 
+def _foreign_gate_approved(worktree: Path, verify_cmd: str | None) -> bool:
+    """Foreign 'gate-approved' signal (ADR 0186 B.4e): the target repo's OWN
+    ``verify_cmd`` passes at HEAD, run with provider secrets stripped (B.4a M1).
+
+    Replaces self-PR's chimera critic-gate-log check — a foreign repo never writes
+    that log, and its own gate command is the authoritative quality signal. The
+    committed change is at HEAD, so a green ``verify_cmd`` confirms the PR's content
+    is good. Fail-closed: no ``verify_cmd``, or any non-zero exit / error / timeout
+    → False (no PR)."""
+    if not verify_cmd:
+        return False
+    try:
+        proc = subprocess.run(
+            verify_cmd, shell=True, cwd=str(worktree),
+            capture_output=True, text=True, timeout=900,
+            env=_gate_subprocess_env(),
+        )
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return proc.returncode == 0
+
+
 def maybe_self_pr(
     *,
     worktree: Path | str,
@@ -171,6 +195,7 @@ def maybe_foreign_pr(
     repo_root: Path | str,
     foreign_repo: str,
     foreign_base: str = "main",
+    verify_cmd: str | None = None,
     run_id: str = "",
     state_dir: Path | str | None = None,
     trust_state_path: Path | str | None = None,
@@ -225,21 +250,16 @@ def maybe_foreign_pr(
             skipped_reason=f"trust tier {tier.name} < {MIN_TIER.name} (foreign-PR floor)"
         )
 
-    # 4. Gate gate — only propose what the in-loop critic gate already allowed.
-    if not _gate_approved_commit(worktree):
-        return SelfPrResult(
-            skipped_reason="no gate-approved commit in worktree (ADR 0162 log)"
-        )
-
-    # 5. verify_cmd review (B.4c/M4) — the target's gate must be operator-reviewed
-    #    for network/secrets/arbitrary-download risk BEFORE we run-and-PR it.
+    # 4. verify_cmd review (B.4c/M4) — the target's gate must be operator-reviewed
+    #    for network/secrets/arbitrary-download risk. This MUST precede gate 6,
+    #    which actually RUNS the verify_cmd — never execute unreviewed foreign code.
     if not is_verify_cmd_reviewed(state_dir, foreign_repo):
         return SelfPrResult(
             skipped_reason=f"verify_cmd for {foreign_repo!r} not operator-reviewed "
             "(ADR 0186 B.4c) — record a review before opening a foreign PR"
         )
 
-    # 6. First-N approval gate (B.4c/M4) — the first FOREIGN_PR_APPROVAL_FLOOR
+    # 5. First-N approval gate (B.4c/M4) — the first FOREIGN_PR_APPROVAL_FLOOR
     #    foreign PRs need an explicit per-PR operator grant even at T4; graduates
     #    after a clean track record.
     if flag_enabled(FOREIGN_PR_APPROVAL_FLAG):
@@ -251,6 +271,17 @@ def maybe_foreign_pr(
                     f"operator approval (set {FOREIGN_PR_APPROVED_ENV}=1)"
                 )
             )
+
+    # 6. Gate-approved (foreign, B.4e) — the target's OWN verify_cmd must pass at
+    #    HEAD (sandboxed, secrets stripped). Runs ONLY after the review (4) confirmed
+    #    it is safe to execute and approval (5) cleared. A foreign repo never writes
+    #    the chimera critic-gate log, so the verify_cmd is the authoritative quality
+    #    signal that the committed change is good.
+    if not _foreign_gate_approved(worktree, verify_cmd):
+        return SelfPrResult(
+            skipped_reason="foreign verify_cmd did not pass at HEAD (or --verify-cmd "
+            "missing) — cannot confirm the change is good"
+        )
 
     # 7. Delegate to the SAME validated submit path — DRAFT, never merge — but
     #    targeting the foreign remote.

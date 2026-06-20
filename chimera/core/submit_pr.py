@@ -355,11 +355,20 @@ def validate(
     *,
     allow_entropy: bool = False,
     ignore_dirty_prefixes: tuple[str, ...] = (),
+    foreign: bool = False,
 ) -> tuple[str, list[tuple[str, str]], list[str]]:
     """Run all pre-submit checks. Return (branch, commits, errors).
 
     ``ignore_dirty_prefixes`` excludes operational paths (e.g. ``("mind/",)``)
     from the clean-tree check — see :func:`_porcelain_clean`.
+
+    ``foreign`` (ADR 0186 B.4e): skip the chimera-SPECIFIC quality checks that
+    assume chimera's layout/toolchain — ``_check_fix_without_test`` (keys on
+    ``chimera/``+``tests/``), the v4.113 chimera-``pytest`` re-run, and the
+    ``mind/INBOX`` honesty check. The foreign repo's OWN ``verify_cmd`` is the
+    quality gate (checked by ``maybe_foreign_pr`` before submit). The STRUCTURAL
+    and SAFETY checks (worktree, soak-branch, clean tree, commits exist,
+    ``[agent]`` subject, secret-path, entropy, witness) always run.
     """
     errors: list[str] = []
 
@@ -394,41 +403,44 @@ def validate(
         if _has_secret_path(p):
             errors.append(f"diff touches secret-shaped path: {p}")
 
-    untested = _check_fix_without_test(files, worktree)
-    if untested:
-        errors.append(
-            "fix_without_test (v4.92 gate): chimera/ source touched without "
-            f"tests/ counterpart: {', '.join(untested)}"
-        )
+    # The next three gates are chimera-SPECIFIC (layout/toolchain/INBOX) — the
+    # foreign repo's own verify_cmd is its quality gate instead (ADR 0186 B.4e).
+    if not foreign:
+        untested = _check_fix_without_test(files, worktree)
+        if untested:
+            errors.append(
+                "fix_without_test (v4.92 gate): chimera/ source touched without "
+                f"tests/ counterpart: {', '.join(untested)}"
+            )
 
-    # v4.113 (ADR 0113): runtime-behavior gate. Re-run pytest against
-    # every modified tests/test_*.py file. Catches the soak v16 shape
-    # where the branch shipped a NameError-at-runtime regression that
-    # all the structural gates (parse, presence, charter) cleared.
-    failing_tests = _validate_tests_actually_pass(worktree, files)
-    if failing_tests:
-        errors.append(
-            "test_claim_invalid (v4.113 gate): modified test file(s) fail "
-            f"on operator-side re-run: {', '.join(failing_tests)}"
-        )
+        # v4.113 (ADR 0113): runtime-behavior gate. Re-run pytest against
+        # every modified tests/test_*.py file. Catches the soak v16 shape
+        # where the branch shipped a NameError-at-runtime regression that
+        # all the structural gates (parse, presence, charter) cleared.
+        failing_tests = _validate_tests_actually_pass(worktree, files)
+        if failing_tests:
+            errors.append(
+                "test_claim_invalid (v4.113 gate): modified test file(s) fail "
+                f"on operator-side re-run: {', '.join(failing_tests)}"
+            )
 
-    # v4.100 (ADR 0104): INBOX-honesty gate. If the branch's
-    # mind/INBOX.md has any `[x]` checkbox whose deliverable doesn't
-    # exist on disk, refuse the PR — the branch is shipping a lie.
-    invalid_inbox = _check_inbox_honesty(worktree)
-    if invalid_inbox:
-        listed = "; ".join(
-            f"{t[:60]!r} → missing {', '.join(m)}"
-            for t, m in invalid_inbox[:3]
-        )
-        more = (
-            f" (+{len(invalid_inbox) - 3} more)"
-            if len(invalid_inbox) > 3 else ""
-        )
-        errors.append(
-            "inbox_claim_invalid (v4.100 gate): mind/INBOX.md has `[x]` "
-            f"checkbox(es) whose deliverables don't exist{more}: {listed}"
-        )
+        # v4.100 (ADR 0104): INBOX-honesty gate. If the branch's
+        # mind/INBOX.md has any `[x]` checkbox whose deliverable doesn't
+        # exist on disk, refuse the PR — the branch is shipping a lie.
+        invalid_inbox = _check_inbox_honesty(worktree)
+        if invalid_inbox:
+            listed = "; ".join(
+                f"{t[:60]!r} → missing {', '.join(m)}"
+                for t, m in invalid_inbox[:3]
+            )
+            more = (
+                f" (+{len(invalid_inbox) - 3} more)"
+                if len(invalid_inbox) > 3 else ""
+            )
+            errors.append(
+                "inbox_claim_invalid (v4.100 gate): mind/INBOX.md has `[x]` "
+                f"checkbox(es) whose deliverables don't exist{more}: {listed}"
+            )
 
     if not allow_entropy:
         diff = _diff_text(worktree, base, "HEAD")
@@ -647,6 +659,7 @@ def submit_pr(
     branch, commits, errors = validate(
         worktree, base=base, allow_entropy=allow_entropy,
         ignore_dirty_prefixes=ignore_dirty_prefixes,
+        foreign=bool(foreign_repo),
     )
     result.branch = branch
     result.commits = commits

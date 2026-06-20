@@ -121,7 +121,8 @@ def test_submit_fires_when_all_gates_pass(env, capsys, monkeypatch):
 
     monkeypatch.setattr("chimera.core.self_pr.submit_pr", _spy)
     rc = main(["foreign-pr", "submit", "--repo", REPO, "--worktree", str(wt),
-               "--base", "main", "--run-id", "run-1", "--state-dir", str(state)])
+               "--base", "main", "--verify-cmd", "true", "--run-id", "run-1",
+               "--state-dir", str(state)])
     assert rc == 0
     out = capsys.readouterr().out
     assert "fired" in out and "pull/9" in out
@@ -143,7 +144,7 @@ def test_submit_dry_run_does_not_open_or_record(env, capsys, monkeypatch):
 
     monkeypatch.setattr("chimera.core.self_pr.submit_pr", _spy)
     rc = main(["foreign-pr", "submit", "--repo", REPO, "--worktree", str(wt),
-               "--state-dir", str(state), "--dry-run"])
+               "--verify-cmd", "true", "--state-dir", str(state), "--dry-run"])
     assert rc == 0
     assert "dry-run" in capsys.readouterr().out
     assert count_foreign_prs_opened(state) == 0  # dry-run never recorded
@@ -189,7 +190,7 @@ def test_submit_returns_rc1_on_submit_failure(env, capsys, monkeypatch):
 
     monkeypatch.setattr("chimera.core.self_pr.submit_pr", _fail)
     rc = main(["foreign-pr", "submit", "--repo", REPO, "--worktree", str(wt),
-               "--state-dir", str(state)])
+               "--verify-cmd", "true", "--state-dir", str(state)])
     assert rc == 1
     assert "FAILED" in capsys.readouterr().out
     assert count_foreign_prs_opened(state) == 0  # failed PR not counted

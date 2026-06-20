@@ -52,7 +52,16 @@ increment.
 >     allowlist-scoped by the autocommit + gate/critic/review/approval-gated; the
 >     per-run demotion stays the self-loop's learning signal. Writeup:
 >     `mind/research/scope-evasion-rca-2026-06-20.md`.
-
+>   - **B.4e foreign submit-path adaptation** — ✅ the self-PR submit machinery now
+>     works for a foreign target: `maybe_foreign_pr`'s gate-approved signal is the
+>     target's OWN `verify_cmd` re-run at HEAD (sandboxed), not the chimera
+>     critic-gate log a foreign repo never writes; and `submit_pr.validate(foreign=
+>     True)` skips the chimera-specific quality gates (fix-without-test on the
+>     `chimera/` layout, the v4.113 chimera-`pytest` re-run, `mind/INBOX` honesty)
+>     while keeping the structural/safety ones (worktree, soak-branch, clean tree,
+>     commits, `[agent]` subject, secret-path, entropy, witness). Gate order made
+>     safe: verify-review → approval → RUN verify_cmd (never execute unreviewed
+>     foreign code). `--verify-cmd` threads through the CLI + soak.
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build

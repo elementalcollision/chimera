@@ -620,6 +620,7 @@ if [ "$FOREIGN_MODE" = "1" ]; then
         # shellcheck disable=SC2086  # _fpr_dry is a single optional flag
         ( cd "${RUNNER_ROOT:-$REPO_ROOT}" && uv run chimera foreign-pr submit \
             --repo "$TASK_REPO" --worktree "$WORKTREE" --base "$TASK_BASE" \
+            --verify-cmd "$TASK_VERIFY_CMD" \
             --run-id "$RUN_ID" --state-dir "${RUNNER_ROOT:-$REPO_ROOT}/state" $_fpr_dry ) 2>&1 | tee -a "$LOG" || true
     fi
     log "── foreign mode: branch '$BRANCH' left in $WORKTREE for review ──"
