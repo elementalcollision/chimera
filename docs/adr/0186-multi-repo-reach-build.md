@@ -25,8 +25,20 @@ increment.
 >     secrets stripped (self + foreign) via `soak_gate_run` (shell) +
 >     `_gate_subprocess_env` (Python `run_check`); kill-switch
 >     `CHIMERA_GATE_SANDBOX`. The agent keeps its keys; only the gate is stripped.
->   - **B.4b** foreign draft-PR targeting → **B.4c** checklist/approval/ledger →
->     **B.4d** first real-repo dry-run — ⬜ pending.
+>   - **B.4b foreign draft-PR targeting (M2)** — ✅ `submit_pr(foreign_repo,
+>     foreign_base)` pushes the soak branch to the target's explicit HTTPS URL
+>     (bypassing B.2 no-push) + `gh pr create --repo … --draft`; a new
+>     `maybe_foreign_pr` orchestrator gates on a SEPARATE opt-in
+>     `CHIMERA_FOREIGN_PR` (never implied by self-PR), allowlist (defense-in-depth),
+>     trust ≥ T4, gate-approved-commit. DRAFT-only, never merges. Self path
+>     byte-identical.
+>   - **B.4c approval + verify-review + ledger (M4)** — ✅ `foreign_pr_ledger.py`
+>     (per-repo verify_cmd-review records + global foreign-PR count, all fail-soft);
+>     `maybe_foreign_pr` adds a fail-closed verify-review gate + the first-5
+>     approval gate (`CHIMERA_FOREIGN_PR_REQUIRE_APPROVAL` + per-run
+>     `CHIMERA_FOREIGN_PR_APPROVED`), graduating after 5.
+>   - **B.4d** first real-repo dry-run + the operator CLI/soak wiring (this is the
+>     only LIVE outward action; B.4b/B.4c above are default-off library + tests) — ⬜ pending.
 
 ## Context
 

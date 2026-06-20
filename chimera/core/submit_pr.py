@@ -13,11 +13,34 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from ..tools.sandbox_env import sanitized_subprocess_env
+
+# ADR 0186 B.4b review: the foreign push/PR step runs TRUSTED tools (git/gh) that
+# legitimately need VCS credentials — unlike the gate (B.4a) we cannot strip
+# everything (that would drop GH_TOKEN and break auth). For a FOREIGN target,
+# strip the LLM/search PROVIDER keys (never needed by git/gh) but RESTORE the VCS
+# auth tokens. The self-repo path passes env=None → byte-identical inherited env.
+_VCS_AUTH_KEEP = (
+    "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
+)
+
+
+def _foreign_push_env() -> dict[str, str]:
+    """Env for a FOREIGN push/PR subprocess: provider secrets stripped, VCS auth
+    kept (ADR 0186 B.4b/M1 — narrows the secret surface without breaking gh)."""
+    env = sanitized_subprocess_env()
+    for k in _VCS_AUTH_KEEP:
+        v = os.environ.get(k)
+        if v is not None:
+            env[k] = v
+    return env
 
 
 # Charter soaks name branches chimera-soak/v<N>-...; real-task / self-determined
@@ -598,6 +621,8 @@ def submit_pr(
     allow_entropy: bool = False,
     ignore_dirty_prefixes: tuple[str, ...] = (),
     audit_path: Path | None = None,
+    foreign_repo: str | None = None,
+    foreign_base: str | None = None,
     gh_runner=None,
     push_runner=None,
 ) -> SubmitPrResult:
@@ -606,6 +631,15 @@ def submit_pr(
     `gh_runner` / `push_runner` are seams for tests. Each is a callable;
     if None we shell out for real. `ignore_dirty_prefixes` forwards to
     :func:`validate` (e.g. ``("mind/",)`` for self-PR journal noise).
+
+    Foreign mode (ADR 0186 B.4b): when ``foreign_repo`` ("owner/name") is set,
+    the PR targets that repo instead of ``repo_root``'s origin — the soak branch
+    is pushed to the foreign repo's explicit HTTPS URL (bypassing the B.2
+    no-push:// block, authed by the operator's stored gh credentials) and
+    ``gh pr create --repo <foreign_repo> --base <foreign_base>`` opens the draft
+    there. ``foreign_repo`` unset → byte-identical self-repo behaviour. The same
+    ``validate()`` gates apply; still DRAFT-only, still pushes ONLY the soak
+    branch, never the default branch.
     """
     audit_path = audit_path or (repo_root / "state" / "submit_pr_log.jsonl")
     result = SubmitPrResult(dry_run=dry_run, audit_path=audit_path)
@@ -665,10 +699,16 @@ def submit_pr(
         return result
 
     # Push from repo root (operator git config), NOT from worktree
-    # (which has the no-push:// block).
-    push_cmd = ["git", "-C", str(repo_root), "push", "origin", f"{branch}:{branch}"]
+    # (which has the no-push:// block). Foreign mode (ADR 0186 B.4b): push the
+    # soak branch to the target's explicit HTTPS URL — the foreign clone's origin
+    # carries B.2's no-push:// pushurl, so an explicit URL is how we push at all,
+    # and it scopes the push to exactly one branch on exactly the target repo.
+    push_target = f"https://github.com/{foreign_repo}.git" if foreign_repo else "origin"
+    push_cmd = ["git", "-C", str(repo_root), "push", push_target, f"{branch}:{branch}"]
+    # Foreign push/PR: strip provider keys, keep VCS auth. Self path: inherit (None).
+    push_env = _foreign_push_env() if foreign_repo else None
     if push_runner is None:
-        push_proc = subprocess.run(push_cmd, capture_output=True, text=True)
+        push_proc = subprocess.run(push_cmd, capture_output=True, text=True, env=push_env)
         push_ok = push_proc.returncode == 0
         push_err = push_proc.stderr
     else:
@@ -688,15 +728,19 @@ def submit_pr(
 
     gh_cmd = [
         "gh", "pr", "create",
-        "--base", base,
+        "--base", (foreign_base or base) if foreign_repo else base,
         "--head", branch,
         "--title", title,
         "--body", body,
     ]
+    if foreign_repo:
+        # Target the foreign repo explicitly (otherwise gh infers from cwd).
+        # Insert after "create" (index 3): gh pr create --repo <repo> --base …
+        gh_cmd[3:3] = ["--repo", foreign_repo]
     if draft:
         gh_cmd.append("--draft")
     if gh_runner is None:
-        gh_proc = subprocess.run(gh_cmd, capture_output=True, text=True, cwd=str(repo_root))
+        gh_proc = subprocess.run(gh_cmd, capture_output=True, text=True, cwd=str(repo_root), env=push_env)
         gh_ok = gh_proc.returncode == 0
         gh_out = gh_proc.stdout.strip()
         gh_err = gh_proc.stderr.strip()
@@ -725,5 +769,7 @@ def submit_pr(
         "draft": draft,
         "pr_url": result.pr_url,
         "commits": [s for s, _ in commits],
+        # ADR 0186 B.4b: tag foreign-target PRs in the audit trail.
+        **({"foreign": True, "target_repo": foreign_repo} if foreign_repo else {}),
     })
     return result

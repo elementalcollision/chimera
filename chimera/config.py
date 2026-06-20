@@ -194,6 +194,20 @@ REGISTRY: dict[str, FlagSpec] = dict(
            "Permit main-branch drift in repo verification."),
         _f("CHIMERA_SOURCE_PATH_PATTERN", "str", None, "Charter source-path allowlist pattern."),
         _f("CHIMERA_SELF_PR", "bool", None, "Trust-gated self-PR (ADR 0163)."),
+        _f("CHIMERA_REPO_ALLOWLIST", "str", None,
+           "Allowlist of foreign repo owners or 'owner/name' for multi-repo soaks "
+           "(ADR 0186); space/comma-separated; operational default 'elementalcollision'. "
+           "Fail-closed: a non-allowlisted target is refused (shell pre-clone AND the "
+           "foreign-PR gate)."),
+        _f("CHIMERA_FOREIGN_PR", "bool", None,
+           "Trust-gated DRAFT PR against a FOREIGN repo (ADR 0186 B.4b). Separate "
+           "opt-in from CHIMERA_SELF_PR (never implied). Off by default."),
+        _f("CHIMERA_FOREIGN_PR_REQUIRE_APPROVAL", "bool", "1",
+           "Require explicit per-PR operator approval for the first 5 foreign PRs "
+           "even at T4 (ADR 0186 B.4c / M4); graduates after. Default-on."),
+        _f("CHIMERA_FOREIGN_PR_APPROVED", "bool", None,
+           "Per-run operator approval grant for THIS foreign PR (ADR 0186 B.4c). "
+           "Set =1 to approve one PR while the first-5 approval gate is active."),
         # ── A2A / federation ──────────────────────────────────
         _f("CHIMERA_PEER_TOKEN", "str", None, "Shared bearer token for the HTTP MCP server."),
         _f("CHIMERA_PEER_TOKENS", "json", None, "Per-peer token map {token: peer-name}."),
