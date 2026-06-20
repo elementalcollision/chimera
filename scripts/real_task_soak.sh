@@ -463,6 +463,22 @@ phase_loop() {
                     st="gate_red"
                 fi
                 log "  harness-autocommit (foreign): ${st:-error}"
+                # B.4g — enforce the scope invariant on the WORKING TREE. The agent
+                # may leave OUT-OF-SCOPE residue uncommitted (most often a tree-wide
+                # `ruff --fix` that strips unused imports across the whole foreign
+                # repo, or a scratch file); chimera's in-loop scope_check is staged-
+                # index-only and is blind to it. The allowlist is already committed,
+                # so revert everything else to HEAD (keeping operational dirs) — a
+                # foreign PR must carry ONLY $TASK_FILES. LOUDLY logged: an over-
+                # running agent stays visible, never silently masked.
+                _residue="$(cd "${RUNNER_ROOT:-$REPO_ROOT}" && uv run python -c "
+from chimera.core.submit_pr import revert_out_of_scope_residue
+for p in revert_out_of_scope_residue('$WORKTREE', keep_prefixes=('mind/','state/','.venv/')):
+    print(p)" 2>>"$LOG")"
+                if [ -n "$_residue" ]; then
+                    log "  ⚠ B.4g reverted OUT-OF-SCOPE residue (foreign PR carries only \$TASK_FILES):"
+                    printf '%s\n' "$_residue" | while IFS= read -r _l; do log "      $_l"; done
+                fi
             else
                 local files_py="["; local first=1
                 for f in $TASK_FILES; do

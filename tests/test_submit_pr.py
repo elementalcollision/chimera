@@ -10,9 +10,11 @@ from pathlib import Path
 from chimera.core.submit_pr import (
     HIGH_ENTROPY_PATTERN,
     _check_fix_without_test,
+    _dirty_paths,
     _entropy_hits,
     _foreign_push_env,
     _has_secret_path,
+    revert_out_of_scope_residue,
     submit_pr,
     validate,
 )
@@ -51,6 +53,68 @@ def _commit(repo: Path, path: str, content: str, message: str) -> str:
         check=True, capture_output=True, text=True,
     ).stdout.strip()
     return sha
+
+
+# --- B.4g: scope-invariant revert (foreign worktree) -----------------------
+
+
+def _setup_foreign_residue(tmp_path: Path) -> Path:
+    """A foreign clone where HEAD == base + the 2 allowlisted files, then a
+    tree-wide `ruff --fix`-style sprawl + scratch file + operational dirs left
+    UNCOMMITTED on top — exactly the first claude-daemon dry-run shape."""
+    repo = tmp_path / "clone"
+    _init_repo(repo)  # commits README.md (a pre-existing tracked file)
+    # Pre-existing source file with an unused import (the kind ruff strips):
+    (repo / "daemon").mkdir()
+    (repo / "daemon" / "api.py").write_text("import os\nimport sys\n\nx = sys.argv\n")
+    _git("add", ".", cwd=repo)
+    _git("commit", "-q", "-m", "baseline", cwd=repo)
+    # The agent's CORRECT scoped commit (the allowlist, already in HEAD):
+    (repo / "tools").mkdir()
+    (repo / "tools" / "noop_probe.py").write_text("def noop_probe() -> None:\n    return None\n")
+    _git("add", "tools/noop_probe.py", cwd=repo)
+    _git("commit", "-q", "-m", "[agent] add noop_probe", cwd=repo)
+    # OUT-OF-SCOPE residue left uncommitted: a ruff-style edit to a tracked file,
+    # a scratch file, and a churned lockfile:
+    (repo / "daemon" / "api.py").write_text("import sys\n\nx = sys.argv\n")  # 'import os' stripped
+    (repo / "noop.py").write_text('"""No-op module."""\n')                  # untracked scratch
+    (repo / "uv.lock").write_text("# regenerated lock drift\n")             # untracked drift
+    # Operational dirs the soak writes (must be KEPT for forensics):
+    (repo / "mind").mkdir()
+    (repo / "mind" / "SESSION_LOG.md").write_text("cycle 1\n")
+    (repo / "state").mkdir()
+    (repo / "state" / "trust_state.json").write_text("{}\n")
+    return repo
+
+
+def test_revert_out_of_scope_residue_strips_sprawl_keeps_scope_and_operational(tmp_path):
+    repo = _setup_foreign_residue(tmp_path)
+    reverted = revert_out_of_scope_residue(
+        repo, keep_prefixes=("mind/", "state/", ".venv/")
+    )
+    # It reported the out-of-scope paths (visible, not masked):
+    assert "daemon/api.py" in reverted
+    assert "noop.py" in reverted
+    assert "uv.lock" in reverted
+    # ...and did NOT touch operational paths:
+    assert not any(p.startswith(("mind/", "state/")) for p in reverted)
+    # The tracked ruff edit was reverted to HEAD (unused import restored):
+    assert "import os" in (repo / "daemon" / "api.py").read_text()
+    # The untracked scratch + drift were removed:
+    assert not (repo / "noop.py").exists()
+    assert not (repo / "uv.lock").exists()
+    # The committed allowlist survives, and operational dirs are kept:
+    assert (repo / "tools" / "noop_probe.py").exists()
+    assert (repo / "mind" / "SESSION_LOG.md").exists()
+    assert (repo / "state" / "trust_state.json").exists()
+    # The worktree is now clean except the ignored operational paths → PR-able:
+    assert _dirty_paths(repo, ("mind/", "state/", ".venv/")) == []
+
+
+def test_revert_out_of_scope_residue_noop_when_clean(tmp_path):
+    repo = tmp_path / "clean"
+    _init_repo(repo)
+    assert revert_out_of_scope_residue(repo, keep_prefixes=("mind/",)) == []
 
 
 # --- unit helpers ----------------------------------------------------------
