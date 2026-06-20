@@ -14,9 +14,14 @@ increment.
 >     a neutral `foreign_voice(repo)` + `foreign_task_guidance(repo)`. mind_dir /
 >     state / history were already workspace-scoped (clone-local). Self-mode is
 >     byte-identical.
->   - **B.3b context enrichment** — ⬜ inject the target README/docs + the
->     failing `verify_cmd` output into the foreign context (remaining ADR bullet).
-> - **B.4** PR targeting + safety envelope — ⬜ not started.
+>   - **B.3b context enrichment** — ✅ `chimera/core/foreign_context.py`
+>     (`foreign_context_block`) reads the target repo's README/docs + the current
+>     failing gate output and the soak's foreign block appends it to the phase-1
+>     INBOX. The helper is pure/offline (no foreign-code execution); the soak
+>     runs the gate (same surface the B.2 gate already uses, sandboxed by B.4).
+> - **B.4** PR targeting + safety envelope — ⬜ not started (the real-risk phase:
+>   draft-PR to the target repo, trust-gated; ADR 0175 sandbox for the foreign
+>   `verify_cmd`; secrets/network review before first use).
 
 ## Context
 

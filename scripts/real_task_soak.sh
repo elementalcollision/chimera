@@ -487,6 +487,41 @@ print(autocommit_if_ready('.', ${files_py}, '''$msg''', test_cmd=['bash','-c',''
 
 # Phase 1: fix (engines off, no commits).
 echo "$(phase1_inbox)" > "$WORKTREE/mind/INBOX.md"
+# ADR 0186 B.3b: append foreign-repo context (the target's README/docs + the
+# current failing gate output) to the INBOX so the agent reasons about the
+# TARGET repo, not chimera. Self mode (FOREIGN_MODE=0) leaves the INBOX exactly
+# as phase1_inbox produced it — byte-identical.
+if [ "$FOREIGN_MODE" = "1" ]; then
+    log "── B.3b: capturing foreign context (README + baseline gate output) ──"
+    # Capture the CURRENT (red) gate output. The foreign verify_cmd is already
+    # executed unsandboxed by the B.2 gate, so this is the same surface (B.4
+    # sandboxes ALL foreign-code runs). Bounded by a portable timeout when one is
+    # available so a hung suite can't stall setup. cwd is the clone (WORKTREE).
+    _to_bin="$(command -v timeout || command -v gtimeout || true)"
+    if [ -n "$_to_bin" ]; then
+        _gate_out="$("$_to_bin" "${FOREIGN_GATE_TIMEOUT:-300}" sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
+    else
+        _gate_out="$(sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
+    fi
+    # Build the context block with the chimera helper, run from RUNNER_ROOT (the
+    # chimera package is NOT in a non-chimera foreign clone). The helper reads the
+    # README from the absolute worktree path, so cwd there is irrelevant.
+    {
+        printf '\n\n---\n\n'
+        ( cd "${RUNNER_ROOT:-$REPO_ROOT}" \
+          && CHIMERA_FOREIGN_GATE_OUTPUT="$_gate_out" \
+             FOREIGN_WT="$WORKTREE" FOREIGN_REPO="$TASK_REPO" FOREIGN_GATE_CMD="$GATE_VERIFY_CMD" \
+             uv run python -c '
+import os
+from pathlib import Path
+from chimera.core.foreign_context import foreign_context_block
+print(foreign_context_block(
+    Path(os.environ["FOREIGN_WT"]), os.environ["FOREIGN_REPO"],
+    os.environ["FOREIGN_GATE_CMD"], os.environ.get("CHIMERA_FOREIGN_GATE_OUTPUT", "")))
+' )
+    } >> "$WORKTREE/mind/INBOX.md"
+    log "── B.3b: foreign context appended to INBOX ──"
+fi
 log "phase-1 INBOX seeded ($TASK_GOAL)"
 P1_ISO="$(date -u +%Y-%m-%dT%H:%M:%S)"
 # Phase 1 stops PHASE2_RESERVE_SECONDS before the global wall, guaranteeing the
