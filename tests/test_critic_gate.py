@@ -41,6 +41,22 @@ def calib_ok(tmp_path):
                                 false_reject=3, accuracy=0.89)
 
 
+@pytest.fixture(autouse=True)
+def _no_live_escalator(monkeypatch):
+    """Enforce this module's 'no live providers' contract for the escalator path.
+
+    `check_commit_critic` builds a REAL cross-model escalator
+    (`_default_escalator` → `_build_reviewer`) when `escalator is None`. In an
+    environment with a populated .env, that turns `escalator=None` into "a real
+    opus escalator" instead of "none available" — flaking the no-escalation
+    assertions (e.g. test_failclosed_unparseable_then_no_escalation_blocks).
+    Force the default to None so the no-escalator paths are deterministic
+    regardless of ambient API keys (matches the keyless CI environment).
+    Tests that exercise escalation inject their own escalator explicitly.
+    """
+    monkeypatch.setattr(cg, "_default_escalator", lambda *_a, **_k: None)
+
+
 # ── enforcement switch ───────────────────────────────────────────────
 
 
