@@ -62,6 +62,27 @@ increment.
 >     commits, `[agent]` subject, secret-path, entropy, witness). Gate order made
 >     safe: verify-review → approval → RUN verify_cmd (never execute unreviewed
 >     foreign code). `--verify-cmd` threads through the CLI + soak.
+>   - **B.4f foreign clean-tree footprint** — ✅ the clean-tree gate now ignores the
+>     foreign operational footprint (`mind/`, `state/`, `uv.lock`), not just `mind/`
+>     as the self path does — an arbitrary foreign repo (unlike chimera) does not
+>     `.gitignore` `state/`/the venv (#351). Caught by the first claude-daemon dry run.
+>   - **B.4g working-tree scope invariant** — ✅ defense-in-depth: the agent's ACT
+>     prompt tells it to `ruff --fix` the SCOPE files, but it ran ruff TREE-WIDE on
+>     claude-daemon, stripping unused imports across ~44 files (chimera's in-loop
+>     `scope_check` is staged-index-only → blind to the unstaged sprawl). The
+>     allowlist is already committed (B.4e), so `submit_pr.revert_out_of_scope_residue`
+>     reverts everything else to HEAD (keeping `mind/`/`state/`/`.venv/` for forensics)
+>     and the soak LOUDLY logs the reverted paths — an over-running agent stays
+>     visible, never masked. `validate`'s clean-tree error now names the offenders (#352).
+>   - **🎯 FIRST LIVE FOREIGN PR** — ✅ 2026-06-20: after 3 supervised dry runs (which
+>     surfaced + fixed B.4f/B.4g), the live run opened
+>     [claude-daemon#71](https://github.com/elementalcollision/claude-daemon/pull/71):
+>     a DRAFT carrying EXACTLY the 2 allowlisted files (`+42/-0`), base `main`,
+>     unmerged, one `[agent]` commit. The full safety envelope held end-to-end over
+>     the network. Ledger: 1/5 toward approval-graduation.
+>   - **Follow-up (agent-side, deferred):** pin `ruff --fix` to the allowlist at the
+>     shell-tool layer so the agent stops the tree-wide over-run at the source (B.4g
+>     cleans it up harness-side, but the wasted work + latent risk remain).
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
