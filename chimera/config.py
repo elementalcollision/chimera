@@ -190,6 +190,8 @@ REGISTRY: dict[str, FlagSpec] = dict(
         # ── scope / commit gates ──────────────────────────────
         _f("CHIMERA_ALLOW_OFF_CHARTER_COMMIT", "bool", None,
            "Operator override for the pre-commit scope check (ADR 0146); single-use intent."),
+        _f("CHIMERA_ALLOW_UNSCOPED_RUFF", "bool", None,
+           "Operator override for the ruff charter-scope guard (ADR 0186 B.4h); single-use intent."),
         _f("CHIMERA_ALLOW_MAIN_BRANCH_DRIFT", "bool", None,
            "Permit main-branch drift in repo verification."),
         _f("CHIMERA_SOURCE_PATH_PATTERN", "str", None, "Charter source-path allowlist pattern."),

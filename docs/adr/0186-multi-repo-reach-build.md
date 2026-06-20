@@ -80,9 +80,22 @@ increment.
 >     a DRAFT carrying EXACTLY the 2 allowlisted files (`+42/-0`), base `main`,
 >     unmerged, one `[agent]` commit. The full safety envelope held end-to-end over
 >     the network. Ledger: 1/5 toward approval-graduation.
->   - **Follow-up (agent-side, deferred):** pin `ruff --fix` to the allowlist at the
->     shell-tool layer so the agent stops the tree-wide over-run at the source (B.4g
->     cleans it up harness-side, but the wasted work + latent risk remain).
+>   - **B.4h ruff charter-scope guard (agent-side prevention)** — ✅ the B.4g root
+>     cause was the agent running `ruff --fix` TREE-WIDE; B.4g reverts that residue,
+>     B.4h stops it at the source. `chimera/core/ruff_scope.py` (pure, exhaustively
+>     unit-tested) confines a mutating ruff (`check --fix`/`--fix-only`/`--add-noqa`,
+>     or `format`) to the locked charter allowlist at the shell-tool chokepoint —
+>     the same place the pre-commit scope check runs — raising unless every path
+>     operand is in-charter (tree-wide / `.` / out-of-charter all blocked). Inert
+>     for report-only `ruff check`, `--diff` previews, and outside a scoped soak.
+>     Override `CHIMERA_ALLOW_UNSCOPED_RUFF=1`. Hardened against bypasses found by a
+>     4-lens adversarial review (M1 `--add-noqa`; M2 `uv run --with ruff ruff …` /
+>     `uvx --from` / `uv run python -m ruff` wrapper-value detection; M3 value-flag
+>     completeness incl. `--output-file`/`-o`/`--color`/`--range`).
+>   - **Follow-up (B.4h posture, deferred — defense-in-depth, not safety-critical):**
+>     fail-CLOSED on charter-load error instead of open; resolve the allowlist from a
+>     stable root the agent can't relocate via `cwd`; `Path.resolve()` symlink
+>     discipline on operands. The B.4g revert backstops all of these.
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
