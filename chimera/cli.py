@@ -369,6 +369,9 @@ def _build_parser() -> argparse.ArgumentParser:
     fp_submit.add_argument("--repo", required=True, help="owner/name")
     fp_submit.add_argument("--worktree", required=True, help="the foreign clone (has the soak branch)")
     fp_submit.add_argument("--base", default="main", help="target's default branch")
+    fp_submit.add_argument("--verify-cmd", default=None,
+                           help="the target's own gate command — re-run at HEAD (sandboxed) as "
+                                "the foreign 'gate-approved' signal (ADR 0186 B.4e).")
     fp_submit.add_argument("--run-id", default="")
     fp_submit.add_argument("--state-dir", default=None,
                            help="Persistent governance ledger dir (default: operator state dir).")
@@ -1692,6 +1695,7 @@ def main(argv: list[str] | None = None) -> int:
             res = maybe_foreign_pr(
                 worktree=args.worktree, repo_root=args.worktree,
                 foreign_repo=args.repo, foreign_base=args.base,
+                verify_cmd=args.verify_cmd,
                 run_id=args.run_id, state_dir=state_dir, dry_run=args.dry_run,
             )
             if not res.fired:

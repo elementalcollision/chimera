@@ -85,11 +85,12 @@ def _call(tmp_path, monkeypatch, *, spy=None, reviewed=True, **over):
         repo_root=tmp_path,
         foreign_repo=foreign_repo,
         foreign_base="main",
+        verify_cmd="true",  # B.4e gate-approved: a trivially-passing verify_cmd
         state_dir=state_dir,
         trust_state_path=trust_state_path,
         submit_fn=spy,
     )
-    kw.update(over)  # remaining: dry_run, run_id, foreign_base
+    kw.update(over)  # remaining: dry_run, run_id, foreign_base, verify_cmd
     return maybe_foreign_pr(**kw), spy
 
 
@@ -144,6 +145,7 @@ def test_default_trust_reads_standing_state_dir_not_clone(tmp_path, monkeypatch)
     spy = _spy()
     res = maybe_foreign_pr(
         worktree=wt, repo_root=wt, foreign_repo=REPO, foreign_base="main",
+        verify_cmd="true",
         state_dir=state_dir, submit_fn=spy)  # NO trust_state_path → default
     assert res.fired and len(spy.calls) == 1
 
@@ -163,10 +165,20 @@ def test_default_trust_standing_below_floor_skips(tmp_path, monkeypatch):
     assert not res.fired and "foreign-PR floor" in res.skipped_reason
 
 
-def test_skips_when_no_gate_approved_commit(tmp_path, monkeypatch):
-    wt = _worktree_with_gate(tmp_path, allowed=False)
-    res, spy = _call(tmp_path, monkeypatch, worktree=wt)
-    assert not res.fired and "no gate-approved commit" in res.skipped_reason
+def test_skips_when_verify_cmd_fails(tmp_path, monkeypatch):
+    # B.4e gate-approved: a RED verify_cmd at HEAD blocks the PR. (Approval granted
+    # so we reach gate 6.)
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    res, spy = _call(tmp_path, monkeypatch, verify_cmd="false")
+    assert not res.fired and "verify_cmd did not pass" in res.skipped_reason
+    assert spy.calls == []
+
+
+def test_skips_when_no_verify_cmd(tmp_path, monkeypatch):
+    # Fail-closed: no verify_cmd means we cannot confirm the change → no PR.
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    res, spy = _call(tmp_path, monkeypatch, verify_cmd=None)
+    assert not res.fired and "verify_cmd did not pass" in res.skipped_reason
     assert spy.calls == []
 
 
@@ -174,6 +186,25 @@ def test_skips_when_verify_cmd_not_reviewed(tmp_path, monkeypatch):
     res, spy = _call(tmp_path, monkeypatch, reviewed=False)
     assert not res.fired and "not operator-reviewed" in res.skipped_reason
     assert spy.calls == []
+
+
+def test_verify_cmd_not_executed_until_reviewed(tmp_path, monkeypatch):
+    # Gate ORDER (B.4e safety): the foreign verify_cmd must NOT be executed before
+    # the review gate clears. Spy subprocess.run; an UNREVIEWED repo must skip at
+    # the review gate WITHOUT ever running the verify_cmd.
+    import chimera.core.self_pr as sp
+
+    ran = []
+
+    class _FakeProc:
+        returncode = 0
+
+    monkeypatch.setattr(sp.subprocess, "run",
+                        lambda *a, **k: (ran.append(a) or _FakeProc()))
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    res, _ = _call(tmp_path, monkeypatch, reviewed=False, verify_cmd="true")
+    assert not res.fired and "not operator-reviewed" in res.skipped_reason
+    assert ran == []  # verify_cmd never executed — review gate short-circuited it
 
 
 # ── approval gate (first 5) ─────────────────────────────────

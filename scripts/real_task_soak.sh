@@ -450,7 +450,12 @@ phase_loop() {
                 local st
                 if soak_gate_run "$WORKTREE" "$GATE_VERIFY_CMD" >>"$LOG" 2>&1; then
                     # shellcheck disable=SC2086  # intentional word-split of the allowlist
-                    st="$(cd "$WORKTREE" && git add -- $TASK_FILES 2>/dev/null; \
+                    # `git reset` first so ONLY the allowlist is staged — a foreign
+                    # PR must never carry files outside TASK_FILES even if something
+                    # was pre-staged (B.4e review; the PR's allowlist-scoping is the
+                    # load-bearing safety property behind the standing-trust gate).
+                    st="$(cd "$WORKTREE" && git reset -q HEAD -- . 2>/dev/null; \
+                        git add -- $TASK_FILES 2>/dev/null; \
                         if git diff --cached --quiet; then echo no_changes_in_scope; \
                         elif git commit -q -m "$msg"; then echo committed; \
                         else echo commit_failed; fi)"
@@ -620,6 +625,7 @@ if [ "$FOREIGN_MODE" = "1" ]; then
         # shellcheck disable=SC2086  # _fpr_dry is a single optional flag
         ( cd "${RUNNER_ROOT:-$REPO_ROOT}" && uv run chimera foreign-pr submit \
             --repo "$TASK_REPO" --worktree "$WORKTREE" --base "$TASK_BASE" \
+            --verify-cmd "$TASK_VERIFY_CMD" \
             --run-id "$RUN_ID" --state-dir "${RUNNER_ROOT:-$REPO_ROOT}/state" $_fpr_dry ) 2>&1 | tee -a "$LOG" || true
     fi
     log "── foreign mode: branch '$BRANCH' left in $WORKTREE for review ──"
