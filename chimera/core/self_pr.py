@@ -187,7 +187,19 @@ def maybe_foreign_pr(
     ``CHIMERA_SELF_PR``) plus two extra safety gates — the target's ``verify_cmd``
     must be operator-reviewed, and the first ``FOREIGN_PR_APPROVAL_FLOOR`` foreign
     PRs need explicit per-PR approval (``CHIMERA_FOREIGN_PR_APPROVED=1``) even at
-    T4. ``state_dir`` holds the governance ledger (default ``repo_root/state``).
+    T4. ``state_dir`` holds the governance ledger AND the standing-trust source
+    (default ``repo_root/state``).
+
+    Trust source (2026-06-20, B.4 scope_evasion RCA): the gate reads the operator's
+    STANDING trust from ``state_dir`` — NOT the throwaway clone's per-run trust.
+    A foreign soak runs ``chimera run`` in the clone, which mutates the clone's
+    trust copy (a single in-run ``scope_evasion`` demotes it 2 tiers); that copy is
+    discarded with the clone, so gating on it would let one noisy ACT cycle block
+    an otherwise-clean PR. Gating on standing trust is safe because the PR content
+    is independently bounded: the foreign autocommit commits ONLY the allowlist
+    (``git add -- $TASK_FILES``), and the gate-pass + critic-commit + verify-review
+    + first-5 approval gates still apply. Per-run trust stays the self-loop's
+    learning signal; it is not the foreign-PR decision.
     """
     worktree = Path(worktree)
     repo_root = Path(repo_root)
@@ -204,8 +216,9 @@ def maybe_foreign_pr(
             skipped_reason=f"repo {foreign_repo!r} not in CHIMERA_REPO_ALLOWLIST"
         )
 
-    # 3. Trust gate — must have earned T4+ (ADAPTIVE), same floor as self-PR.
-    tsp = Path(trust_state_path) if trust_state_path else repo_root / "state" / "trust_state.json"
+    # 3. Trust gate — STANDING trust (state_dir), not the clone's per-run copy
+    #    (see the docstring's "Trust source" note). Must have earned T4+ (ADAPTIVE).
+    tsp = Path(trust_state_path) if trust_state_path else state_dir / "trust_state.json"
     tier = TrustManager(tsp).tier
     if tier.value < MIN_TIER.value:
         return SelfPrResult(

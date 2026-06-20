@@ -44,6 +44,14 @@ increment.
 >     supervised draft PR on `elementalcollision/claude-daemon`, which requires the
 >     operator to `foreign-pr review` the repo AND grant `CHIMERA_FOREIGN_PR_APPROVED=1`
 >     per PR for the first 5. All code is default-off; no PR opens without that.
+>   - **Trust source (2026-06-20, scope_evasion RCA)** — the foreign-PR trust gate
+>     reads the operator's STANDING trust (`state_dir`), not the throwaway clone's
+>     per-run copy. A self-clone dry run surfaced that a single in-run
+>     `scope_evasion` (a noisy, general detector signal) demoted the clone's trust
+>     below T4 and blocked an otherwise-clean PR. Safe because the PR content is
+>     allowlist-scoped by the autocommit + gate/critic/review/approval-gated; the
+>     per-run demotion stays the self-loop's learning signal. Writeup:
+>     `mind/research/scope-evasion-rca-2026-06-20.md`.
 
 ## Context
 

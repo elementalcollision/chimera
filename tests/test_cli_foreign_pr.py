@@ -22,6 +22,9 @@ REPO = "elementalcollision/claude-daemon"
 def env(tmp_path: Path, monkeypatch):
     state = tmp_path / "state"
     state.mkdir()
+    # The foreign-PR trust gate reads STANDING trust from the state dir (B.4 RCA);
+    # seed it T5 so the fire/skip-past-trust tests reach their intended gate.
+    (state / "trust_state.json").write_text(json.dumps({"current_tier": 5}))
     monkeypatch.setenv("CHIMERA_STATE_DIR", str(state))
     for k in ("CHIMERA_FOREIGN_PR", "CHIMERA_FOREIGN_PR_REQUIRE_APPROVAL",
               "CHIMERA_FOREIGN_PR_APPROVED", "CHIMERA_REPO_ALLOWLIST"):
