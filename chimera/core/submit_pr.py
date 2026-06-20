@@ -598,6 +598,8 @@ def submit_pr(
     allow_entropy: bool = False,
     ignore_dirty_prefixes: tuple[str, ...] = (),
     audit_path: Path | None = None,
+    foreign_repo: str | None = None,
+    foreign_base: str | None = None,
     gh_runner=None,
     push_runner=None,
 ) -> SubmitPrResult:
@@ -606,6 +608,15 @@ def submit_pr(
     `gh_runner` / `push_runner` are seams for tests. Each is a callable;
     if None we shell out for real. `ignore_dirty_prefixes` forwards to
     :func:`validate` (e.g. ``("mind/",)`` for self-PR journal noise).
+
+    Foreign mode (ADR 0186 B.4b): when ``foreign_repo`` ("owner/name") is set,
+    the PR targets that repo instead of ``repo_root``'s origin — the soak branch
+    is pushed to the foreign repo's explicit HTTPS URL (bypassing the B.2
+    no-push:// block, authed by the operator's stored gh credentials) and
+    ``gh pr create --repo <foreign_repo> --base <foreign_base>`` opens the draft
+    there. ``foreign_repo`` unset → byte-identical self-repo behaviour. The same
+    ``validate()`` gates apply; still DRAFT-only, still pushes ONLY the soak
+    branch, never the default branch.
     """
     audit_path = audit_path or (repo_root / "state" / "submit_pr_log.jsonl")
     result = SubmitPrResult(dry_run=dry_run, audit_path=audit_path)
@@ -665,8 +676,12 @@ def submit_pr(
         return result
 
     # Push from repo root (operator git config), NOT from worktree
-    # (which has the no-push:// block).
-    push_cmd = ["git", "-C", str(repo_root), "push", "origin", f"{branch}:{branch}"]
+    # (which has the no-push:// block). Foreign mode (ADR 0186 B.4b): push the
+    # soak branch to the target's explicit HTTPS URL — the foreign clone's origin
+    # carries B.2's no-push:// pushurl, so an explicit URL is how we push at all,
+    # and it scopes the push to exactly one branch on exactly the target repo.
+    push_target = f"https://github.com/{foreign_repo}.git" if foreign_repo else "origin"
+    push_cmd = ["git", "-C", str(repo_root), "push", push_target, f"{branch}:{branch}"]
     if push_runner is None:
         push_proc = subprocess.run(push_cmd, capture_output=True, text=True)
         push_ok = push_proc.returncode == 0
@@ -688,11 +703,15 @@ def submit_pr(
 
     gh_cmd = [
         "gh", "pr", "create",
-        "--base", base,
+        "--base", (foreign_base or base) if foreign_repo else base,
         "--head", branch,
         "--title", title,
         "--body", body,
     ]
+    if foreign_repo:
+        # Target the foreign repo explicitly (otherwise gh infers from cwd).
+        # Insert after "create" (index 3): gh pr create --repo <repo> --base …
+        gh_cmd[3:3] = ["--repo", foreign_repo]
     if draft:
         gh_cmd.append("--draft")
     if gh_runner is None:
@@ -725,5 +744,7 @@ def submit_pr(
         "draft": draft,
         "pr_url": result.pr_url,
         "commits": [s for s, _ in commits],
+        # ADR 0186 B.4b: tag foreign-target PRs in the audit trail.
+        **({"foreign": True, "target_repo": foreign_repo} if foreign_repo else {}),
     })
     return result

@@ -252,6 +252,70 @@ def test_submit_pr_happy_path_opens_pr(tmp_path: Path) -> None:
     assert rows[-1]["pr_url"] == "https://github.com/o/r/pull/42"
 
 
+# --- ADR 0186 B.4b: foreign-repo targeting ------------------------------
+
+
+def test_submit_pr_foreign_targets_repo(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _make_soak_worktree(repo)
+    _commit(repo, "chimera/x.py", "x=1\n", "[agent] add x")
+    _commit(repo, "tests/test_x.py", "def t(): pass\n", "[agent] test x")
+
+    audit = tmp_path / "audit.jsonl"
+    pushed: list[list[str]] = []
+    captured_gh: list[list[str]] = []
+
+    result = submit_pr(
+        worktree=repo, repo_root=repo,
+        foreign_repo="elementalcollision/claude-daemon",
+        foreign_base="develop",
+        audit_path=audit,
+        push_runner=lambda cmd: (pushed.append(cmd) or (True, "")),
+        gh_runner=lambda cmd: (
+            captured_gh.append(cmd) or (True, "https://github.com/elementalcollision/claude-daemon/pull/7", "")
+        ),
+    )
+    assert result.ok, result.validation_errors
+    # Push goes to the explicit HTTPS URL, NOT origin, and only the soak branch.
+    push = pushed[0]
+    assert "origin" not in push
+    assert "https://github.com/elementalcollision/claude-daemon.git" in push
+    assert push[-1] == f"{result.branch}:{result.branch}"
+    # gh targets the foreign repo, on its base, still draft.
+    gh = captured_gh[0]
+    assert "--repo" in gh and "elementalcollision/claude-daemon" in gh
+    assert gh[gh.index("--base") + 1] == "develop"
+    assert "--draft" in gh
+    # Audit tags the foreign target.
+    rows = [json.loads(ln) for ln in audit.read_text().splitlines() if ln.strip()]
+    assert rows[-1]["event"] == "submit_pr.success"
+    assert rows[-1]["foreign"] is True
+    assert rows[-1]["target_repo"] == "elementalcollision/claude-daemon"
+
+
+def test_submit_pr_self_path_unchanged_when_not_foreign(tmp_path: Path) -> None:
+    # Regression: foreign_repo unset → push to origin, no --repo, base unchanged.
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _make_soak_worktree(repo)
+    _commit(repo, "chimera/x.py", "x=1\n", "[agent] add x")
+    _commit(repo, "tests/test_x.py", "def t(): pass\n", "[agent] test x")
+
+    pushed: list[list[str]] = []
+    captured_gh: list[list[str]] = []
+    result = submit_pr(
+        worktree=repo, repo_root=repo, base="main",
+        audit_path=tmp_path / "a.jsonl",
+        push_runner=lambda cmd: (pushed.append(cmd) or (True, "")),
+        gh_runner=lambda cmd: (captured_gh.append(cmd) or (True, "url", "")),
+    )
+    assert result.ok
+    assert "origin" in pushed[0]
+    assert "--repo" not in captured_gh[0]
+    assert captured_gh[0][captured_gh[0].index("--base") + 1] == "main"
+
+
 def test_submit_pr_validation_failure_skips_push(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
