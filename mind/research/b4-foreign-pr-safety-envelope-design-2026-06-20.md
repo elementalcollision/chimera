@@ -121,17 +121,24 @@ first real target is ONE allowlisted repo, chosen deliberately (M4).
 Sequence rationale: **B.4a is pure hardening with no new outward action** — it
 should land regardless. M2/M4 (the outward steps) come only after the sandbox.
 
-## Open decisions for you
+## Resolved decisions (operator, 2026-06-20)
 
-1. **First real target repo** — claude-daemon (per ADR 0186), or another
-   allowlisted repo with a cleaner/offline suite?
-2. **Approval gate** — require explicit per-PR operator approval for the first N
-   foreign PRs even at T4 (recommended), and what's N?
-3. **Network isolation** — accept secrets-stripping-only for the first cut (M1)
-   and defer OS-level network sandboxing to a follow-up, or require it up front?
-4. **Sandbox scope** — sandbox the gate for *foreign only* (safest, self
-   byte-identical) or for *both* self+foreign (chimera verify needs no secrets
-   either; simpler, but touches the live self-loop)?
+1. **First real target repo: `elementalcollision/claude-daemon`** (ADR 0186's
+   recommended pick — richest backlog).
+2. **Approval gate: YES, N = 5.** Require explicit per-PR operator approval for
+   the first **5** foreign PRs even at T4 (`CHIMERA_FOREIGN_PR_REQUIRE_APPROVAL`
+   default-on; graduate to autonomous foreign PRs only after 5 clean ones).
+3. **Network isolation: ACCEPTED secrets-stripping-only for the first cut.**
+   OS-level network sandboxing (sandbox-exec/container) is a tracked follow-up,
+   not a B.4 blocker — M1's secret-stripping bounds the blast radius.
+4. **Sandbox scope: BOTH self + foreign.** The gate (ruff + pytest) needs no
+   secrets — CI already runs it keyless and green — so always sanitizing the gate
+   env makes the local gate behave like CI and removes env-leakage by
+   construction (the same class as the 2026-06-19 critic-gate bug). **Caveat to
+   honour in B.4a:** `sanitized_subprocess_env` must apply ONLY to the
+   ruff/pytest gate (`run_check`), NOT to chimera's LLM-calling subprocesses
+   (`chimera review`/escalation), which legitimately need provider keys —
+   confirm `run_check`'s callers are gate-only before flipping the default.
 
 ## Falsification / abort triggers (from ADR 0186, reaffirmed)
 - Any safety/scope/secrets incident on a foreign repo → **halt Pillar B**, treat
