@@ -346,6 +346,35 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["pending", "merged", "reverted", "abandoned"],
     )
 
+    # ── foreign-PR governance (ADR 0186 B.4d) ─────────────────────────
+    fp = sub.add_parser(
+        "foreign-pr",
+        help="Foreign-repo draft-PR governance — verify_cmd review + status + "
+             "submit (ADR 0186 B.4).",
+    )
+    fp_sub = fp.add_subparsers(dest="foreign_pr_command", metavar="<foreign-pr-cmd>")
+    fp_review = fp_sub.add_parser(
+        "review", help="Mark a foreign repo's verify_cmd operator-reviewed "
+                       "(network/secrets/arbitrary-download). REQUIRED before a foreign PR.")
+    fp_review.add_argument("--repo", required=True, help="owner/name")
+    fp_review.add_argument("--state-dir", default=None,
+                           help="Governance ledger dir (default: the operator state dir).")
+    fp_status = fp_sub.add_parser(
+        "status", help="Show foreign-PR governance: reviewed repos + global PR count.")
+    fp_status.add_argument("--repo", default=None, help="owner/name (optional filter)")
+    fp_status.add_argument("--state-dir", default=None)
+    fp_submit = fp_sub.add_parser(
+        "submit", help="Attempt a trust-gated DRAFT PR on a foreign repo (the soak "
+                       "calls this; every gate in maybe_foreign_pr applies; default-off).")
+    fp_submit.add_argument("--repo", required=True, help="owner/name")
+    fp_submit.add_argument("--worktree", required=True, help="the foreign clone (has the soak branch)")
+    fp_submit.add_argument("--base", default="main", help="target's default branch")
+    fp_submit.add_argument("--run-id", default="")
+    fp_submit.add_argument("--state-dir", default=None,
+                           help="Persistent governance ledger dir (default: operator state dir).")
+    fp_submit.add_argument("--dry-run", action="store_true",
+                           help="Validate gates + submit path WITHOUT pushing or opening a PR.")
+
     split = sub.add_parser(
         "split",
         help="Preview a task splitter call. Heuristic + optional model.",
@@ -1626,6 +1655,56 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         parser.error("usage: chimera crawl {record|report|resolve}")
+        return 2
+
+    if args.command == "foreign-pr":
+        from pathlib import Path as _Path
+
+        from .core.foreign_pr_ledger import (
+            count_foreign_prs_opened,
+            is_verify_cmd_reviewed,
+            record_verify_cmd_review,
+        )
+        from .core.self_pr import maybe_foreign_pr
+
+        sub_cmd = getattr(args, "foreign_pr_command", None)
+        state_dir = _Path(args.state_dir) if getattr(args, "state_dir", None) else cfg.state_dir
+
+        if sub_cmd == "review":
+            record_verify_cmd_review(state_dir, args.repo)
+            print(f"chimera foreign-pr: marked verify_cmd REVIEWED for {args.repo} "
+                  f"(ADR 0186 B.4c) → {state_dir}")
+            return 0
+
+        if sub_cmd == "status":
+            opened = count_foreign_prs_opened(state_dir)
+            print(f"chimera foreign-pr status (ledger: {state_dir}):")
+            print(f"  foreign PRs opened : {opened} "
+                  f"(first 5 need per-PR approval unless graduated)")
+            if args.repo:
+                reviewed = is_verify_cmd_reviewed(state_dir, args.repo)
+                print(f"  {args.repo}: verify_cmd reviewed = {reviewed}")
+            return 0
+
+        if sub_cmd == "submit":
+            res = maybe_foreign_pr(
+                worktree=args.worktree, repo_root=args.worktree,
+                foreign_repo=args.repo, foreign_base=args.base,
+                run_id=args.run_id, state_dir=state_dir, dry_run=args.dry_run,
+            )
+            if not res.fired:
+                print(f"chimera foreign-pr submit: SKIPPED — {res.skipped_reason}")
+                return 0
+            sub = res.submit
+            if sub is not None and sub.ok:
+                where = "(dry-run, no PR opened)" if args.dry_run else (sub.pr_url or "(opened)")
+                print(f"chimera foreign-pr submit: fired → {where}")
+                return 0
+            errs = "; ".join(sub.validation_errors) if sub else "no submit result"
+            print(f"chimera foreign-pr submit: FAILED — {errs}")
+            return 1
+
+        parser.error("usage: chimera foreign-pr {review|status|submit}")
         return 2
 
     if args.command == "split":
