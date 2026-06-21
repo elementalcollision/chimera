@@ -195,6 +195,9 @@ REGISTRY: dict[str, FlagSpec] = dict(
         _f("CHIMERA_ALLOW_MAIN_BRANCH_DRIFT", "bool", None,
            "Permit main-branch drift in repo verification."),
         _f("CHIMERA_SOURCE_PATH_PATTERN", "str", None, "Charter source-path allowlist pattern."),
+        _f("CHIMERA_ARXIV_FEED", "path", None,
+           "Path to the arXiv chimera feed JSON for `chimera arxiv-digest` ingestion "
+           "(ADR 0186); unset disables the daily-driver digest step."),
         _f("CHIMERA_SELF_PR", "bool", None, "Trust-gated self-PR (ADR 0163)."),
         _f("CHIMERA_REPO_ALLOWLIST", "str", None,
            "Allowlist of foreign repo owners or 'owner/name' for multi-repo soaks "

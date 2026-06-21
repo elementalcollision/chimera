@@ -50,6 +50,14 @@ CLAIMED="$(paste -sd, "$DISPATCH_LOG" 2>/dev/null || true)"
 echo "[crawl] WALK top-up (foreign issues -> backlog specs)"
 uv run chimera backlog from-issues --walk 2>&1 | sed 's/^/[crawl]   /' || true
 
+# arXiv intelligence digest (ADR 0186): ingest the weekly work-item feed into a
+# ranked digest under mind/research/ (idempotent — one per feed run). Only when
+# $CHIMERA_ARXIV_FEED points at the chimera feed JSON; fail-soft, never blocks.
+if [ -n "${CHIMERA_ARXIV_FEED:-}" ]; then
+  echo "[crawl] arXiv intelligence digest"
+  uv run chimera arxiv-digest 2>&1 | sed 's/^/[crawl]   /' || true
+fi
+
 echo "[crawl] selecting next spec (claimed: ${CLAIMED:-none})"
 SPEC_JSON="$(uv run chimera backlog next --check-gate --json --claimed "$CLAIMED" 2>/tmp/crawl_next.err)"
 CODE=$?

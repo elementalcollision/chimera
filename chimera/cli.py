@@ -322,6 +322,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Exit nonzero on WATCH too (default: nonzero only on DEGRADED).",
     )
 
+    # arXiv intelligence ingestion (ADR 0186): weekly feed -> ranked digest.
+    arxiv = sub.add_parser(
+        "arxiv-digest",
+        help="Ingest the arXiv work-item feed into a ranked digest under "
+             "mind/research/ (intelligence source). Reads the chimera feed JSON "
+             "at $CHIMERA_ARXIV_FEED unless --feed is given; fail-soft + idempotent.",
+    )
+    arxiv.add_argument(
+        "--feed", default=os.environ.get("CHIMERA_ARXIV_FEED"),
+        help="Path to the chimera feed JSON (default: $CHIMERA_ARXIV_FEED).",
+    )
+    arxiv.add_argument(
+        "--out", default=None,
+        help="Digest output dir (default: <mind_dir>/research).",
+    )
+    arxiv.add_argument("--top", type=int, default=12, help="Shortlist size (default 12).")
+
     # CRAWL outcome ledger (ADR 0182 Phase 3 evidence base).
     crawl_p = sub.add_parser(
         "crawl",
@@ -1586,6 +1603,23 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  ⚠️  cycle spend OVER per-cycle cap (${cycle_cap:.2f})")
             if hour_cap > 0 and spend_60m >= hour_cap:
                 print(f"  ⚠️  60m spend OVER rolling-hour cap (${hour_cap:.2f})")
+        return 0
+
+    if args.command == "arxiv-digest":
+        from .core import LoopConfig
+        from .core.arxiv_digest import write_digest_if_new
+
+        if not args.feed:
+            print("arxiv-digest: no feed path (set $CHIMERA_ARXIV_FEED or --feed)")
+            return 0  # fail-soft: a missing source must not break the daily driver
+        cfg = LoopConfig.from_env()
+        out = Path(args.out) if args.out else (cfg.mind_dir / "research")
+        status = write_digest_if_new(Path(args.feed), out, top_n=args.top)
+        print(
+            f"arxiv-digest: {status['status']} "
+            f"(run={status['run_date'] or '—'}, records={status['count']})"
+            + (f" -> {status['path']}" if status.get("path") else "")
+        )
         return 0
 
     if args.command == "health":
