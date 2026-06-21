@@ -146,8 +146,13 @@ increment.
 >     assurance, not a primary boundary — B.4e + draft + B.4g remain). Cleared by an
 >     adversarial review (verdict: ship; worst-case wrong-ref push is backstopped by
 >     submit_pr.validate's soak-branch check). FIRST adoption from the arXiv WALK
->     intelligence source. Follow-up: per-spec/per-walk-repo regression_cmd wiring +
->     per-test diffing (vs the current suite-level signal).
+>     intelligence source.
+>   - **B.4i hardening** — ✅ per-spec/per-walk-repo `regression_cmd` wiring
+>     (`BacklogSpec.regression_cmd` → `CHIMERA_FOREIGN_REGRESSION_CMD`;
+>     `walk_repos.yaml` optional `regression_cmd`; threaded through the soak's
+>     foreign-pr submit), a stderr warning when the worktree restore fails, and
+>     detached-HEAD + backstop tests. STILL deferred (stretch): per-test pass→fail
+>     diffing (vs the current suite-level base-green→head-green signal).
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build

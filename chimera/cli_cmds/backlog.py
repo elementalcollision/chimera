@@ -92,6 +92,7 @@ def _cmd_backlog(args, parser) -> int:
                     results = ingest_issues(
                         src["repo"], mind_dir=mind_dir, label=src["label"] or None,
                         foreign=True, verify_cmd_template=src["verify_cmd_template"],
+                        regression_cmd=src.get("regression_cmd"),
                     )
                     total += _report(results, src["repo"])
             verb = "would ingest" if dry else "ingested"

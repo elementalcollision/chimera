@@ -16,6 +16,10 @@ repos:
   - repo: elementalcollision/drift-monitor
     label: crawl
     verify_cmd_template: "uv run --extra dev pytest {test} -q"
+    # Optional broader suite (ADR 0186 B.4i): if GREEN on base it must stay GREEN
+    # at HEAD, blocking pass-to-pass regressions for source-editing tasks. Operator-
+    # trusted (never from issue bodies). Omit for additive-test-only repos.
+    regression_cmd: "uv run --extra dev pytest -q"
 
   - repo: elementalcollision/GraphMemory-IDE
     label: crawl
