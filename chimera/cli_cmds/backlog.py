@@ -9,6 +9,7 @@ its base, else it is rejected as proving nothing).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 
@@ -155,6 +156,10 @@ def _check_gate_visibility(spec) -> int:
     Returns 0 if gate-visible (red on base — proceed), 3 if gate-invisible
     (already green — the change would prove nothing), 4 if the base ref
     could not be evaluated.
+
+    Diagnostics go to STDERR: `chimera backlog next --json` must emit ONLY the
+    spec JSON on stdout (the crawl daily driver captures stdout and json.loads it
+    — a stray diagnostic line breaks the parse).
     """
     # Foreign-repo spec (ADR 0186): its gate is the FOREIGN repo's own verify_cmd,
     # which cannot be evaluated against THIS (self) checkout — running the self-repo
@@ -164,7 +169,8 @@ def _check_gate_visibility(spec) -> int:
         print(
             f"GATE-CHECK: {spec.slug} targets foreign repo {spec.repo} — "
             "gate-visibility is enforced in the soak against the foreign base. "
-            "Proceeding."
+            "Proceeding.",
+            file=sys.stderr,
         )
         return 0
 
@@ -177,7 +183,8 @@ def _check_gate_visibility(spec) -> int:
     if base is None:
         print(
             f"GATE-CHECK: could not evaluate base ref {spec.base!r} for "
-            f"{spec.slug} — skipping (exit 4)"
+            f"{spec.slug} — skipping (exit 4)",
+            file=sys.stderr,
         )
         return 4
     if base.ok:
@@ -185,7 +192,8 @@ def _check_gate_visibility(spec) -> int:
             f"GATE-INVISIBLE: {spec.slug}'s gate is already GREEN on "
             f"{spec.base} — the change would prove nothing. Make the gate "
             f"red on base first (a failing test, or `-W error` so a warning "
-            f"counts as failure). Skipping (exit 3)."
+            f"counts as failure). Skipping (exit 3).",
+            file=sys.stderr,
         )
         return 3
     return 0
