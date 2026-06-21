@@ -521,12 +521,31 @@ if [ "$FOREIGN_MODE" = "1" ]; then
     # Secrets are stripped from the capture too (ADR 0186 B.4 M1) — env -u via
     # soak_secret_unset_args, before the optional timeout wrapper. cwd is the clone.
     _to_bin="$(command -v timeout || command -v gtimeout || true)"
+    _gate_log="$(mktemp -t foreign-base-gate.XXXXXX)"
+    # Run the baseline gate to a file (capturing its EXIT CODE, not just output) so
+    # we can both seed the INBOX context AND assert gate-visibility below.
     # shellcheck disable=SC2046  # intentional word-split of the -u flag list
     if [ -n "$_to_bin" ]; then
-        _gate_out="$(env $(soak_secret_unset_args) "$_to_bin" "${FOREIGN_GATE_TIMEOUT:-300}" sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
+        env $(soak_secret_unset_args) "$_to_bin" "${FOREIGN_GATE_TIMEOUT:-300}" sh -c "$GATE_VERIFY_CMD" >"$_gate_log" 2>&1
     else
-        _gate_out="$(env $(soak_secret_unset_args) sh -c "$GATE_VERIFY_CMD" 2>&1 | tail -200 || true)"
+        env $(soak_secret_unset_args) sh -c "$GATE_VERIFY_CMD" >"$_gate_log" 2>&1
     fi
+    _gate_rc=$?
+    _gate_out="$(tail -200 "$_gate_log" 2>/dev/null || true)"
+    rm -f "$_gate_log"
+    # MF-2 (gate-visibility, ADR 0182 / 0186): the foreign gate MUST be RED on base.
+    # A task whose verify_cmd already PASSES on base proves nothing — and a crafted
+    # WALK issue could deliberately point `test` at an already-green file to force a
+    # pointless autonomous run + draft PR. The picker delegates this check to the
+    # soak (foreign specs can't be gate-checked against the self checkout), so
+    # enforce it HERE, once, before dispatching the agent. Fail-closed.
+    if [ "$_gate_rc" = "0" ]; then
+        log "FATAL: foreign gate already GREEN on base (rc=0): $GATE_VERIFY_CMD"
+        log "  gate-invisible — the change would prove nothing. The verify_cmd must"
+        log "  be RED on base (e.g. target a NEW/failing test). Aborting (exit 3)."
+        exit 3
+    fi
+    log "  B.3b: baseline gate RED on base (rc=$_gate_rc) — gate-visible ✓"
     # Build the context block with the chimera helper, run from RUNNER_ROOT (the
     # chimera package is NOT in a non-chimera foreign clone). The helper reads the
     # README from the absolute worktree path, so cwd there is irrelevant.

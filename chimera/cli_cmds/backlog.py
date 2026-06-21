@@ -53,31 +53,86 @@ def _cmd_backlog(args, parser) -> int:
     if sub == "from-issues":
         from ..core.issue_backlog import ingest_issues
 
+        def _report(results, repo: str) -> int:
+            ingested = [r for r in results if r.written is not None]
+            for r in results:
+                mark = "+" if r.written is not None else "-"
+                tail = r.written.name if r.written is not None else r.reason
+                print(f"  [{mark}] {repo}#{r.number} {r.title[:48]} — {tail}")
+            return len(ingested)
+
+        # Renewable source: ingest every configured walk_repos repo as foreign.
+        if getattr(args, "walk", False):
+            from ..core.issue_backlog import load_walk_repos
+
+            sources = load_walk_repos(mind_dir)
+            if not sources:
+                print("backlog from-issues --walk: no mind/walk_repos.yaml sources")
+                return 0
+            dry = getattr(args, "dry_run", False)  # MF-4: --walk must honor --dry-run
+            total = 0
+            for src in sources:
+                if dry:
+                    from ..core.issue_backlog import (
+                        _fetch_issues,
+                        issue_to_spec_markdown,
+                    )
+
+                    issues = _fetch_issues(src["repo"], label=src["label"] or None)
+                    n = sum(
+                        1 for i in issues
+                        if issue_to_spec_markdown(
+                            i, src["repo"], foreign=True,
+                            verify_cmd_template=src["verify_cmd_template"],
+                        ) is not None
+                    )
+                    print(f"  [dry] {src['repo']}: {len(issues)} open, {n} crawl-ready")
+                    total += n
+                else:
+                    results = ingest_issues(
+                        src["repo"], mind_dir=mind_dir, label=src["label"] or None,
+                        foreign=True, verify_cmd_template=src["verify_cmd_template"],
+                    )
+                    total += _report(results, src["repo"])
+            verb = "would ingest" if dry else "ingested"
+            tag = " (dry-run)" if dry else ""
+            print(
+                f"backlog from-issues --walk{tag}: {total} spec(s) {verb} from "
+                f"{len(sources)} repo(s)"
+            )
+            return 0
+
         label = args.label or None
+        foreign = getattr(args, "foreign", False)
+        tmpl = getattr(args, "verify_cmd_template", None)
+        if foreign and (not tmpl or "{test}" not in tmpl):
+            parser.error(
+                "--foreign requires --verify-cmd-template with a {test} placeholder"
+            )
+
         if getattr(args, "dry_run", False):
             from ..core.issue_backlog import _fetch_issues, issue_to_spec_markdown
 
             issues = _fetch_issues(args.repo, label=label)
             ingestable = sum(
-                1 for i in issues if issue_to_spec_markdown(i, args.repo) is not None
+                1 for i in issues
+                if issue_to_spec_markdown(
+                    i, args.repo, foreign=foreign, verify_cmd_template=tmpl
+                ) is not None
             )
             print(
                 f"backlog from-issues (dry-run): {args.repo} "
-                f"label={label or '(any)'} — {len(issues)} open issue(s), "
-                f"{ingestable} crawl-ready"
+                f"label={label or '(any)'} foreign={foreign} — "
+                f"{len(issues)} open issue(s), {ingestable} crawl-ready"
             )
             return 0
 
-        results = ingest_issues(args.repo, mind_dir=mind_dir, label=label)
-        ingested = [r for r in results if r.written is not None]
-        for r in results:
-            mark = "+" if r.written is not None else "-"
-            tail = r.written.name if r.written is not None else r.reason
-            print(f"  [{mark}] #{r.number} {r.title[:54]} — {tail}")
-        print(
-            f"backlog from-issues: {len(ingested)}/{len(results)} ingested "
-            f"from {args.repo}"
+        results = ingest_issues(
+            args.repo, mind_dir=mind_dir, label=label,
+            foreign=foreign, verify_cmd_template=tmpl,
         )
+        n = _report(results, args.repo)
+        print(f"backlog from-issues: {n}/{len(results)} ingested from {args.repo}")
         return 0
 
     parser.error("usage: chimera backlog {list|validate|next|from-issues}")

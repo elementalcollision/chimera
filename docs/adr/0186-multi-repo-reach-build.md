@@ -103,9 +103,22 @@ increment.
 >     `verify_cmd` at the foreign base instead). Seeded the first foreign specs
 >     (`mind/backlog/05-foreign-*.md`) targeting reviewed+graduated repos. The daily
 >     `09:15` run now picks a foreign spec → clone → scoped change → DRAFT PR, fully
->     gated (allowlist + B.4f/g/h + reviewed verify_cmd). FOLLOW-UP: a *renewable*
->     foreign work source (WALK from foreign-repo issues, ADR 0182 phase 2) — today's
->     specs are operator-seeded one-shots.
+>     gated (allowlist + B.4f/g/h + reviewed verify_cmd).
+>   - **♻️ RENEWABLE FOREIGN WALK SOURCE** — ✅ 2026-06-21: foreign daily production
+>     self-sustains. `issue_backlog.py` now generates FOREIGN specs from
+>     operator-LABELLED issues on registered repos (`mind/walk_repos.yaml`);
+>     `crawl_daily.sh` runs `from-issues --walk` (fail-soft) to top up the backlog
+>     each day. **Security model:** `verify_cmd` is an OPERATOR-TRUSTED per-repo
+>     template — NEVER from the issue body; the only issue-derived substitution is
+>     `{test}`, and every issue-derived path (`files`/`test`/`base`) is validated as
+>     an injection-proof relative token (no metachars/`..`/leading-`-`); idempotency
+>     is keyed on `(repo, issue#)`; foreign ingest is label-fail-closed. Hardened by
+>     a 3-lens adversarial security review (verify_cmd/`{test}` injection confirmed
+>     NEUTRALIZED) — must-fixes: MF-1 validate the whole `files` allowlist (B.4g is
+>     keyed off it, so an unvalidated entry would escape), MF-2 enforce foreign
+>     red-on-base gate-visibility IN the soak (the picker delegates it), MF-3
+>     `(repo,#)` idempotency, MF-4 `--walk --dry-run` writes nothing. The label gate
+>     (write-access-only) is the operator's per-issue opt-in checkpoint.
 >   - **B.4h ruff charter-scope guard (agent-side prevention)** — ✅ the B.4g root
 >     cause was the agent running `ruff --fix` TREE-WIDE; B.4g reverts that residue,
 >     B.4h stops it at the source. `chimera/core/ruff_scope.py` (pure, exhaustively
