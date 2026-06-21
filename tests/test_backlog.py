@@ -183,7 +183,9 @@ def test_gate_check_invisible_returns_3(tmp_path, monkeypatch, capsys):
     green = rv.VerificationReport(checks=[rv.CheckResult("x", True)])  # .ok True
     monkeypatch.setattr(rv, "verify_at_ref", lambda *a, **k: green)
     assert bl._check_gate_visibility(_spec(tmp_path)) == 3
-    assert "GATE-INVISIBLE" in capsys.readouterr().out
+    # Diagnostics go to STDERR (not stdout) so `next --json` stays pure JSON.
+    cap = capsys.readouterr()
+    assert "GATE-INVISIBLE" in cap.err and "GATE-INVISIBLE" not in cap.out
 
 
 def test_gate_check_base_error_returns_4(tmp_path, monkeypatch):
@@ -214,6 +216,32 @@ def test_gate_check_skipped_for_foreign_spec(tmp_path, monkeypatch):
     ))
     assert foreign.valid and foreign.repo
     assert bl._check_gate_visibility(foreign) == 0
+
+
+def test_next_json_stdout_is_pure_json_for_foreign_spec(tmp_path, capsys):
+    """Regression (daily-driver bug): `backlog next --json --check-gate` selecting a
+    FOREIGN spec must emit ONLY JSON on stdout — the foreign gate-check diagnostic
+    goes to stderr. crawl_daily.sh json.loads() this stdout; a stray line breaks it."""
+    import json as _json
+
+    from chimera.cli_cmds import backlog as bl
+
+    mind = tmp_path / "mind"
+    d = backlog_dir(mind)
+    _write(
+        d, "05-foreign.md",
+        "---\ngoal: cover the helper\nfiles: tests/test_x.py\n"
+        "repo: elementalcollision/drift-monitor\n"
+        "verify_cmd: \"uv run --extra dev pytest tests/test_x.py -q\"\n---\nbody\n",
+    )
+    rc = bl._cmd_backlog_next(_next_args(json=True), mind)
+    cap = capsys.readouterr()
+    assert rc == 0
+    spec = _json.loads(cap.out)  # must parse — the whole point
+    assert spec["slug"] == "05-foreign"
+    assert spec["env"]["TASK_REPO"] == "elementalcollision/drift-monitor"
+    assert spec["env"]["CHIMERA_FOREIGN_PR"] == "1"
+    assert "GATE-CHECK" in cap.err  # diagnostic went to stderr, not stdout
 
 
 # ── skip-and-continue (2026-06-12 WALK finding) ─────────────
