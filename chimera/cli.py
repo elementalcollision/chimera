@@ -389,6 +389,11 @@ def _build_parser() -> argparse.ArgumentParser:
     fp_submit.add_argument("--verify-cmd", default=None,
                            help="the target's own gate command — re-run at HEAD (sandboxed) as "
                                 "the foreign 'gate-approved' signal (ADR 0186 B.4e).")
+    fp_submit.add_argument("--regression-cmd",
+                           default=os.environ.get("CHIMERA_FOREIGN_REGRESSION_CMD"),
+                           help="optional BROADER suite — if GREEN on base it must stay GREEN at "
+                                "HEAD, blocking pass-to-pass regressions (ADR 0186 B.4i). Default "
+                                "$CHIMERA_FOREIGN_REGRESSION_CMD; unset → skipped.")
     fp_submit.add_argument("--run-id", default="")
     fp_submit.add_argument("--state-dir", default=None,
                            help="Persistent governance ledger dir (default: operator state dir).")
@@ -1746,7 +1751,7 @@ def main(argv: list[str] | None = None) -> int:
             res = maybe_foreign_pr(
                 worktree=args.worktree, repo_root=args.worktree,
                 foreign_repo=args.repo, foreign_base=args.base,
-                verify_cmd=args.verify_cmd,
+                verify_cmd=args.verify_cmd, regression_cmd=args.regression_cmd,
                 run_id=args.run_id, state_dir=state_dir, dry_run=args.dry_run,
             )
             if not res.fired:

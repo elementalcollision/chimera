@@ -235,6 +235,25 @@ def test_fires_when_approval_disabled(tmp_path, monkeypatch):
     assert res.fired and len(spy.calls) == 1
 
 
+def test_regression_gate_blocks_submit(tmp_path, monkeypatch):
+    # Gate 6.5 (B.4i): a pass-to-pass regression must block the PR. With
+    # regression_cmd set and the no-regression check failing, submit never fires.
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    monkeypatch.setattr(
+        "chimera.core.self_pr._foreign_no_regression", lambda *a, **k: False
+    )
+    res, spy = _call(tmp_path, monkeypatch, regression_cmd="pytest -q")
+    assert not res.fired and "regression" in res.skipped_reason
+    assert spy.calls == []
+
+
+def test_regression_gate_inert_without_cmd(tmp_path, monkeypatch):
+    # Default (no regression_cmd) → gate 6.5 is a no-op; behaviour unchanged.
+    monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
+    res, spy = _call(tmp_path, monkeypatch)
+    assert res.fired and len(spy.calls) == 1
+
+
 def test_ignores_full_operational_footprint(tmp_path, monkeypatch):
     # Regression for the first claude-daemon dry run: validate()'s clean-tree gate
     # tripped on state/ + uv.lock (which an arbitrary foreign repo, unlike chimera,
