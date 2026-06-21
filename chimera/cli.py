@@ -1104,6 +1104,23 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true",
         help="Report what would be ingested without writing spec files.",
     )
+    bl_issues.add_argument(
+        "--foreign", action="store_true",
+        help="Generate FOREIGN specs (the PR targets --repo) gated by "
+             "--verify-cmd-template (ADR 0186). One-off; for the renewable "
+             "daily source use --walk.",
+    )
+    bl_issues.add_argument(
+        "--verify-cmd-template", default=None,
+        help="Operator-trusted gate template with a {test} placeholder, e.g. "
+             "'uv run --extra dev pytest {test} -q'. Required with --foreign.",
+    )
+    bl_issues.add_argument(
+        "--walk", action="store_true",
+        help="Renewable source: ingest from ALL repos in mind/walk_repos.yaml as "
+             "foreign specs (uses each entry's label + verify_cmd_template). "
+             "Ignores --repo/--foreign/--verify-cmd-template.",
+    )
 
     # v44: `chimera soak summary <run-id>` — thin wrapper over
     # chimera.soak_summary (the first real-feature module Chimera authored;

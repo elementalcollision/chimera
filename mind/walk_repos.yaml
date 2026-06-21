@@ -1,0 +1,24 @@
+# mind/walk_repos.yaml — operator-curated WALK sources (ADR 0182 phase 2 / 0186).
+#
+# The renewable foreign work source. The daily driver runs
+# `chimera backlog from-issues --walk`, which scans each repo's OPEN issues
+# labelled `label` for a fenced ```yaml spec block (goal/files/test) and writes a
+# FOREIGN backlog spec per crawl-ready issue — targeting `repo`, gated by
+# `verify_cmd_template` rendered over the issue's validated `test` path.
+#
+# SECURITY: `verify_cmd_template` is OPERATOR-TRUSTED — it is NEVER taken from an
+# issue body. The only issue-derived substitution is `{test}`, validated as a
+# bare in-allowlist relative path. The PR still requires `chimera foreign-pr
+# review` per repo, the repo must be on CHIMERA_REPO_ALLOWLIST, and output is a
+# DRAFT. To enable a repo: add an entry here, label its crawl-ready issues, and
+# `chimera foreign-pr review --repo <repo>`.
+repos:
+  - repo: elementalcollision/drift-monitor
+    label: crawl
+    verify_cmd_template: "uv run --extra dev pytest {test} -q"
+
+  - repo: elementalcollision/GraphMemory-IDE
+    label: crawl
+    # Root-level test dodges the heavy kuzu/transformers tests/conftest.py; only
+    # pytest is installed (--no-project --with pytest).
+    verify_cmd_template: "uv run --no-project --with pytest python -m pytest {test} -q -p no:cacheprovider"

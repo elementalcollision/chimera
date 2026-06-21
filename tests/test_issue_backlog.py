@@ -107,11 +107,13 @@ def test_ingest_writes_specs_and_skips_unspecced(tmp_path):
     assert select_next(mind).issue == f"{_REPO}#10"
 
 
-def test_ingest_filename_carries_issue_number(tmp_path):
+def test_ingest_filename_keyed_on_repo_and_number(tmp_path):
+    # MF-3: the spec filename is keyed on (repo, number) — NOT the title — so a
+    # re-titled issue can't mint a duplicate and two repos can't collide.
     mind = tmp_path / "mind"
     ingest_issues(_REPO, mind_dir=mind, issues=[_issue(number=42, title="X Y")])
     names = [p.name for p in backlog_dir(mind).glob("*.md")]
-    assert names == ["issue-42-x-y.md"]
+    assert names == ["issue-elementalcollision-chimera-42.md"]
 
 
 def test_ingest_empty_list(tmp_path):
