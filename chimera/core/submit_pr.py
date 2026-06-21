@@ -152,6 +152,20 @@ def _has_secret_path(path: str) -> bool:
     return any(p.search(path) for p in SECRET_PATH_GLOB_PATTERNS)
 
 
+def _is_snake_identifier(tok: str) -> bool:
+    """True for a snake_case identifier — underscore-joined segments that are each
+    purely alphabetic or purely numeric (e.g. a long descriptive test name like
+    ``test_observationwindow_default_max_size_is_50``). Shannon entropy cannot
+    separate such a name (~4.0 bits/char, esp. with digits) from a hex secret
+    (~4.0), so this STRUCTURAL check excludes the identifier false-positive without
+    unmasking secrets: a real base64/hex token has no underscores (→ not matched)
+    or mixed-charset segments (a secret-bearing ``key_AKIA1b2c3`` segment is
+    neither all-alpha nor all-digit, so the token is still flagged)."""
+    if "_" not in tok:
+        return False
+    return all(s.isalpha() or s.isdigit() for s in tok.split("_") if s)
+
+
 def _entropy_hits(diff_text: str) -> list[str]:
     hits: list[str] = []
     for line in diff_text.splitlines():
@@ -161,6 +175,8 @@ def _entropy_hits(diff_text: str) -> list[str]:
             tok = m.group(0)
             if _shannon_entropy(tok) < _ENTROPY_MIN_BITS:
                 continue  # word-like identifier, not a secret
+            if _is_snake_identifier(tok):
+                continue  # descriptive snake_case name (e.g. a long test fn), not a secret
             if tok not in hits:
                 hits.append(tok)
     return hits

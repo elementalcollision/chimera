@@ -482,6 +482,15 @@ def test_entropy_skips_identifiers_flags_secrets():
     assert _entropy_hits(ident_diff) == []
     secret_diff = '+    KEY = "AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMIK7MDENGbPxRfiCY"\n'
     assert _entropy_hits(secret_diff) != []
+    # Regression (WALK demo): a descriptive snake_case test name with a DIGIT has
+    # entropy ~4.09 (just over the 4.0 threshold) — the structural snake_case check
+    # must still skip it.
+    digit_ident = "+def test_observationwindow_default_max_size_is_50() -> None:\n"
+    assert _entropy_hits(digit_ident) == []
+    # ...but a secret hidden behind an underscore-prefix is still flagged (the
+    # secret-bearing segment is neither all-alpha nor all-digit).
+    pfx_secret = "+    token = my_key_AKIAIOSFODNN7EXAMPLEwJalrXUtnFEMIK7MDENGbPx\n"
+    assert _entropy_hits(pfx_secret) != []
 
 
 def test_fix_without_test_accepts_existing_test(tmp_path):
