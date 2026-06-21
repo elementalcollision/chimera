@@ -156,6 +156,18 @@ def _check_gate_visibility(spec) -> int:
     (already green — the change would prove nothing), 4 if the base ref
     could not be evaluated.
     """
+    # Foreign-repo spec (ADR 0186): its gate is the FOREIGN repo's own verify_cmd,
+    # which cannot be evaluated against THIS (self) checkout — running the self-repo
+    # checks here would gate the wrong tree. Skip; the soak's B.3b baseline runs the
+    # foreign verify_cmd at the foreign base for the real red→green gate-visibility.
+    if getattr(spec, "repo", None):
+        print(
+            f"GATE-CHECK: {spec.slug} targets foreign repo {spec.repo} — "
+            "gate-visibility is enforced in the soak against the foreign base. "
+            "Proceeding."
+        )
+        return 0
+
     from ..core.repo_verify import default_checks, verify_at_ref
 
     checks = default_checks(

@@ -195,6 +195,27 @@ def test_gate_check_base_error_returns_4(tmp_path, monkeypatch):
     assert bl._check_gate_visibility(_spec(tmp_path)) == 4
 
 
+def test_gate_check_skipped_for_foreign_spec(tmp_path, monkeypatch):
+    """A foreign-repo spec's gate can't be evaluated against the self checkout —
+    the picker skips the self-repo gate-check (the soak does the real foreign one)
+    and proceeds (0) WITHOUT calling verify_at_ref."""
+    from chimera.cli_cmds import backlog as bl
+    from chimera.core import repo_verify as rv
+
+    def _boom(*a, **k):  # must NOT be reached for a foreign spec
+        raise AssertionError("verify_at_ref must not run for a foreign spec")
+
+    monkeypatch.setattr(rv, "verify_at_ref", _boom)
+    foreign = parse_spec(_write(
+        tmp_path, "f.md",
+        "---\ngoal: x\nfiles: tests/test_x.py\n"
+        "repo: elementalcollision/drift-monitor\n"
+        "verify_cmd: \"uv run --extra dev pytest tests/test_x.py -q\"\n---\nbody\n",
+    ))
+    assert foreign.valid and foreign.repo
+    assert bl._check_gate_visibility(foreign) == 0
+
+
 # ── skip-and-continue (2026-06-12 WALK finding) ─────────────
 
 
