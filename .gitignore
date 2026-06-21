@@ -49,3 +49,8 @@ remote_federation/
 
 # graphify skill output (machine-local generated knowledge graph)
 graphify-out/
+
+# WALK-generated foreign backlog specs (ADR 0186) — runtime artifacts
+# regenerated idempotently from labelled issues; claimed via the crawl
+# dispatch log. Operator-authored specs (NN-*.md) stay tracked.
+mind/backlog/issue-*.md
