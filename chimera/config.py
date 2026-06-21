@@ -213,6 +213,10 @@ REGISTRY: dict[str, FlagSpec] = dict(
         _f("CHIMERA_FOREIGN_PR_APPROVED", "bool", None,
            "Per-run operator approval grant for THIS foreign PR (ADR 0186 B.4c). "
            "Set =1 to approve one PR while the first-5 approval gate is active."),
+        _f("CHIMERA_FOREIGN_REGRESSION_CMD", "str", None,
+           "Optional BROADER test suite for the foreign-PR no-pass-to-pass-regression "
+           "gate (ADR 0186 B.4i, from Phoenix): if GREEN on base it must stay GREEN at "
+           "HEAD. Unset → gate skipped (additive-test tasks can't regress)."),
         # ── A2A / federation ──────────────────────────────────
         _f("CHIMERA_PEER_TOKEN", "str", None, "Shared bearer token for the HTTP MCP server."),
         _f("CHIMERA_PEER_TOKENS", "json", None, "Per-peer token map {token: peer-name}."),

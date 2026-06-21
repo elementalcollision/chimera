@@ -145,6 +145,86 @@ def _foreign_gate_approved(worktree: Path, verify_cmd: str | None) -> bool:
     return proc.returncode == 0
 
 
+def _git_current_ref(worktree: Path) -> str | None:
+    """The current branch name, or the commit SHA on detached HEAD (the
+    ``rev-parse HEAD`` fallback) — for restoring the worktree after the dance.
+    Returns None only on a git error, never merely because HEAD is detached."""
+    for args in (("rev-parse", "--abbrev-ref", "HEAD"), ("rev-parse", "HEAD")):
+        try:
+            p = subprocess.run(["git", *args], cwd=str(worktree),
+                               capture_output=True, text=True, timeout=30)
+        except (subprocess.SubprocessError, OSError):
+            return None
+        ref = p.stdout.strip()
+        if p.returncode == 0 and ref and ref != "HEAD":
+            return ref
+    return None
+
+
+def _git_checkout(worktree: Path, ref: str) -> int | None:
+    """Force-checkout ``ref`` via an ARGV git call (no shell — ``ref`` is never
+    shell-interpolated). Force discards the prior gate run's non-PR drift
+    (pytest/uv caches, uv.lock) that would otherwise block the checkout; the PR
+    content is committed, so nothing real is lost. Returns the exit code, or None
+    on error/timeout."""
+    try:
+        p = subprocess.run(["git", "checkout", "-q", "-f", ref], cwd=str(worktree),
+                           capture_output=True, text=True, timeout=60)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return p.returncode
+
+
+def _run_gate_cmd(worktree: Path, cmd: str) -> int | None:
+    """Run a sandboxed gate command in ``worktree``; return its exit code, or None
+    on error/timeout (secrets stripped, B.4a)."""
+    try:
+        proc = subprocess.run(
+            cmd, shell=True, cwd=str(worktree), capture_output=True, text=True,
+            timeout=1800, env=_gate_subprocess_env(),
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return proc.returncode
+
+
+def _foreign_no_regression(
+    worktree: Path, base: str, regression_cmd: str | None
+) -> bool:
+    """No pass-to-pass regression (ADR 0186 B.4i, adopted from Phoenix 2606.20243):
+    if ``regression_cmd`` (the target's BROADER suite) is GREEN on ``base``, it must
+    stay GREEN at HEAD (the agent's commit). This catches a change that edits source
+    and silently breaks a previously-passing test — which the SCOPED verify_cmd gate
+    (B.4e) never runs and so cannot see.
+
+    Returns True (proceed) when: no ``regression_cmd`` is configured (opt-in — the
+    common additive-test task can't regress), OR the suite is already RED on base
+    (no green baseline to protect — warn, don't block on a pre-existing failure).
+    Returns False (block) only when base was GREEN and HEAD is RED. Fail-OPEN on a
+    harness error (None exit / lost ref): a flaky-infra false block is worse than
+    leaning on B.4e + the draft + B.4g; the regression gate is additive assurance,
+    not a primary safety boundary. ALWAYS restores the worktree to its original ref."""
+    if not regression_cmd or not regression_cmd.strip():
+        return True
+    orig = _git_current_ref(worktree)
+    if orig is None:
+        return True  # git error (NOT detached HEAD) → skip rather than risk the tree
+    try:
+        if _git_checkout(worktree, base) != 0:
+            return True  # base unavailable → no baseline
+        base_rc = _run_gate_cmd(worktree, regression_cmd)
+        if base_rc != 0:
+            return True  # base already red (or errored) → no green baseline to protect
+        if _git_checkout(worktree, orig) != 0:
+            return True  # couldn't return to HEAD → skip (finally still restores)
+        head_rc = _run_gate_cmd(worktree, regression_cmd)
+        if head_rc is None:
+            return True  # harness/timeout error at HEAD → fail-open (additive gate)
+        return head_rc == 0  # regression iff base GREEN but HEAD RED
+    finally:
+        _git_checkout(worktree, orig)  # ALWAYS restore the worktree to its branch
+
+
 def maybe_self_pr(
     *,
     worktree: Path | str,
@@ -210,6 +290,7 @@ def maybe_foreign_pr(
     foreign_repo: str,
     foreign_base: str = "main",
     verify_cmd: str | None = None,
+    regression_cmd: str | None = None,
     run_id: str = "",
     state_dir: Path | str | None = None,
     trust_state_path: Path | str | None = None,
@@ -295,6 +376,17 @@ def maybe_foreign_pr(
         return SelfPrResult(
             skipped_reason="foreign verify_cmd did not pass at HEAD (or --verify-cmd "
             "missing) — cannot confirm the change is good"
+        )
+
+    # 6.5 No pass-to-pass regression (B.4i, Phoenix) — if a broader regression_cmd
+    #     is configured and was GREEN on base, it must stay GREEN at HEAD. Catches a
+    #     source edit that breaks a previously-passing test (the scoped verify_cmd
+    #     above never runs it). Opt-in; runs AFTER the cheap scoped gate so we don't
+    #     pay for the broad suite when the scoped gate already failed.
+    if not _foreign_no_regression(worktree, foreign_base, regression_cmd):
+        return SelfPrResult(
+            skipped_reason="foreign regression_cmd was GREEN on base but RED at HEAD "
+            "— the change broke a previously-passing test (pass-to-pass regression)"
         )
 
     # 7. Delegate to the SAME validated submit path — DRAFT, never merge — but

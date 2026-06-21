@@ -135,6 +135,19 @@ increment.
 >     fail-CLOSED on charter-load error instead of open; resolve the allowlist from a
 >     stable root the agent can't relocate via `cwd`; `Path.resolve()` symlink
 >     discipline on operands. The B.4g revert backstops all of these.
+>   - **B.4i no-pass-to-pass-regression gate (adopted from Phoenix, arXiv:2606.20243)**
+>     — ✅ the foreign gate-approved check (B.4e) runs only the SCOPED verify_cmd, so a
+>     task that EDITS source could break a previously-passing test undetected. Gate 6.5
+>     in `maybe_foreign_pr`: if an OPTIONAL broader `regression_cmd` is GREEN on base it
+>     must stay GREEN at HEAD (`_foreign_no_regression`, sandboxed, force-checkout dance
+>     with guaranteed ref-restore). Opt-in via `--regression-cmd` /
+>     `CHIMERA_FOREIGN_REGRESSION_CMD` (unset → skip; additive-test tasks can't regress);
+>     operator-trusted, never from issue bodies. Fail-OPEN on harness error (additive
+>     assurance, not a primary boundary — B.4e + draft + B.4g remain). Cleared by an
+>     adversarial review (verdict: ship; worst-case wrong-ref push is backstopped by
+>     submit_pr.validate's soak-branch check). FIRST adoption from the arXiv WALK
+>     intelligence source. Follow-up: per-spec/per-walk-repo regression_cmd wiring +
+>     per-test diffing (vs the current suite-level signal).
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
