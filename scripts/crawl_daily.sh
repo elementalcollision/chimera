@@ -42,6 +42,14 @@ touch "$DISPATCH_LOG"
 # `done: true` in the spec — once its PR lands.
 CLAIMED="$(paste -sd, "$DISPATCH_LOG" 2>/dev/null || true)"
 
+# WALK top-up (ADR 0182 phase 2 / 0186): ingest operator-labelled foreign issues
+# into foreign backlog specs so the loop has a RENEWABLE foreign source. Each
+# walk_repos entry's verify_cmd_template is operator-trusted; idempotent-add never
+# clobbers existing specs. Fail-soft — a gh/network hiccup must never block the
+# daily run (the picker just works the existing backlog).
+echo "[crawl] WALK top-up (foreign issues -> backlog specs)"
+uv run chimera backlog from-issues --walk 2>&1 | sed 's/^/[crawl]   /' || true
+
 echo "[crawl] selecting next spec (claimed: ${CLAIMED:-none})"
 SPEC_JSON="$(uv run chimera backlog next --check-gate --json --claimed "$CLAIMED" 2>/tmp/crawl_next.err)"
 CODE=$?
