@@ -28,6 +28,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -222,7 +223,16 @@ def _foreign_no_regression(
             return True  # harness/timeout error at HEAD → fail-open (additive gate)
         return head_rc == 0  # regression iff base GREEN but HEAD RED
     finally:
-        _git_checkout(worktree, orig)  # ALWAYS restore the worktree to its branch
+        # ALWAYS restore the worktree to its original ref. If this fails (e.g. a
+        # pathological regression_cmd deleted the soak branch by name), the tree is
+        # left on the wrong ref — submit_pr.validate's SOAK_BRANCH_PATTERN check is
+        # the backstop against pushing it, but surface a signal so it isn't silent.
+        if _git_checkout(worktree, orig) != 0:
+            sys.stderr.write(
+                f"WARNING: B.4i regression gate could not restore worktree {worktree} "
+                f"to {orig!r} after the checkout dance; relying on submit_pr.validate's "
+                f"soak-branch backstop to block a wrong-ref push.\n"
+            )
 
 
 def maybe_self_pr(

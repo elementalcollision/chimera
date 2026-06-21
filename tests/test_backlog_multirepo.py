@@ -77,6 +77,31 @@ def test_self_task_env_never_opts_into_foreign_pr(tmp_path):
     assert "CHIMERA_FOREIGN_PR" not in env
 
 
+_FOREIGN_REG = """\
+---
+goal: "Edit the daemon + keep the suite green"
+files: src/daemon.py tests/test_daemon.py
+repo: elementalcollision/claude-daemon
+verify_cmd: "pytest tests/test_daemon.py"
+regression_cmd: "uv run --extra dev pytest -q"
+base: main
+---
+body
+"""
+
+
+def test_regression_cmd_parsed_and_emitted(tmp_path):
+    # B.4i per-spec wiring: regression_cmd → CHIMERA_FOREIGN_REGRESSION_CMD env.
+    s = parse_spec(_write(tmp_path, _FOREIGN_REG))
+    assert s.valid and s.regression_cmd == "uv run --extra dev pytest -q"
+    assert s.task_env()["CHIMERA_FOREIGN_REGRESSION_CMD"] == "uv run --extra dev pytest -q"
+
+
+def test_no_regression_cmd_not_emitted(tmp_path):
+    env = parse_spec(_write(tmp_path, _FOREIGN)).task_env()  # _FOREIGN has no regression_cmd
+    assert "CHIMERA_FOREIGN_REGRESSION_CMD" not in env
+
+
 def test_self_repo_spec_unchanged(tmp_path):
     """No repo/verify_cmd → fields None and task_env byte-identical to pre-0186."""
     s = parse_spec(_write(tmp_path, _SELF))

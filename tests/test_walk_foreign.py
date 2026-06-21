@@ -203,11 +203,38 @@ def test_load_walk_repos(tmp_path):
     )
     repos = load_walk_repos(mind)
     assert len(repos) == 1
-    assert repos[0] == {"repo": REPO, "label": "crawl", "verify_cmd_template": TMPL}
+    assert repos[0] == {"repo": REPO, "label": "crawl",
+                        "verify_cmd_template": TMPL, "regression_cmd": None}
 
 
 def test_load_walk_repos_absent_is_empty(tmp_path):
     assert load_walk_repos(tmp_path / "mind") == []
+
+
+def test_load_walk_repos_reads_optional_regression_cmd(tmp_path):
+    mind = tmp_path / "mind"
+    mind.mkdir()
+    (mind / "walk_repos.yaml").write_text(
+        "repos:\n"
+        f"  - repo: {REPO}\n    label: crawl\n    verify_cmd_template: \"{TMPL}\"\n"
+        "    regression_cmd: \"uv run --extra dev pytest -q\"\n"
+        f"  - repo: o/other\n    verify_cmd_template: \"{TMPL}\"\n"  # no regression_cmd
+    )
+    repos = load_walk_repos(mind)
+    assert repos[0]["regression_cmd"] == "uv run --extra dev pytest -q"
+    assert repos[1]["regression_cmd"] is None
+
+
+def test_walk_foreign_spec_carries_regression_cmd(tmp_path):
+    # B.4i: a walk_repos regression_cmd flows into the generated foreign spec and
+    # round-trips to CHIMERA_FOREIGN_REGRESSION_CMD. Operator-trusted (not the issue).
+    [r] = ingest_issues(REPO, mind_dir=tmp_path / "mind", foreign=True,
+                        verify_cmd_template=TMPL,
+                        regression_cmd="uv run --extra dev pytest -q",
+                        issues=[_issue()])
+    spec = parse_spec(r.written)
+    assert spec.regression_cmd == "uv run --extra dev pytest -q"
+    assert spec.task_env()["CHIMERA_FOREIGN_REGRESSION_CMD"] == "uv run --extra dev pytest -q"
 
 
 # ── round-trip: WALK output is a valid foreign spec the picker accepts ──

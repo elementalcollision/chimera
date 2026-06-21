@@ -57,6 +57,10 @@ class BacklogSpec:
     # byte-identical to pre-0186 behaviour. A spec with `repo` MUST set `verify_cmd`.
     repo: str | None = None
     verify_cmd: str | None = None
+    # Optional BROADER suite for the foreign no-pass-to-pass-regression gate
+    # (ADR 0186 B.4i). When set, emitted as CHIMERA_FOREIGN_REGRESSION_CMD so the
+    # daily run protects a green base suite per-task (for source-editing tasks).
+    regression_cmd: str | None = None
     errors: tuple[str, ...] = field(default=())
 
     @property
@@ -90,6 +94,11 @@ class BacklogSpec:
             env["CHIMERA_FOREIGN_PR"] = "1"
         if self.verify_cmd:
             env["TASK_VERIFY_CMD"] = self.verify_cmd
+        # Per-spec regression suite (B.4i) — the foreign-pr submit CLI reads this as
+        # its --regression-cmd default, so the daily loop can gate pass-to-pass
+        # regressions per-task. Only emitted when the spec opts in.
+        if self.regression_cmd:
+            env["CHIMERA_FOREIGN_REGRESSION_CMD"] = self.regression_cmd
         return env
 
 
@@ -153,10 +162,14 @@ def parse_spec(path: Path) -> BacklogSpec:
     if repo and not verify_cmd:
         errors.append("`repo` is set but `verify_cmd` is missing (a foreign repo needs its own gate)")
 
+    # Optional broader regression suite for the no-pass-to-pass gate (B.4i).
+    regression_cmd = data.get("regression_cmd")
+    regression_cmd = str(regression_cmd).strip() if regression_cmd else None
+
     return BacklogSpec(
         path=path, goal=goal, files=files, test=test, base=base,
         body=body, done=done, issue=issue, repo=repo, verify_cmd=verify_cmd,
-        errors=tuple(errors),
+        regression_cmd=regression_cmd, errors=tuple(errors),
     )
 
 

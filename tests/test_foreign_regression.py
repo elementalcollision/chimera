@@ -77,3 +77,29 @@ def test_restores_worktree_ref_after_check(tmp_path):
     before = _git_current_ref(repo)
     _foreign_no_regression(repo, "main", _CMD)
     assert _git_current_ref(repo) == before == "chimera-soak/x"
+
+
+def test_detached_head_restored_to_sha(tmp_path):
+    # On a detached HEAD, orig is captured as the SHA (rev-parse HEAD fallback) and
+    # the dance restores to exactly that SHA — NOT skipped/None.
+    repo = _repo(tmp_path, base="ok", head="broken")
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo),
+                         capture_output=True, text=True).stdout.strip()
+    _git(repo, "checkout", "-q", sha)  # detach
+    assert _git_current_ref(repo) == sha
+    assert _foreign_no_regression(repo, "main", _CMD) is False  # base green, head red
+    after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo),
+                           capture_output=True, text=True).stdout.strip()
+    assert after == sha  # restored to the detached commit
+
+
+def test_wrong_ref_blocked_by_validate_backstop(tmp_path):
+    # Defense-in-depth: if a (pathological) restore failure ever left the worktree on
+    # the wrong ref, submit_pr.validate's soak-branch check is the backstop that
+    # blocks the push (so a regression-gate restore bug can't push `main`).
+    from chimera.core.submit_pr import validate
+
+    repo = _repo(tmp_path, base="ok", head="ok")
+    _git(repo, "checkout", "-q", "main")  # simulate a failed restore
+    _, _, errors = validate(repo, base="main")
+    assert any("soak pattern" in e for e in errors)

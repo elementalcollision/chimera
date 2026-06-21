@@ -128,6 +128,7 @@ def issue_to_spec_markdown(
     *,
     foreign: bool = False,
     verify_cmd_template: str | None = None,
+    regression_cmd: str | None = None,
 ) -> str | None:
     """Render a crawl-ready issue into backlog-spec Markdown, or None when the
     issue has no usable spec block (or, in foreign mode, no gateable test path).
@@ -178,6 +179,11 @@ def issue_to_spec_markdown(
             return None
         fm["repo"] = repo
         fm["verify_cmd"] = verify_cmd_template.replace("{test}", test)
+        # Optional broader regression suite (B.4i) — OPERATOR-TRUSTED (from
+        # walk_repos.yaml, never the issue body), gates pass-to-pass regressions
+        # for source-editing tasks. Plain string (no {test} templating).
+        if regression_cmd and regression_cmd.strip():
+            fm["regression_cmd"] = regression_cmd.strip()
         # `test` narrows the SELF gate only — meaningless for a foreign spec whose
         # gate is verify_cmd. Drop it so the spec is unambiguous.
         fm["test"] = None
@@ -199,6 +205,7 @@ def ingest_issues(
     label: str | None = "crawl",
     foreign: bool = False,
     verify_cmd_template: str | None = None,
+    regression_cmd: str | None = None,
     issues: list[dict] | None = None,
 ) -> list[IngestResult]:
     """Materialise crawl-ready issues from ``repo`` into ``mind/backlog/``.
@@ -228,6 +235,7 @@ def ingest_issues(
         title = str(issue.get("title") or "").strip()
         md = issue_to_spec_markdown(
             issue, repo, foreign=foreign, verify_cmd_template=verify_cmd_template,
+            regression_cmd=regression_cmd,
         )
         if md is None:
             results.append(IngestResult(number, title, None, "no usable spec block"))
@@ -244,10 +252,11 @@ def ingest_issues(
 def load_walk_repos(mind_dir: Path) -> list[dict]:
     """Operator-curated WALK sources from ``mind/walk_repos.yaml`` (ADR 0186).
 
-    Returns a list of ``{repo, label, verify_cmd_template}`` — the trusted config
-    that drives the renewable foreign source. Entries missing a repo or a
-    ``{test}``-bearing template are dropped. Absent/malformed file → ``[]`` (WALK
-    is then a no-op). Never raises."""
+    Returns a list of ``{repo, label, verify_cmd_template, regression_cmd}`` — the
+    trusted config that drives the renewable foreign source (``regression_cmd`` is
+    optional, the B.4i broader suite, ``None`` when absent). Entries missing a repo
+    or a ``{test}``-bearing template are dropped. Absent/malformed file → ``[]``
+    (WALK is then a no-op). Never raises."""
     path = mind_dir / "walk_repos.yaml"
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -264,10 +273,12 @@ def load_walk_repos(mind_dir: Path) -> list[dict]:
         if not repo or "{test}" not in tmpl:
             continue
         label = entry.get("label")
+        reg = entry.get("regression_cmd")  # optional broader suite for B.4i
         out.append({
             "repo": repo,
             "label": str(label).strip() if label else "crawl",
             "verify_cmd_template": tmpl,
+            "regression_cmd": str(reg).strip() if reg else None,
         })
     return out
 
