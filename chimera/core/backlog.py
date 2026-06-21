@@ -81,6 +81,13 @@ class BacklogSpec:
         # self-repo spec's env is byte-identical to pre-0186.
         if self.repo:
             env["TASK_REPO"] = self.repo
+            # A foreign-repo backlog spec exists to produce a foreign DRAFT PR — that
+            # is its entire purpose in the daily loop. Opt into the foreign-PR path
+            # (graduated past the approval floor; still allowlist- + scope-gated by
+            # B.4f/g/h, DRAFT-only) so the daily run actually OPENS the PR rather than
+            # leaving the branch in the clone. Self specs never set this (env stays
+            # byte-identical to pre-0186) — activation is scoped to foreign specs.
+            env["CHIMERA_FOREIGN_PR"] = "1"
         if self.verify_cmd:
             env["TASK_VERIFY_CMD"] = self.verify_cmd
         return env

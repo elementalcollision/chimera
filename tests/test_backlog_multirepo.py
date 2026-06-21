@@ -65,6 +65,18 @@ def test_foreign_task_env_carries_repo_and_cmd(tmp_path):
     assert env["TASK_VERIFY_CMD"] == "pytest tests/test_daemon.py"
 
 
+def test_foreign_task_env_opts_into_foreign_pr(tmp_path):
+    # Daily-loop activation: a foreign spec must opt into the foreign-PR path so
+    # the daily run OPENS the draft PR (not just leaves the branch in the clone).
+    env = parse_spec(_write(tmp_path, _FOREIGN)).task_env()
+    assert env["CHIMERA_FOREIGN_PR"] == "1"
+
+
+def test_self_task_env_never_opts_into_foreign_pr(tmp_path):
+    env = parse_spec(_write(tmp_path, _SELF)).task_env()
+    assert "CHIMERA_FOREIGN_PR" not in env
+
+
 def test_self_repo_spec_unchanged(tmp_path):
     """No repo/verify_cmd → fields None and task_env byte-identical to pre-0186."""
     s = parse_spec(_write(tmp_path, _SELF))

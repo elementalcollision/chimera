@@ -93,6 +93,19 @@ increment.
 >     allowlisted test file; B.4h prevented the ruff sprawl (B.4g reverted only
 >     `uv.lock` drift). GraphMemory used a `--no-project --with pytest` root-test
 >     verify_cmd to dodge its heavy kuzu/transformers `tests/conftest.py`.
+>   - **🤖 DAILY-LOOP FOREIGN ACTIVATION** — ✅ 2026-06-20: wired the CRAWL daily
+>     driver (ADR 0182) to autonomously produce foreign draft PRs. A foreign backlog
+>     spec (`repo` + `verify_cmd`) now (a) opts into the foreign-PR path —
+>     `BacklogSpec.task_env()` emits `CHIMERA_FOREIGN_PR=1` for `repo`-bearing specs
+>     only (self specs byte-identical), and (b) skips the picker's self-repo
+>     gate-visibility check (`_check_gate_visibility` can't evaluate a foreign gate
+>     against the self checkout — the soak's B.3b baseline runs the foreign
+>     `verify_cmd` at the foreign base instead). Seeded the first foreign specs
+>     (`mind/backlog/05-foreign-*.md`) targeting reviewed+graduated repos. The daily
+>     `09:15` run now picks a foreign spec → clone → scoped change → DRAFT PR, fully
+>     gated (allowlist + B.4f/g/h + reviewed verify_cmd). FOLLOW-UP: a *renewable*
+>     foreign work source (WALK from foreign-repo issues, ADR 0182 phase 2) — today's
+>     specs are operator-seeded one-shots.
 >   - **B.4h ruff charter-scope guard (agent-side prevention)** — ✅ the B.4g root
 >     cause was the agent running `ruff --fix` TREE-WIDE; B.4g reverts that residue,
 >     B.4h stops it at the source. `chimera/core/ruff_scope.py` (pure, exhaustively
