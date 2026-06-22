@@ -223,6 +223,11 @@ REGISTRY: dict[str, FlagSpec] = dict(
            "byte-identical on base vs HEAD. Set only for behaviour-PRESERVING tasks "
            "(refactor/optimize); unset → gate skipped (a feature/bugfix changes "
            "behaviour legitimately)."),
+        _f("CHIMERA_FOREIGN_PROPERTY_CMD", "str", None,
+           "Optional operator-trusted PROPERTY/fuzz test for the foreign-PR property "
+           "gate (ADR 0186 B.4k stage 2b): must PASS at HEAD (exits nonzero on a "
+           "counterexample), catching code that satisfies the fixed-input verify_cmd "
+           "but is wrong on un-tested inputs. Unset → gate skipped."),
         # ── A2A / federation ──────────────────────────────────
         _f("CHIMERA_PEER_TOKEN", "str", None, "Shared bearer token for the HTTP MCP server."),
         _f("CHIMERA_PEER_TOKENS", "json", None, "Per-peer token map {token: peer-name}."),

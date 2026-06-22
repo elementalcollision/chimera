@@ -206,8 +206,12 @@ increment.
 >     agent to encode it as a `fuzz_oracle.fuzz_check` test in the test it already
 >     writes (self-repo helper tasks, gated by pytest — NOT the foreign path). The key
 >     correction: property-fuzz is high-applicability for SELF helpers, so it is agent
->     empowerment, not a foreign gate. (2b) [next] foreign `property_cmd` gate rung
->     (low-applicability, completes the verify/regression/behaviour/property taxonomy).
+>     empowerment, not a foreign gate. (2b) ✅ foreign `property_cmd` gate rung —
+>     `_foreign_property_holds` runs an operator-trusted property/fuzz test at HEAD
+>     (exits nonzero on a counterexample), threaded through `BacklogSpec.property_cmd`
+>     → task_env → soak → `foreign-pr submit --property-cmd` → gate 6.7 (config flag
+>     CHIMERA_FOREIGN_PROPERTY_CMD; never from an issue body). Low-applicability but
+>     completes the verify / regression / behaviour / property gate taxonomy. B.4k done.
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
