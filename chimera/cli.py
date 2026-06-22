@@ -345,6 +345,28 @@ def _build_parser() -> argparse.ArgumentParser:
              "are surfaced each run.",
     )
 
+    # Per-model guardrail validation (ADR 0186, from NRT-Bench): probe each model's
+    # charter / prompt-injection resistance — guardrails aren't portable across models.
+    geval = sub.add_parser(
+        "guardrail-eval",
+        help="Probe each model's charter / prompt-injection resistance and print a "
+             "per-model resistance matrix (ADR 0186; needs OPENROUTER_API_KEY + incurs "
+             "API cost — pass --models to control which models run).",
+    )
+    geval.add_argument(
+        "--models", default=None,
+        help="Comma-separated model ids to probe (controls scope + API cost). "
+             "Omit to list available roster models without calling.",
+    )
+    geval.add_argument(
+        "--judge", default=None,
+        help="Model id for an LLM-judge classifier (more reliable than the heuristic).",
+    )
+    geval.add_argument("--max-tokens", type=int, default=512)
+    geval.add_argument("--out", default=None,
+                       help="Eval ledger JSONL (default: <state_dir>/guardrail_eval.jsonl).")
+    geval.add_argument("--json", action="store_true", help="Emit JSON instead of the matrix.")
+
     # CRAWL outcome ledger (ADR 0182 Phase 3 evidence base).
     crawl_p = sub.add_parser(
         "crawl",
@@ -1636,6 +1658,62 @@ def main(argv: list[str] | None = None) -> int:
             + (f" -> {status['path']}" if status.get("path") else "")
         )
         return 0
+
+    if args.command == "guardrail-eval":
+        import datetime as _dt
+
+        from .core import LoopConfig
+        from .core.guardrail_eval import (
+            PROBE_SYSTEM,
+            PROBES,
+            classify_heuristic,
+            classify_with_judge,
+            evaluate_roster,
+            render_matrix,
+            write_eval,
+        )
+
+        if not args.models:
+            print("guardrail-eval: pass --models id1,id2,... (controls which roster "
+                  "models are probed + the API cost). Probes: "
+                  + ", ".join(p.id for p in PROBES))
+            return 0
+        models = [m.strip() for m in args.models.split(",") if m.strip()]
+
+        def ask_fn(model_id: str, prompt: str) -> str:
+            from ._async_loop import run_on_persistent_loop
+            from .providers.messages import Message
+            from .providers.openrouter import OpenRouterProvider
+
+            async def _call() -> str:
+                resp = await OpenRouterProvider().complete_with_tools(
+                    messages=[Message.user(prompt)], model_id=model_id, tools=[],
+                    system=PROBE_SYSTEM, max_tokens=args.max_tokens,
+                )
+                return getattr(resp, "text", "") or ""
+            try:
+                # Persistent loop (not asyncio.run): guardrail-eval fires many
+                # successive httpx-backed calls (probe × model), the exact
+                # repeated-per-call pattern that wedges anyio teardown.
+                return run_on_persistent_loop(_call())
+            except Exception:
+                return ""  # model/keys error → ERROR verdict, never crashes the run
+
+        classify = (
+            classify_with_judge(lambda q: ask_fn(args.judge, q))
+            if args.judge else classify_heuristic
+        )
+        roster = evaluate_roster(models, PROBES, ask_fn, classify)
+        cfg = LoopConfig.from_env()
+        out = Path(args.out) if args.out else (cfg.state_dir / "guardrail_eval.jsonl")
+        write_eval(out, roster, _dt.datetime.now(_dt.timezone.utc).isoformat())
+        if args.json:
+            import json as _json
+            print(_json.dumps(roster, indent=2))
+        else:
+            print(render_matrix(roster))
+        # nonzero exit if ANY model complied with ANY probe (a real per-model failure)
+        return 1 if any(m["complied"] for m in roster) else 0
 
     if args.command == "health":
         from .core import LoopConfig

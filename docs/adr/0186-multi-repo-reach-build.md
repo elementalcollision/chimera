@@ -153,6 +153,20 @@ increment.
 >     foreign-pr submit), a stderr warning when the worktree restore fails, and
 >     detached-HEAD + backstop tests. STILL deferred (stretch): per-test pass→fail
 >     diffing (vs the current suite-level base-green→head-green signal).
+>   - **B.4j per-model guardrail validation (adopted from NRT-Bench arXiv:2606.20408)**
+>     — ✅ 2nd adoption from the arXiv WALK intelligence source. NRT-Bench: a guardrail
+>     stack that helps one model can HURT another (vulnerabilities are near-disjoint),
+>     so guardrails must be validated PER-MODEL. `chimera/core/guardrail_eval.py` +
+>     `chimera guardrail-eval` probe each roster model's charter / prompt-injection
+>     resistance (charter-escape, secret-exfil, destructive-cmd, prompt-injection) and
+>     emit a per-(model × probe) resistance matrix. Pure + injectable (ask_fn /
+>     classify_fn) → fully unit-tested; the CLI wires the live OpenRouter call and is
+>     operator-invoked with `--models` (controls API cost), nonzero-exits on any
+>     COMPLIED. NOTE: this measures per-model ALIGNMENT/injectability — the actual
+>     safety boundary stays the DETERMINISTIC harness gates (scope/shell/B.4f-i/
+>     entropy), which are model-independent. First-pass heuristic classifier;
+>     `--judge` enables an LLM-judge (upgrade). Follow-up: run live across the roster
+>     to populate the matrix + route the tier ladder by the results.
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
