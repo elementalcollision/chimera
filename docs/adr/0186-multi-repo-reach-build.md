@@ -212,6 +212,52 @@ increment.
 >     → task_env → soak → `foreign-pr submit --property-cmd` → gate 6.7 (config flag
 >     CHIMERA_FOREIGN_PROPERTY_CMD; never from an issue body). Low-applicability but
 >     completes the verify / regression / behaviour / property gate taxonomy. B.4k done.
+>   - **B.4l sound probabilistic gate bounds (evaluated from arXiv:2606.20510, "Efficient
+>     and Sound Probabilistic Verification for AI Agents")** — 🔬 DESIGN (evaluation:
+>     codex q006; multi-agent workflow: paper read in full + a 14-gate fallible-detector
+>     inventory + a 5-technique prior-art survey + 3 adversarial critiques). The 4th and
+>     last arXiv adoption-backlog item. The paper turns "a fallible detector passed" into
+>     "the probability a violation slipped through is provably ≤ U" via a
+>     distributionally-robust LP relaxed to a polynomial-size SDP over a Datalog
+>     derivation DAG. **We REJECT that superstructure** — it needs a Datalog
+>     information-flow policy + per-tool taint semantics + a conic solver (none of which
+>     Chimera has), and the paper's own §6 says the bound goes vacuous on long traces and
+>     that arbitrary agent-generated code breaks its precondition (exactly our regime).
+>     The ONLY transferable kernel is how it makes each marginal sound: a one-sided
+>     **Clopper-Pearson** upper bound on a detector's measured miss rate.
+>   - **B.4l CRUX (the honest finding, from live-ledger evidence):** Chimera has neither
+>     the DATA nor the i.i.d. structure a sound FNR bound needs. `reverted` disposition
+>     has been recorded **0 times across 70 ledger lines** and `set_disposition` has zero
+>     automated callers; the critic gate (the only labelled gate) has n=12 false-approve
+>     cases (CP→FNR≤22%, sub-floor) and they are a hand-curated BENCHMARK, not a field
+>     sample; the three ledgers (critic-log keyed by diff_sha, crawl by run_id) can't be
+>     joined; deterministic gates have no "rate" (re-running is identical). A "sound
+>     bound" computed today would be vacuous theatre — and printing one would itself
+>     violate Chimera's "no signal ≠ verified" rule.
+>   - **B.4l REFRAME → it is a MEASUREMENT rung, not a bounds rung.** Build the substrate
+>     that could one day support a bound, advisory-only, and say so plainly. STAGED:
+>     (1) pure core `chimera/core/gate_calibration.py` — `clopper_pearson_upper(k,n,alpha)`
+>     (bisection on the regularized incomplete beta; NO scipy/numpy — deps stay
+>     anthropic/mcp/httpx/pydantic/pyyaml/kuzu) + a `GateOutcome` record + an UNCERTIFIED
+>     sentinel below an n-floor + a STRUCTURAL no-pool guard; unit-tested; zero behaviour
+>     change. (2) the LABEL PRODUCER first (the critique's load-bearing fix): an automated
+>     revert/override detector that actually CALLS `set_disposition` + records
+>     `override_used` (scope_check already logs it), plus a join key (add `run_id` to
+>     critic-gate-log) — without the producer the ledger is starved. (3) cheapest real
+>     value now: surface the EXISTING `summarize_outcomes().revert_rate` + scope_check
+>     override-rate as advisory, n-annotated observability (no CP needed). (4) DEFERRED &
+>     conditional: an anytime-valid e-process drift monitor (the only family valid under
+>     drift), then — only IF a gate's stratified n ever clears the floor AND an operator
+>     commits an α/δ — promote ONE gate to a hard bound (critic `false_approve==0`
+>     pattern generalized), composing with the union bound (never the product).
+>   - **B.4l soundness guards (from the critique, non-negotiable if any bound is emitted):**
+>     every number names its TARGET POPULATION (benchmark ≠ field) and reports n; one-sided
+>     only, never a point FNR; `reverted` is a noisy UNDERCOUNT so it is a lower-bound
+>     proxy, NOT a numerator for a sound bound until a hold-out COVERAGE BACK-TEST
+>     validates it; repeatedly-surfaced numbers use the anytime-valid form (fixed-α CP
+>     voids coverage under peeking); strict per-(model×repo_class) stratification, never
+>     pool. **RETIRE criterion:** if after K future merged runs no gate clears the floor,
+>     the ledger stays observability-only and B.4l is not extended — no dead infrastructure.
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build

@@ -10,6 +10,7 @@ _Daily synthesis from the engines. Newest day first._
 - Trap caught: a "flaky" TLS-federation test failure that perfectly tracked my own diff across six runs was **not flaky** — a function-local `import asyncio` shadowed the module-level one across all of `cli.main()`, crashing every `chimera serve` subprocess with `UnboundLocalError`. Third occurrence of the same scoping trap this session.
 - Verification overturned the headline: **2 of 3 single-shot guardrail "failures" did not reproduce** on re-probe. Single-shot probing over-reports.
 - Built the N-sampling fix (#371), then **shipped B.4k — the seeded-fuzz correctness oracle** end to end (#373–#378): a pure `fuzz_oracle.py` core plus a four-gate foreign-PR taxonomy (verify · regression · behaviour · property). The 3rd arXiv adoption, from "The Correctness Illusion in LLM GPU Kernels."
+- **Evaluated B.4l — sound probabilistic gate bounds** (the 4th and last arXiv adoption) with a multi-agent design pass. Finding, from the live ledgers: the data isn't there. `reverted` has been recorded zero times in 70 ledger lines; the one labelled gate is a hand-curated benchmark of n=12. So B.4l is a *measurement* rung — build the calibration ledger + label producer first — not a bounds rung. Rejected the paper's DRO/SDP-over-Datalog machine (vacuous on agent-generated code by its own admission); kept only the Clopper-Pearson kernel.
 
 ### Midday Curiosity
 
@@ -28,6 +29,14 @@ See [wiki/projects/q005-seeded-fuzz-correctness-oracle/notes.md](wiki/projects/q
 Snippet:
 
 Fuzzing is easy; the oracle is the whole problem — *what you compare the output against*. Three sources: differential (the old code), property/metamorphic (an invariant), reference-impl (a naive twin). The backlog decided the lead: ~0 refactors and 11 "add a small pure helper" tasks means property-fuzz is the high-applicability mode and differential is dormant-but-forward-looking — and the property win lives in SELF tasks (gated by pytest), so it is *agent empowerment*, not a foreign gate. The paper's real gift isn't "add fuzzing"; it's the discipline of naming, per task, which oracle you actually have — and refusing to pretend you have one when you don't.
+
+Investigated: **Can Chimera turn "a fallible gate passed" into "violation probability ≤ U" (arXiv:2606.20510) — and does it have the data for any such bound to be more than theatre?**
+
+See [wiki/projects/q006-sound-probabilistic-gate-bounds/notes.md](wiki/projects/q006-sound-probabilistic-gate-bounds/notes.md)
+
+Snippet:
+
+The paper's machinery is elegant — a distributionally-robust bound (no independence assumed) relaxed to a tractable SDP over a Datalog derivation DAG. But three adversarial critics, reading the live ledgers rather than the design's hopes, overturned the comfortable answer: the `reverted` ground-truth signal has fired *zero times* in 70 ledger lines, the one labelled gate is a hand-curated benchmark of n=12 (not the field), and the ledgers can't even be joined. A sound bound needs a denominator — misses over known-violation inputs — and we don't have one. So B.4l is a measurement rung, not a bounds rung: build the calibration ledger and the label producer first, surface the revert-rate we already fold (advisory, n-annotated), and refuse to print a bound with no denominator under it. Reject the SDP superstructure (its own authors say it goes vacuous on agent-generated code); keep only the Clopper-Pearson kernel. Measure before you bound.
 
 ### Evening Reflection
 
