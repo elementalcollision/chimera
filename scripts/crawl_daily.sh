@@ -58,6 +58,12 @@ if [ -n "${CHIMERA_ARXIV_FEED:-}" ]; then
   uv run chimera arxiv-digest 2>&1 | sed 's/^/[crawl]   /' || true
 fi
 
+# Revert reconciliation (ADR 0186 B.4l label producer): detect reverts of merged
+# CRAWL work and set their disposition automatically, so the gate-calibration signal
+# accrues from real history instead of waiting on a manual `crawl resolve`. Fail-soft.
+echo "[crawl] reconcile reverts (gate-calibration label producer)"
+uv run chimera crawl-reconcile 2>&1 | sed 's/^/[crawl]   /' || true
+
 echo "[crawl] selecting next spec (claimed: ${CLAIMED:-none})"
 SPEC_JSON="$(uv run chimera backlog next --check-gate --json --claimed "$CLAIMED" 2>/tmp/crawl_next.err)"
 CODE=$?

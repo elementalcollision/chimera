@@ -345,6 +345,17 @@ def _build_parser() -> argparse.ArgumentParser:
              "are surfaced each run.",
     )
 
+    # Automated revert reconciliation (ADR 0186 B.4l label producer): detect reverts
+    # of merged CRAWL work and set their disposition, so the calibration signal accrues.
+    recon = sub.add_parser(
+        "crawl-reconcile",
+        help="Detect reverts of merged CRAWL work on base and set their disposition to "
+             "'reverted' (ADR 0186 B.4l automated label producer). Heuristic match — a "
+             "documented noisy proxy, not ground truth.",
+    )
+    recon.add_argument("--base", default="main", help="branch to scan for reverts.")
+    recon.add_argument("--repo-root", default=None, help="repo to scan (default: cwd).")
+
     # Per-model guardrail validation (ADR 0186, from NRT-Bench): probe each model's
     # charter / prompt-injection resistance — guardrails aren't portable across models.
     geval = sub.add_parser(
@@ -1659,6 +1670,19 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  ⚠️  cycle spend OVER per-cycle cap (${cycle_cap:.2f})")
             if hour_cap > 0 and spend_60m >= hour_cap:
                 print(f"  ⚠️  60m spend OVER rolling-hour cap (${hour_cap:.2f})")
+        return 0
+
+    if args.command == "crawl-reconcile":
+        from .core import LoopConfig
+        from .core.crawl_ledger import reconcile_reverts
+
+        cfg = LoopConfig.from_env()
+        repo_root = Path(args.repo_root) if args.repo_root else Path.cwd()
+        newly = reconcile_reverts(cfg.state_dir, repo_root, args.base)
+        if newly:
+            print(f"crawl-reconcile: marked {len(newly)} run(s) reverted: {', '.join(newly)}")
+        else:
+            print("crawl-reconcile: no new reverts detected")
         return 0
 
     if args.command == "arxiv-digest":

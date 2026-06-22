@@ -16,6 +16,7 @@ mutation, crash-safe).
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -109,6 +110,61 @@ def set_disposition(state_dir: Path, run_id: str, disposition: str) -> bool:
     cur.disposition = disposition
     record_outcome(state_dir, cur)
     return True
+
+
+# ── automated revert reconciliation (ADR 0186 B.4l label producer) ───
+#
+# The disposition field was, until now, only ever set by hand (the docstring's
+# "future gh-reconcile") — so `reverted` had been recorded ZERO times and every
+# B.4l calibration bound was starved of its strongest free ground-truth signal.
+# These functions detect reverts of merged CRAWL work on `base` and set those runs'
+# disposition automatically, so the signal accrues going forward.
+#
+# HONEST CAVEAT (codex q006): the match is a documented NOISY PROXY, not ground
+# truth. It keys off the run's branch/slug appearing in a "Revert ..." subject, so
+# it can miss reverts (squash-merge subjects vary) and a revert may fire for
+# non-gate reasons (operator changed their mind). It under-counts true misses — so
+# the count it produces is a LOWER bound on misses and must NOT be fed as a numerator
+# into a sound FNR bound until a coverage back-test validates it (B.4l guard).
+
+
+def detect_reverts(merged_outcomes: list, revert_messages: list[str]) -> set[str]:
+    """Pure: return the run_ids of ``merged_outcomes`` whose work appears reverted —
+    i.e. the run's ``branch`` or ``slug`` is referenced in any ``revert_messages``
+    entry (a ``Revert "<original subject>"`` quotes the original PR title). Injectable
+    (messages passed in) → unit-testable with no git."""
+    hits: set[str] = set()
+    for o in merged_outcomes:
+        needles = [n for n in (getattr(o, "branch", ""), getattr(o, "slug", "")) if n]
+        if needles and any(nd in msg for msg in revert_messages for nd in needles):
+            hits.add(o.run_id)
+    return hits
+
+
+def git_revert_messages(repo_root: Path, base: str = "main", *, run=subprocess.run) -> list[str]:
+    """The ``Revert ...`` commit subjects on ``base`` (best-effort; [] on any git
+    error). ``run`` is injectable for tests."""
+    try:
+        p = run(["git", "log", base, "--format=%s"], cwd=str(repo_root),
+                capture_output=True, text=True, timeout=30)
+    except (subprocess.SubprocessError, OSError):
+        return []
+    if p.returncode != 0:
+        return []
+    return [ln for ln in p.stdout.splitlines() if ln.startswith("Revert ")]
+
+
+def reconcile_reverts(state_dir: Path, repo_root: Path, base: str = "main",
+                      *, messages_fn=git_revert_messages) -> list[str]:
+    """Detect reverts of merged CRAWL work on ``base`` and set those runs'
+    disposition to ``reverted`` (the B.4l automated label producer). Returns the
+    newly-reverted run_ids. Noisy proxy — see the section note."""
+    merged = [o for o in read_outcomes(state_dir) if o.disposition == "merged"]
+    if not merged:
+        return []
+    hits = detect_reverts(merged, messages_fn(repo_root, base))
+    newly = [rid for rid in sorted(hits) if set_disposition(state_dir, rid, "reverted")]
+    return newly
 
 
 def summarize_outcomes(state_dir: Path, since: str | None = None) -> dict:

@@ -279,11 +279,16 @@ def record_gate_decision(repo_root: Path, decision: GateDecision) -> None:
     auto-refused or auto-allowed commit is auditable after the fact. Best-effort:
     a logging failure must never change the commit outcome."""
     import json
+    import os
 
     try:
         d = _artifact_dir(repo_root)
         d.mkdir(parents=True, exist_ok=True)
         row = {
+            # Join key (ADR 0186 B.4l): tie this gate decision to its CRAWL run so
+            # critic verdicts can later be calibrated against run outcomes (this log
+            # is keyed by diff_sha; the crawl ledger by run_id).
+            "run_id": os.environ.get("CHIMERA_SOAK_RUN_ID", ""),
             "allowed": decision.allowed,
             "source": decision.source,
             "diff_sha": decision.diff_sha,

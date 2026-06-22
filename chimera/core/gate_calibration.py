@@ -28,8 +28,10 @@ label producer are separate rungs (B.4l stages 2-3).
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 UNCERTIFIED = "uncertified"
 
@@ -199,3 +201,45 @@ def stratify(outcomes) -> dict:
     for o in outcomes:
         out.setdefault(o.cell(), []).append(o)
     return out
+
+
+# ── ledger I/O (append-only JSONL, fold-latest — crawl_ledger pattern) ─
+
+
+def gate_outcomes_path(state_dir: Path) -> Path:
+    return Path(state_dir) / "gate-outcomes.jsonl"
+
+
+def append_gate_outcome(path: Path, outcome: GateOutcome) -> Path:
+    """Append one GateOutcome line. A ground_truth back-fill is just a re-append
+    (fold-latest on read) — no in-place mutation, crash-safe."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(outcome.to_dict(), sort_keys=True) + "\n")
+    return p
+
+
+def load_gate_outcomes(path: Path) -> list[GateOutcome]:
+    """Folded latest-per-(gate, run_id, diff_sha) outcomes, in first-seen order.
+    Tolerant: blank / non-JSON / non-outcome lines are skipped."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    latest: dict[tuple, dict] = {}
+    order: list[tuple] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict) or "gate" not in obj:
+            continue
+        key = (obj.get("gate"), obj.get("run_id"), obj.get("diff_sha"))
+        if key not in latest:
+            order.append(key)
+        latest[key] = obj
+    return [GateOutcome.from_dict(latest[k]) for k in order]
