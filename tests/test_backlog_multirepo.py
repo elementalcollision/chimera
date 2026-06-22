@@ -102,6 +102,31 @@ def test_no_regression_cmd_not_emitted(tmp_path):
     assert "CHIMERA_FOREIGN_REGRESSION_CMD" not in env
 
 
+_SELF_PROP = """\
+---
+goal: "Add a merge_rate helper"
+files: chimera/core/crawl_ledger.py tests/test_crawl_ledger.py
+property: "merge_rate always returns a float in [0, 1]"
+base: main
+---
+body
+"""
+
+
+def test_property_parsed_and_emitted_as_task_property(tmp_path):
+    # B.4k stage 2: spec `property:` → invariant field → TASK_PROPERTY env (the soak
+    # asks the agent to encode it as a fuzz_check test). Field is `invariant` (the
+    # YAML key stays `property`) to avoid shadowing the class's @property decorators.
+    s = parse_spec(_write(tmp_path, _SELF_PROP))
+    assert s.valid and s.invariant == "merge_rate always returns a float in [0, 1]"
+    assert s.task_env()["TASK_PROPERTY"] == "merge_rate always returns a float in [0, 1]"
+
+
+def test_no_property_not_emitted(tmp_path):
+    env = parse_spec(_write(tmp_path, _SELF)).task_env()  # _SELF has no property
+    assert "TASK_PROPERTY" not in env
+
+
 def test_self_repo_spec_unchanged(tmp_path):
     """No repo/verify_cmd → fields None and task_env byte-identical to pre-0186."""
     s = parse_spec(_write(tmp_path, _SELF))
