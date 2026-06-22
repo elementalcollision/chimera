@@ -334,6 +334,27 @@ async def test_shell_handler_fail_closed_in_soak_without_charter(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_shell_handler_blocks_out_of_charter_file_in_soak(tmp_path, monkeypatch):
+    # In a scoped soak WITH a charter present, a mutating ruff that targets an
+    # OUT-of-charter file is blocked via the normal violation path (distinct from the
+    # empty-charter fail-closed and the tree-wide cases already covered).
+    from chimera.tools.dispatch import DispatchContext
+    from chimera.tools.shell import shell_handler
+
+    repo = _repo_with_charter(tmp_path)  # charter allows tools/noop_probe.py + its test
+    monkeypatch.setenv("CHIMERA_MIND_DIR", str(repo / "mind"))
+    monkeypatch.setenv("CHIMERA_STATE_DIR", str(repo))
+    monkeypatch.setenv("CHIMERA_SOAK_RUN_ID", "soak-x")
+    monkeypatch.delenv("CHIMERA_ALLOW_UNSCOPED_RUFF", raising=False)
+
+    with pytest.raises(PermissionError, match="B.4h"):
+        await shell_handler(
+            {"argv": ["uv", "run", "ruff", "check", "--fix", "chimera/core/loop.py"]},
+            DispatchContext(elevated=True),
+        )
+
+
+@pytest.mark.asyncio
 async def test_shell_handler_override_bypasses_guard(tmp_path, monkeypatch):
     # With the operator override set, the guard is skipped entirely — proven by the
     # call reaching subprocess exec (intercepted by a sentinel) without a B.4h raise.

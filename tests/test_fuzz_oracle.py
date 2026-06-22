@@ -3,8 +3,23 @@
 from __future__ import annotations
 
 import math
+from random import Random
 
-from chimera.core.fuzz_oracle import FuzzResult, differential_check, fuzz_check
+import pytest
+
+from chimera.core.fuzz_oracle import (
+    FuzzResult,
+    differential_check,
+    fuzz_check,
+    gen_bool,
+    gen_choice,
+    gen_float,
+    gen_int,
+    gen_list,
+    gen_one_of,
+    gen_text,
+    gen_tuple,
+)
 
 
 # A deterministic integer generator (seeded → reproducible sequence).
@@ -132,3 +147,74 @@ def test_differential_custom_equal_for_floats():
     # strict == may or may not diverge depending on values; isclose must always hold.
     assert close.ok is True
     assert strict.seed == 5 and close.seed == 5
+
+
+# ── generator vocabulary (B.4k polish) ──────────────────────────────
+
+
+def test_gen_int_in_range_and_seeded():
+    g = gen_int(0, 9)
+
+    def draws(seed):
+        rng = Random(seed)
+        return [g(rng) for _ in range(20)]
+    assert draws(3) == draws(3)   # same seed → identical sequence (reproducible)
+    assert draws(3) != draws(4)   # different seeds diverge
+    rng = Random(0)
+    assert all(0 <= g(rng) <= 9 for _ in range(200))
+
+
+def test_gen_float_in_range():
+    rng = Random(1)
+    assert all(-2.0 <= gen_float(-2.0, 2.0)(rng) <= 2.0 for _ in range(200))  # closed interval
+
+
+def test_gen_bool_yields_both():
+    rng = Random(2)
+    seen = {gen_bool()(rng) for _ in range(50)}
+    assert seen == {True, False}
+
+
+def test_gen_choice_from_options_and_rejects_empty():
+    rng = Random(3)
+    assert all(gen_choice(("a", "b", "c"))(rng) in {"a", "b", "c"} for _ in range(50))
+    with pytest.raises(ValueError, match="non-empty"):
+        gen_choice([])
+
+
+def test_gen_text_length_bounded_and_can_be_empty():
+    rng = Random(4)
+    samples = [gen_text(max_len=6)(rng) for _ in range(300)]
+    assert all(0 <= len(s) <= 6 for s in samples)
+    assert any(s == "" for s in samples)  # covers the empty-string edge
+
+
+def test_gen_list_length_bounds_and_element_type():
+    rng = Random(5)
+    lists = [gen_list(gen_int(0, 3), min_len=1, max_len=4)(rng) for _ in range(200)]
+    assert all(1 <= len(x) <= 4 for x in lists)
+    assert all(all(0 <= e <= 3 for e in x) for x in lists)
+
+
+def test_gen_tuple_shape():
+    rng = Random(6)
+    t = gen_tuple(gen_int(0, 0), gen_bool(), gen_choice(["x"]))(rng)
+    assert t == (0, t[1], "x") and isinstance(t[1], bool) and len(t) == 3
+
+
+def test_gen_one_of_unions_and_rejects_empty():
+    rng = Random(8)
+    vals = [gen_one_of(gen_int(0, 0), gen_choice(["s"]))(rng) for _ in range(80)]
+    assert set(vals) == {0, "s"}
+    with pytest.raises(ValueError, match="at least one"):
+        gen_one_of()
+
+
+def test_generators_compose_with_fuzz_check():
+    # The vocabulary plugs straight into fuzz_check: a list of ints, sorted, stays
+    # sorted and same-length (a real property over generated inputs).
+    def prop(inp, out):
+        return out == sorted(inp) and len(out) == len(inp)
+    res = fuzz_check(sorted, gen_list(gen_int(-50, 50), max_len=10), prop,
+                     trials=300, seed=0)
+    assert res.ok, res

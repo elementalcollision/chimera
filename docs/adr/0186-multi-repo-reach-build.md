@@ -131,10 +131,15 @@ increment.
 >     4-lens adversarial review (M1 `--add-noqa`; M2 `uv run --with ruff ruff …` /
 >     `uvx --from` / `uv run python -m ruff` wrapper-value detection; M3 value-flag
 >     completeness incl. `--output-file`/`-o`/`--color`/`--range`).
->   - **Follow-up (B.4h posture, deferred — defense-in-depth, not safety-critical):**
->     fail-CLOSED on charter-load error instead of open; resolve the allowlist from a
->     stable root the agent can't relocate via `cwd`; `Path.resolve()` symlink
->     discipline on operands. The B.4g revert backstops all of these.
+>   - **Follow-up (B.4h posture) — ✅ SHIPPED + test-locked** (was the B.4h-review
+>     hardening; this note was stale): fail-CLOSED on charter-load error inside a
+>     scoped soak (`shell.py` — empty allowlist + `CHIMERA_SOAK_RUN_ID` → refuse, not
+>     warn-only); the allowlist resolves from a STABLE root (`CHIMERA_MIND_DIR`'s repo,
+>     independent of the agent-supplied `cwd`, so it can't be relocated to self-disable
+>     the guard); and `realpath` symlink+`..` discipline on operands
+>     (`ruff_scope._resolve_for_compare`). All three covered by
+>     `tests/test_ruff_scope_guard.py` (cwd-relocation, in-soak fail-closed, symlinked
+>     operand). The B.4g revert remains the backstop.
 >   - **B.4i no-pass-to-pass-regression gate (adopted from Phoenix, arXiv:2606.20243)**
 >     — ✅ the foreign gate-approved check (B.4e) runs only the SCOPED verify_cmd, so a
 >     task that EDITS source could break a previously-passing test undetected. Gate 6.5
