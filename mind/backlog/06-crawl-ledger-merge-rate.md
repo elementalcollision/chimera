@@ -2,8 +2,9 @@
 goal: "Add crawl_ledger.merge_rate(state_dir, since=None) — fraction of outcomes merged"
 files: chimera/core/crawl_ledger.py tests/test_crawl_ledger_merge_rate.py
 test: tests/test_crawl_ledger_merge_rate.py
+property: "merge_rate always returns a float in [0.0, 1.0] equal to (#merged in the ts>=since window) / (#in window), rounded to 4 dp, and 0.0 when the window is empty"
 base: main
-done: false
+done: true
 ---
 The RUN-graduation signal in one number: add
 `merge_rate(state_dir, since=None) -> float` to `chimera.core.crawl_ledger`

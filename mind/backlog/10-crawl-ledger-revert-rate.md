@@ -2,8 +2,9 @@
 goal: "Add crawl_ledger.revert_rate(state_dir, since=None) — fraction of outcomes reverted"
 files: chimera/core/crawl_ledger.py tests/test_crawl_ledger_revert_rate.py
 test: tests/test_crawl_ledger_revert_rate.py
+property: "revert_rate always returns a float in [0.0, 1.0] equal to (#reverted in the ts>=since window) / (#in window), rounded to 4 dp, and 0.0 when the window is empty"
 base: main
-done: false
+done: true
 ---
 The safety counterpart to `merge_rate` (a high revert rate means landed CRAWL
 changes are not holding — the strongest signal against auto-merge graduation).
