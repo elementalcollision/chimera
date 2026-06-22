@@ -5,7 +5,11 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from chimera.core.self_pr import _foreign_no_regression, _git_current_ref
+from chimera.core.self_pr import (
+    _failed_tests,
+    _foreign_no_regression,
+    _git_current_ref,
+)
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -40,24 +44,24 @@ _CMD = "grep -q '^ok$' marker.txt"
 def test_blocks_when_base_green_head_red(tmp_path):
     # base ok (green), HEAD broken (red) → pass-to-pass regression → block.
     repo = _repo(tmp_path, base="ok", head="broken")
-    assert _foreign_no_regression(repo, "main", _CMD) is False
+    assert _foreign_no_regression(repo, "main", _CMD).ok is False
 
 
 def test_passes_when_base_green_head_green(tmp_path):
     repo = _repo(tmp_path, base="ok", head="ok")
-    assert _foreign_no_regression(repo, "main", _CMD) is True
+    assert _foreign_no_regression(repo, "main", _CMD).ok is True
 
 
 def test_skips_when_base_already_red(tmp_path):
     # No green baseline to protect → don't block on a pre-existing failure.
     repo = _repo(tmp_path, base="broken", head="broken")
-    assert _foreign_no_regression(repo, "main", _CMD) is True
+    assert _foreign_no_regression(repo, "main", _CMD).ok is True
 
 
 def test_skips_when_no_regression_cmd(tmp_path):
     repo = _repo(tmp_path, base="ok", head="broken")
-    assert _foreign_no_regression(repo, "main", None) is True
-    assert _foreign_no_regression(repo, "main", "   ") is True
+    assert _foreign_no_regression(repo, "main", None).ok is True
+    assert _foreign_no_regression(repo, "main", "   ").ok is True
 
 
 def test_handles_dirty_tree_from_prior_gate(tmp_path):
@@ -67,7 +71,7 @@ def test_handles_dirty_tree_from_prior_gate(tmp_path):
     repo = _repo(tmp_path, base="ok", head="broken")
     (repo / "marker.txt").write_text("locally dirtied\n")  # simulate gate drift
     (repo / "untracked_cache").write_text("junk\n")
-    assert _foreign_no_regression(repo, "main", _CMD) is False
+    assert _foreign_no_regression(repo, "main", _CMD).ok is False
     assert _git_current_ref(repo) == "chimera-soak/x"
 
 
@@ -87,7 +91,7 @@ def test_detached_head_restored_to_sha(tmp_path):
                          capture_output=True, text=True).stdout.strip()
     _git(repo, "checkout", "-q", sha)  # detach
     assert _git_current_ref(repo) == sha
-    assert _foreign_no_regression(repo, "main", _CMD) is False  # base green, head red
+    assert _foreign_no_regression(repo, "main", _CMD).ok is False  # base green, head red
     after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo),
                            capture_output=True, text=True).stdout.strip()
     assert after == sha  # restored to the detached commit
@@ -103,3 +107,39 @@ def test_wrong_ref_blocked_by_validate_backstop(tmp_path):
     _git(repo, "checkout", "-q", "main")  # simulate a failed restore
     _, _, errors = validate(repo, base="main")
     assert any("soak pattern" in e for e in errors)
+
+
+# ── per-test pass→fail diffing (B.4i stretch) ──────────────────────
+
+
+def test_failed_tests_parses_pytest_short_and_verbose():
+    short = ("FAILED tests/test_a.py::test_x - AssertionError\n"
+             "FAILED tests/test_b.py::test_y - ValueError\n..F")
+    assert _failed_tests(short) == {"tests/test_a.py::test_x", "tests/test_b.py::test_y"}
+    verbose = "tests/test_c.py::test_z FAILED\ntests/test_c.py::test_w PASSED\n"
+    assert _failed_tests(verbose) == {"tests/test_c.py::test_z"}
+
+
+def test_failed_tests_empty_on_unrecognised_or_blank():
+    assert _failed_tests("") == set()
+    assert _failed_tests("everything passed, no failures here") == set()
+
+
+# A regression_cmd that emits a pytest-style FAILED line at HEAD (marker broken) but
+# is silent + green at base (marker ok).
+_CMD_NAMES = ("grep -q '^ok$' marker.txt || "
+              "{ echo 'FAILED tests/test_demo.py::test_it'; exit 1; }")
+
+
+def test_new_failures_are_named(tmp_path):
+    repo = _repo(tmp_path, base="ok", head="broken")
+    res = _foreign_no_regression(repo, "main", _CMD_NAMES)
+    assert res.ok is False
+    assert res.new_failures == ("tests/test_demo.py::test_it",)
+
+
+def test_new_failures_empty_when_format_unrecognised(tmp_path):
+    # the default _CMD (grep) emits no pytest-style output → blocked, but no names.
+    repo = _repo(tmp_path, base="ok", head="broken")
+    res = _foreign_no_regression(repo, "main", _CMD)
+    assert res.ok is False and res.new_failures == ()

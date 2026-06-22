@@ -238,12 +238,15 @@ def test_fires_when_approval_disabled(tmp_path, monkeypatch):
 def test_regression_gate_blocks_submit(tmp_path, monkeypatch):
     # Gate 6.5 (B.4i): a pass-to-pass regression must block the PR. With
     # regression_cmd set and the no-regression check failing, submit never fires.
+    from chimera.core.self_pr import RegressionResult
     monkeypatch.setenv("CHIMERA_FOREIGN_PR_APPROVED", "1")
     monkeypatch.setattr(
-        "chimera.core.self_pr._foreign_no_regression", lambda *a, **k: False
+        "chimera.core.self_pr._foreign_no_regression",
+        lambda *a, **k: RegressionResult(False, ("tests/test_x.py::test_y",)),
     )
     res, spy = _call(tmp_path, monkeypatch, regression_cmd="pytest -q")
     assert not res.fired and "regression" in res.skipped_reason
+    assert "tests/test_x.py::test_y" in res.skipped_reason  # B.4i: names the failed test
     assert spy.calls == []
 
 
