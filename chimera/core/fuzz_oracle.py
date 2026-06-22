@@ -30,6 +30,7 @@ in, so the harness is fully unit-testable without Hypothesis or a live agent.
 
 from __future__ import annotations
 
+import string
 from dataclasses import dataclass
 from random import Random
 from typing import Any, Callable
@@ -139,3 +140,62 @@ def differential_check(
             return FuzzResult(ok=False, trials=i + 1, passed=passed, seed=seed,
                               counterexample=inp, detail=_diff_detail(b, c))
     return FuzzResult(ok=True, trials=n, passed=passed, seed=seed)
+
+
+# ── generator vocabulary (ADR 0186 B.4k polish) ──────────────────────
+#
+# fuzz_check/differential_check take a ``gen(rng) -> input`` callable. These
+# factories build the common ones so a property test needn't re-roll boilerplate —
+# each returns a gen that draws ONLY from the passed-in seeded ``rng`` (so the whole
+# run stays reproducible from its seed, the B.4k discipline). Composable:
+# ``gen_list(gen_int(0, 9))``, ``gen_tuple(gen_text(), gen_bool())``.
+
+_TEXT_ALPHABET = string.ascii_letters + string.digits + " "
+
+
+def gen_int(lo: int = -1000, hi: int = 1000) -> Callable[[Random], int]:
+    """A seeded int generator in ``[lo, hi]``."""
+    return lambda rng: rng.randint(lo, hi)
+
+
+def gen_float(lo: float = -1e6, hi: float = 1e6) -> Callable[[Random], float]:
+    """A seeded float generator in ``[lo, hi]`` (``random.uniform`` is closed — ``hi``
+    is reachable via rounding)."""
+    return lambda rng: rng.uniform(lo, hi)
+
+
+def gen_bool() -> Callable[[Random], bool]:
+    """A seeded bool generator."""
+    return lambda rng: rng.random() < 0.5
+
+
+def gen_choice(options) -> Callable[[Random], Any]:
+    """A seeded picker from a non-empty sequence of ``options``."""
+    opts = list(options)
+    if not opts:
+        raise ValueError("gen_choice needs a non-empty options sequence")
+    return lambda rng: rng.choice(opts)
+
+
+def gen_text(alphabet: str = _TEXT_ALPHABET, *, max_len: int = 16) -> Callable[[Random], str]:
+    """A seeded string generator of length ``[0, max_len]`` over ``alphabet`` (covers
+    the empty string — the edge a fixed example usually forgets)."""
+    return lambda rng: "".join(rng.choice(alphabet) for _ in range(rng.randint(0, max_len)))
+
+
+def gen_list(elem: Callable[[Random], Any], *, min_len: int = 0, max_len: int = 8):
+    """A seeded list generator: ``[min_len, max_len]`` elements, each from ``elem``."""
+    return lambda rng: [elem(rng) for _ in range(rng.randint(min_len, max_len))]
+
+
+def gen_tuple(*gens: Callable[[Random], Any]):
+    """A seeded fixed-shape tuple: one element per generator, in order."""
+    return lambda rng: tuple(g(rng) for g in gens)
+
+
+def gen_one_of(*gens: Callable[[Random], Any]):
+    """A seeded union: pick one of ``gens`` per trial, then draw from it (exercises
+    mixed-type inputs)."""
+    if not gens:
+        raise ValueError("gen_one_of needs at least one generator")
+    return lambda rng: rng.choice(gens)(rng)
