@@ -243,3 +243,74 @@ def load_gate_outcomes(path: Path) -> list[GateOutcome]:
             order.append(key)
         latest[key] = obj
     return [GateOutcome.from_dict(latest[k]) for k in order]
+
+
+# ── advisory report (observability only — NEVER a gate decision) ─────
+
+
+def build_report(state_dir: Path, *, alpha: float = 0.05, n_floor: int = 30) -> dict:
+    """Assemble the advisory calibration report: the CRAWL landed-work revert rate
+    (the one real aggregate signal today) plus a per-(gate × model × repo_class) FNR
+    upper bound — or ``UNCERTIFIED`` below the n-floor. Every number names its target
+    POPULATION (benchmark ≠ field; the revert signal is a noisy proxy). Advisory only:
+    nothing here is a gate decision."""
+    from .crawl_ledger import summarize_outcomes  # lazy: one-directional, no cycle
+
+    state_dir = Path(state_dir)
+    crawl = summarize_outcomes(state_dir)
+    cells = []
+    for cell, group in sorted(stratify(load_gate_outcomes(gate_outcomes_path(state_dir))).items()):
+        misses, positives = cell_counts(group)
+        cells.append({
+            "cell": list(cell),
+            "misses": misses,
+            "positives": positives,
+            "bound": fnr_upper(misses, positives, alpha=alpha, n_floor=n_floor),
+            "population": "labelled known-positives in this stratum",
+        })
+    return {
+        "crawl": {
+            "merged": crawl.get("merged", 0),
+            "reverted": crawl.get("reverted", 0),
+            "revert_rate": crawl.get("revert_rate"),
+            "population": "merged CRAWL runs; revert-labelled (noisy proxy — under-counts misses)",
+        },
+        "cells": cells,
+        "alpha": alpha,
+        "n_floor": n_floor,
+    }
+
+
+def render_report(report: dict) -> str:
+    """Human-readable advisory report. Always shows n alongside every number and the
+    UNCERTIFIED sentinel below the floor — no signal must never read as verified."""
+    c = report["crawl"]
+    rr = c["revert_rate"]
+    lines = [
+        "Gate calibration — ADVISORY (observability only; not a gate decision; ADR 0186 B.4l)",
+        "",
+        "CRAWL landed-work revert rate: "
+        + (f"{rr:.1%}" if rr is not None else "n/a")
+        + f"  (reverted {c['reverted']}/{c['merged']} merged)",
+        f"  population: {c['population']}",
+        "",
+    ]
+    if not report["cells"]:
+        lines.append(
+            f"Per-gate FNR bounds: no labelled gate outcomes yet → UNCERTIFIED "
+            f"(n-floor {report['n_floor']}). The substrate is in place; the data is not."
+        )
+    else:
+        lines.append(
+            f"Per-gate FNR upper bounds (one-sided, 1-α={1 - report['alpha']:.2f}; "
+            f"UNCERTIFIED below n={report['n_floor']} known-positives):"
+        )
+        for cell in report["cells"]:
+            gate, model, repo_class = cell["cell"]
+            b = cell["bound"]
+            shown = "UNCERTIFIED" if b == UNCERTIFIED else f"FNR ≤ {b:.1%}"
+            lines.append(
+                f"  {gate} [{model}/{repo_class}]  {shown}  "
+                f"(misses {cell['misses']}/{cell['positives']})"
+            )
+    return "\n".join(lines) + "\n"

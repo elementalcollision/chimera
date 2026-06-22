@@ -154,3 +154,54 @@ def test_load_gate_outcomes_absent_and_tolerant(tmp_path):
     p.write_text('not json\n{"no_gate_field": 1}\n')  # both lines skipped
     append_gate_outcome(p, _o(gt=CLEAN))
     assert len(load_gate_outcomes(p)) == 1
+
+
+# ── advisory report (observability only) ────────────────────────────
+
+
+def _seed_cell(tmp_path, n, *, gate="critic", model="opus", repo="self",
+               verdict=FAIL, gt=VIOLATION):
+    from chimera.core.gate_calibration import append_gate_outcome, gate_outcomes_path
+    p = gate_outcomes_path(tmp_path)
+    for i in range(n):
+        append_gate_outcome(p, GateOutcome(gate=gate, run_id=f"r{i}", diff_sha=f"d{i}",
+                                           model_id=model, repo_class=repo,
+                                           verdict=verdict, ground_truth=gt, ts="t"))
+
+
+def test_build_report_empty_state():
+    from chimera.core.gate_calibration import build_report
+    rep = build_report("/no/such/state")
+    assert rep["crawl"]["merged"] == 0 and rep["crawl"]["revert_rate"] is None
+    assert rep["cells"] == []
+
+
+def test_render_report_advisory_and_uncertified_when_empty():
+    from chimera.core.gate_calibration import build_report, render_report
+    out = render_report(build_report("/no/such/state"))
+    assert "ADVISORY" in out and "not a gate decision" in out
+    assert "UNCERTIFIED" in out and "revert rate" in out
+
+
+def test_build_report_with_labelled_cell(tmp_path):
+    from chimera.core.gate_calibration import build_report
+    _seed_cell(tmp_path, 30)  # 0 misses (all caught) over 30 known-positives
+    rep = build_report(tmp_path, n_floor=30)
+    cell = next(c for c in rep["cells"] if c["cell"] == ["critic", "opus", "self"])
+    assert cell["positives"] == 30 and cell["misses"] == 0
+    assert cell["bound"] != UNCERTIFIED and cell["bound"] < 0.12   # 0/30 → ~0.095
+
+
+def test_render_report_shows_bound_when_certified(tmp_path):
+    from chimera.core.gate_calibration import build_report, render_report
+    _seed_cell(tmp_path, 30)
+    out = render_report(build_report(tmp_path, n_floor=30))
+    assert "FNR ≤" in out and "critic [opus/self]" in out
+
+
+def test_build_report_uncertified_below_floor(tmp_path):
+    from chimera.core.gate_calibration import build_report
+    _seed_cell(tmp_path, 12)  # below the default floor
+    rep = build_report(tmp_path)  # n_floor=30
+    cell = next(c for c in rep["cells"] if c["cell"] == ["critic", "opus", "self"])
+    assert cell["positives"] == 12 and cell["bound"] == UNCERTIFIED

@@ -236,16 +236,16 @@ increment.
 >     violate Chimera's "no signal ≠ verified" rule.
 >   - **B.4l REFRAME → it is a MEASUREMENT rung, not a bounds rung.** Build the substrate
 >     that could one day support a bound, advisory-only, and say so plainly. STAGED:
->     (1) pure core `chimera/core/gate_calibration.py` — `clopper_pearson_upper(k,n,alpha)`
->     (bisection on the regularized incomplete beta; NO scipy/numpy — deps stay
->     anthropic/mcp/httpx/pydantic/pyyaml/kuzu) + a `GateOutcome` record + an UNCERTIFIED
->     sentinel below an n-floor + a STRUCTURAL no-pool guard; unit-tested; zero behaviour
->     change. (2) the LABEL PRODUCER first (the critique's load-bearing fix): an automated
->     revert/override detector that actually CALLS `set_disposition` + records
->     `override_used` (scope_check already logs it), plus a join key (add `run_id` to
->     critic-gate-log) — without the producer the ledger is starved. (3) cheapest real
->     value now: surface the EXISTING `summarize_outcomes().revert_rate` + scope_check
->     override-rate as advisory, n-annotated observability (no CP needed). (4) DEFERRED &
+>     (1) ✅ pure core `chimera/core/gate_calibration.py` (#381) — `clopper_pearson_upper`
+>     (bisection on the regularized incomplete beta; NO scipy/numpy) + `GateOutcome` +
+>     UNCERTIFIED sentinel + a STRUCTURAL no-pool guard; soundness verified against the
+>     binomial defining property. (2) ✅ the LABEL PRODUCER (#382) — `reconcile_reverts`
+>     (the crawl ledger's long-anticipated "gh-reconcile") detects reverts of merged
+>     work + sets disposition automatically; `chimera crawl-reconcile` runs daily; join
+>     key (`run_id` on critic-gate-log) added. (3) ✅ advisory report — `chimera
+>     gate-calibration` surfaces the landed-work revert rate + per-cell FNR bounds (or
+>     UNCERTIFIED), wired into the daily crawl summary; observability only, never a gate
+>     decision. (4) DEFERRED &
 >     conditional: an anytime-valid e-process drift monitor (the only family valid under
 >     drift), then — only IF a gate's stratified n ever clears the floor AND an operator
 >     commits an α/δ — promote ONE gate to a hard bound (critic `false_approve==0`

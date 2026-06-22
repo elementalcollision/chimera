@@ -123,6 +123,11 @@ rm -f "$SOAK_OUT"
 echo "[crawl] health snapshot:"
 uv run chimera health 2>&1 | sed 's/^/[crawl]   /' || true
 
+# Gate calibration advisory (ADR 0186 B.4l): surface the landed-work revert rate +
+# any per-gate FNR bounds. Observability only — never gates anything. Fail-soft.
+echo "[crawl] gate calibration (advisory):"
+uv run chimera gate-calibration 2>&1 | sed 's/^/[crawl]   /' || true
+
 echo "[crawl] soak finished (rc=$RC). Review the branch/PR; mark the spec"
 echo "[crawl] done: true once landed, then: chimera crawl resolve --run-id <id> --disposition merged"
 exit 0
