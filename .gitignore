@@ -54,3 +54,8 @@ graphify-out/
 # regenerated idempotently from labelled issues; claimed via the crawl
 # dispatch log. Operator-authored specs (NN-*.md) stay tracked.
 mind/backlog/issue-*.md
+
+# Auto-generated arXiv digests (chimera arxiv-digest) — runtime
+# artifacts regenerated from the feed + the seen ledger. The hand-curated
+# arxiv-feed-*-signal.md stays tracked.
+mind/research/arxiv-digest-*.md
