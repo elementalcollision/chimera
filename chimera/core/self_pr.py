@@ -189,6 +189,21 @@ def _run_gate_cmd(worktree: Path, cmd: str) -> int | None:
     return proc.returncode
 
 
+def _run_gate_cmd_out(worktree: Path, cmd: str) -> tuple[int, str] | None:
+    """Like :func:`_run_gate_cmd` but also returns stdout — for the behaviour gate,
+    which compares a characterization driver's OUTPUT across revisions, not just its
+    exit code. Returns ``(exit_code, stdout)`` or None on error/timeout (secrets
+    stripped, B.4a)."""
+    try:
+        proc = subprocess.run(
+            cmd, shell=True, cwd=str(worktree), capture_output=True, text=True,
+            timeout=1800, env=_gate_subprocess_env(),
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return proc.returncode, proc.stdout
+
+
 def _foreign_no_regression(
     worktree: Path, base: str, regression_cmd: str | None
 ) -> bool:
@@ -230,6 +245,49 @@ def _foreign_no_regression(
         if _git_checkout(worktree, orig) != 0:
             sys.stderr.write(
                 f"WARNING: B.4i regression gate could not restore worktree {worktree} "
+                f"to {orig!r} after the checkout dance; relying on submit_pr.validate's "
+                f"soak-branch backstop to block a wrong-ref push.\n"
+            )
+
+
+def _foreign_behavior_preserved(
+    worktree: Path, base: str, behavior_cmd: str | None
+) -> bool:
+    """Behaviour-preservation differential gate (ADR 0186 B.4k stage 3, deepens
+    B.4i). For a task DECLARED behaviour-preserving (refactor / optimize / migrate),
+    ``behavior_cmd`` is a DETERMINISTIC characterization driver — it seeds a fuzz
+    generator, runs the changed entrypoint over those inputs, and prints the outputs.
+    The gate runs it at HEAD and at ``base`` and requires BYTE-IDENTICAL stdout: a
+    refactor that alters observable behaviour on any fuzzed input trips the gate.
+    Where B.4i compares pass/pass EXIT CODES (no NEW breakage), this compares OUTPUT
+    (no CHANGED behaviour) — the stronger claim a behaviour-preserving change owes.
+
+    Returns True (proceed) when no ``behavior_cmd`` is configured (opt-in — only a
+    behaviour-preserving task sets it), or the driver can't establish a base baseline
+    (absent at base / errors / None — fail-OPEN, additive assurance, same posture as
+    B.4i; a flaky-infra false block is worse than leaning on verify_cmd + the draft).
+    Returns False (block) only when the driver ran cleanly on BOTH revisions and the
+    outputs DIFFER. Operator-trusted command, NEVER sourced from an issue body.
+    ALWAYS restores the worktree to its original ref."""
+    if not behavior_cmd or not behavior_cmd.strip():
+        return True
+    orig = _git_current_ref(worktree)
+    if orig is None:
+        return True  # git error (NOT detached HEAD) → skip rather than risk the tree
+    try:
+        head = _run_gate_cmd_out(worktree, behavior_cmd)
+        if head is None or head[0] != 0:
+            return True  # driver errored/absent at HEAD → no signal → fail-open
+        if _git_checkout(worktree, base) != 0:
+            return True  # base unavailable → no baseline
+        baseline = _run_gate_cmd_out(worktree, behavior_cmd)
+        if baseline is None or baseline[0] != 0:
+            return True  # driver can't run at base (e.g. a new file) → no baseline
+        return head[1] == baseline[1]  # behaviour preserved iff identical stdout
+    finally:
+        if _git_checkout(worktree, orig) != 0:
+            sys.stderr.write(
+                f"WARNING: B.4k behaviour gate could not restore worktree {worktree} "
                 f"to {orig!r} after the checkout dance; relying on submit_pr.validate's "
                 f"soak-branch backstop to block a wrong-ref push.\n"
             )
@@ -301,6 +359,7 @@ def maybe_foreign_pr(
     foreign_base: str = "main",
     verify_cmd: str | None = None,
     regression_cmd: str | None = None,
+    behavior_cmd: str | None = None,
     run_id: str = "",
     state_dir: Path | str | None = None,
     trust_state_path: Path | str | None = None,
@@ -397,6 +456,18 @@ def maybe_foreign_pr(
         return SelfPrResult(
             skipped_reason="foreign regression_cmd was GREEN on base but RED at HEAD "
             "— the change broke a previously-passing test (pass-to-pass regression)"
+        )
+
+    # 6.6 Behaviour preservation (B.4k stage 3) — for a behaviour-preserving task
+    #     with a behavior_cmd characterization driver, its OUTPUT must be identical on
+    #     base and HEAD. Catches a refactor that changes observable behaviour while
+    #     still passing the scoped (6) + pass-to-pass (6.5) gates. Opt-in; runs last,
+    #     after the cheaper gates. (Distinct from chimera.core.differential, which is
+    #     the in-loop faithfulness fingerprint — this is a cross-revision PR gate.)
+    if not _foreign_behavior_preserved(worktree, foreign_base, behavior_cmd):
+        return SelfPrResult(
+            skipped_reason="foreign behavior_cmd output DIFFERS between base and HEAD "
+            "— the change altered observable behaviour (B.4k behaviour-preservation gate)"
         )
 
     # 7. Delegate to the SAME validated submit path — DRAFT, never merge — but

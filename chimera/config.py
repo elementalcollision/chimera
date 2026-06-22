@@ -217,6 +217,12 @@ REGISTRY: dict[str, FlagSpec] = dict(
            "Optional BROADER test suite for the foreign-PR no-pass-to-pass-regression "
            "gate (ADR 0186 B.4i, from Phoenix): if GREEN on base it must stay GREEN at "
            "HEAD. Unset → gate skipped (additive-test tasks can't regress)."),
+        _f("CHIMERA_FOREIGN_BEHAVIOR_CMD", "str", None,
+           "Optional DETERMINISTIC characterization driver for the foreign-PR "
+           "behaviour-preservation gate (ADR 0186 B.4k): its stdout must be "
+           "byte-identical on base vs HEAD. Set only for behaviour-PRESERVING tasks "
+           "(refactor/optimize); unset → gate skipped (a feature/bugfix changes "
+           "behaviour legitimately)."),
         # ── A2A / federation ──────────────────────────────────
         _f("CHIMERA_PEER_TOKEN", "str", None, "Shared bearer token for the HTTP MCP server."),
         _f("CHIMERA_PEER_TOKENS", "json", None, "Per-peer token map {token: peer-name}."),

@@ -61,6 +61,12 @@ class BacklogSpec:
     # (ADR 0186 B.4i). When set, emitted as CHIMERA_FOREIGN_REGRESSION_CMD so the
     # daily run protects a green base suite per-task (for source-editing tasks).
     regression_cmd: str | None = None
+    # Optional DETERMINISTIC characterization driver for the behaviour-preservation
+    # gate (ADR 0186 B.4k). For a behaviour-PRESERVING task (refactor/optimize), its
+    # stdout must be byte-identical on base vs HEAD; emitted as
+    # CHIMERA_FOREIGN_BEHAVIOR_CMD. Only set this when the change MUST NOT alter
+    # observable behaviour (a feature/bugfix legitimately changes it → leave unset).
+    behavior_cmd: str | None = None
     errors: tuple[str, ...] = field(default=())
 
     @property
@@ -99,6 +105,11 @@ class BacklogSpec:
         # regressions per-task. Only emitted when the spec opts in.
         if self.regression_cmd:
             env["CHIMERA_FOREIGN_REGRESSION_CMD"] = self.regression_cmd
+        # Per-spec behaviour-preservation driver (B.4k) — the foreign-pr submit CLI
+        # reads this as its --behavior-cmd default, so the daily loop can gate that a
+        # behaviour-preserving change did not alter observable output. Opt-in.
+        if self.behavior_cmd:
+            env["CHIMERA_FOREIGN_BEHAVIOR_CMD"] = self.behavior_cmd
         return env
 
 
@@ -166,10 +177,14 @@ def parse_spec(path: Path) -> BacklogSpec:
     regression_cmd = data.get("regression_cmd")
     regression_cmd = str(regression_cmd).strip() if regression_cmd else None
 
+    # Optional characterization driver for the behaviour-preservation gate (B.4k).
+    behavior_cmd = data.get("behavior_cmd")
+    behavior_cmd = str(behavior_cmd).strip() if behavior_cmd else None
+
     return BacklogSpec(
         path=path, goal=goal, files=files, test=test, base=base,
         body=body, done=done, issue=issue, repo=repo, verify_cmd=verify_cmd,
-        regression_cmd=regression_cmd, errors=tuple(errors),
+        regression_cmd=regression_cmd, behavior_cmd=behavior_cmd, errors=tuple(errors),
     )
 
 
