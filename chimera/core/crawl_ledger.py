@@ -228,3 +228,10 @@ def revert_rate(state_dir: Path, since: str | None = None) -> float:
     spec-06/10 pair), distinct from ``summarize_outcomes``'s ``revert_rate`` which is
     reverted/merged (the auto-merge safety signal over LANDED work)."""
     return _disposition_rate(read_outcomes(state_dir), "reverted", since)
+
+
+def outcomes_for_slug(state_dir: Path, slug: str) -> list:
+    """The folded outcomes whose ``slug`` matches, in ``read_outcomes`` (first-seen)
+    order — how one spec has fared across runs (re-dispatches, reverts). ``[]`` for an
+    unknown slug."""
+    return [o for o in read_outcomes(state_dir) if o.slug == slug]

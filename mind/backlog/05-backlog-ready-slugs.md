@@ -3,7 +3,7 @@ goal: "Add backlog.ready_slugs(mind_dir) — slugs of all actionable specs"
 files: chimera/core/backlog.py tests/test_backlog_ready_slugs.py
 test: tests/test_backlog_ready_slugs.py
 base: main
-done: false
+done: true
 ---
 Add a module-level `ready_slugs(mind_dir) -> list[str]` to
 `chimera.core.backlog` returning the slugs of every spec that is actionable —

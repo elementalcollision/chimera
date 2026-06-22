@@ -243,6 +243,16 @@ def _all_rungs() -> list[LadderRung]:
     return list(seen.values())
 
 
+def tier_model_ids(tier: str) -> list[str]:
+    """The ``model_id`` of each rung in ``tier``'s ladder, in escalation
+    (cheapest-first) order. Raises ``ValueError`` for an unknown tier (mirrors
+    :func:`resolve_rung`). Introspection helper for dashboards / ``chimera tiers``
+    callers that want ids without walking ``LadderRung`` objects."""
+    if tier not in TIER_LADDERS:
+        raise ValueError(f"unknown tier {tier!r}; valid: {list(TIER_LADDERS)}")
+    return [rung.config.model_id for rung in TIER_LADDERS[tier]]
+
+
 def _alias_for(rung: LadderRung) -> str:
     """Short, model-only name. 'openai/gpt-5-pro' → 'gpt-5-pro';
     'claude-opus-4-7' → 'claude-opus-4-7' (no provider prefix)."""

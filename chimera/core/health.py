@@ -38,6 +38,21 @@ class HealthSummary:
     overall: HealthStatus
     dimensions: list[HealthDimension]
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "HealthSummary":
+        """Reconstruct a summary from :meth:`to_dict` output (round-trippable:
+        ``HealthSummary.from_dict(s.to_dict()) == s``), so a snapshot can be persisted
+        to JSON and reloaded. The exact inverse of ``to_dict`` — rebuilds the
+        ``HealthDimension`` list too."""
+        return cls(
+            overall=data["overall"],
+            dimensions=[
+                HealthDimension(key=d["key"], label=d["label"],
+                                status=d["status"], detail=d["detail"])
+                for d in data["dimensions"]
+            ],
+        )
+
     def to_dict(self) -> dict:
         return {
             "overall": self.overall,
