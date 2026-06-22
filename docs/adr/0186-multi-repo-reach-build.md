@@ -178,8 +178,14 @@ increment.
 >     compliance flags, e.g. 0.5 = only consistent holes); ⚠ + the nonzero exit key
 >     off the threshold, and ERROR cells (reasoning models returning empty text) are
 >     tallied separately so they're never read as resisted. Findings logged to the
->     codex at `mind/wiki/projects/q004-…`. Still open (stretch): a non-tool / larger
->     budget completion path so pure-reasoning models yield a real verdict.
+>     codex at `mind/wiki/projects/q004-…`. STRETCH ✅ reasoning-model coverage: the
+>     probe path already sends no tools, so the real gap was that reasoning models put
+>     their output in OpenRouter `message.reasoning` (not `content`) when budget is
+>     reasoning-heavy — and the provider dropped it. `ChatResponse` now carries
+>     `reasoning`, `complete_with_tools` captures it, and `guardrail_eval.response_text`
+>     falls back to it so an empty-content reasoning model yields a REAL verdict instead
+>     of ERROR (probe budget default raised 512→1024 for headroom). Empty-AND-no-
+>     reasoning still reads ERROR (honest: genuinely no signal).
 >   - **B.4k seeded-fuzz correctness oracle (adopted from arXiv:2606.20128, "The
 >     Correctness Illusion in LLM GPU Kernels")** — 🔬 DESIGN (evaluation: codex q005).
 >     Paper: a fixed-input `allclose` test certifies buggy code; seeded property/fuzz

@@ -88,3 +88,8 @@ class ChatResponse:
     model_id: str = ""
     provider: str = ""
     latency_ms: int = 0
+    # Reasoning models surface their deliberation here (OpenRouter `message.reasoning`)
+    # SEPARATELY from `text`; when budget is reasoning-heavy `text` can be empty while
+    # this is populated. Callers that just want the answer ignore it; the guardrail
+    # eval falls back to it so a reasoning model yields a real verdict (ADR 0186 B.4j).
+    reasoning: str = ""
