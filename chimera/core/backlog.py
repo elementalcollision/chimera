@@ -67,6 +67,13 @@ class BacklogSpec:
     # CHIMERA_FOREIGN_BEHAVIOR_CMD. Only set this when the change MUST NOT alter
     # observable behaviour (a feature/bugfix legitimately changes it → leave unset).
     behavior_cmd: str | None = None
+    # Optional human-readable INVARIANT (YAML key `property:`) the change must uphold
+    # (ADR 0186 B.4k stage 2). For an "add a pure helper" task, emitted as
+    # TASK_PROPERTY so the soak asks the agent to encode it as a seeded
+    # chimera.core.fuzz_oracle.fuzz_check test — not just fixed-input assertions
+    # (which over-fit; cf. codex q005). Field named `invariant` to avoid shadowing
+    # the @property decorators in this class; the spec key stays `property`.
+    invariant: str | None = None
     errors: tuple[str, ...] = field(default=())
 
     @property
@@ -110,6 +117,10 @@ class BacklogSpec:
         # behaviour-preserving change did not alter observable output. Opt-in.
         if self.behavior_cmd:
             env["CHIMERA_FOREIGN_BEHAVIOR_CMD"] = self.behavior_cmd
+        # Per-spec invariant (B.4k stage 2) — the soak folds this into the agent's
+        # task as "encode it as a fuzz_check property test". Opt-in.
+        if self.invariant:
+            env["TASK_PROPERTY"] = self.invariant
         return env
 
 
@@ -181,10 +192,15 @@ def parse_spec(path: Path) -> BacklogSpec:
     behavior_cmd = data.get("behavior_cmd")
     behavior_cmd = str(behavior_cmd).strip() if behavior_cmd else None
 
+    # Optional invariant hint (YAML `property:`) for a fuzz_check property test (B.4k).
+    invariant = data.get("property")
+    invariant = str(invariant).strip() if invariant else None
+
     return BacklogSpec(
         path=path, goal=goal, files=files, test=test, base=base,
         body=body, done=done, issue=issue, repo=repo, verify_cmd=verify_cmd,
-        regression_cmd=regression_cmd, behavior_cmd=behavior_cmd, errors=tuple(errors),
+        regression_cmd=regression_cmd, behavior_cmd=behavior_cmd, invariant=invariant,
+        errors=tuple(errors),
     )
 
 

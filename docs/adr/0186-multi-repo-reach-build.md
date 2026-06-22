@@ -201,8 +201,13 @@ increment.
 >     (`behavior_cmd`) at base vs HEAD and blocks if stdout DIFFERS; threaded through
 >     `BacklogSpec.behavior_cmd` → task_env → soak → `foreign-pr submit --behavior-cmd`
 >     → gate 6.6, mirroring B.4i (config flag CHIMERA_FOREIGN_BEHAVIOR_CMD; never from
->     an issue body). (2) [next] property path — `BacklogSpec` property field + a soak
->     gate rung running `fuzz_check` + the agent emits the property (high applicability).
+>     an issue body). (2a) ✅ property path (SELF, where applicability actually is) —
+>     `BacklogSpec.invariant` (YAML `property:`) → TASK_PROPERTY → the soak asks the
+>     agent to encode it as a `fuzz_oracle.fuzz_check` test in the test it already
+>     writes (self-repo helper tasks, gated by pytest — NOT the foreign path). The key
+>     correction: property-fuzz is high-applicability for SELF helpers, so it is agent
+>     empowerment, not a foreign gate. (2b) [next] foreign `property_cmd` gate rung
+>     (low-applicability, completes the verify/regression/behaviour/property taxonomy).
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build

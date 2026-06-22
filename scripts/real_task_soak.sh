@@ -241,6 +241,11 @@ design_note() {
 }
 
 phase1_inbox() {
+    # B.4k stage 2: when the spec declares an invariant (property:), ask the agent to
+    # encode it as a seeded fuzz_check property test — fixed-input assertions over-fit
+    # and certify buggy code (codex q005). Empty when unset (no-op blank line).
+    local _prop_task=""
+    [ -n "${TASK_PROPERTY:-}" ] && _prop_task="- [ ] **Write a PROPERTY test, not just fixed-input assertions.** Encode this invariant as a seeded \`chimera.core.fuzz_oracle.fuzz_check\` test (many generated inputs; it returns the first counterexample + its seed): \`${TASK_PROPERTY}\`. A handful of fixed examples over-fit and can certify buggy code (codex q005)."
     cat <<INBOX_EOF
 # Inbox — real-task soak phase 1 (FIX; engines off, no commits)
 
@@ -282,6 +287,7 @@ file-edit tool for code changes; use \`uv run ruff check --fix\` for lint fixes.
   the intended behaviour with a test. Do NOT make the suite pass by deleting
   untested behaviour.
 - [ ] Do NOT commit in phase 1 (engines are off). The runner commits in phase 2.
+${_prop_task}
 
 SCOPE (locked): edit ONLY these files for the fix — ${TASK_FILES}. Operational
 journal notes under mind/ are allowed. Anything else is out of scope.
