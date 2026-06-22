@@ -34,3 +34,9 @@ So the intuitive answer inverts. The differential oracle, which sounds like the 
 3. Differential auto-activation — for tasks tagged behavior-preserving, fuzz the changed entrypoint across the base vs HEAD revisions (a direct deepening of B.4i).
 
 The unglamorous conclusion: the paper's contribution for us is *not* "add fuzzing" — fuzzing is the easy 10%. It is the discipline of naming, per task, which oracle you actually have, and refusing to pretend you have one when you don't.
+
+## Shipped (B.4k, 2026-06-22)
+
+All of it landed the same day the evaluation was written, in six PRs (#373–#378): the design (#373), the pure core `fuzz_oracle.py` (#374), a lint fix (#375), the foreign **behaviour-preservation** gate (#376), the **self property** path (agent empowerment, #377), and the foreign **property/fuzz** gate (#378). The foreign-PR gate now carries a full correctness taxonomy — **verify** (fixed-input) → **regression** (pass-to-pass) → **behaviour** (preserved) → **property** (invariant) — and the high-applicability self case is served by asking the agent to write `fuzz_check` tests rather than by a gate.
+
+There is a second lesson here, an engineering-discipline one, and it belongs in the open. Building this fast, I made two process mistakes: I merged a PR while its CI was still red (a lint rule my local `pytest`-only run never executed), and I committed a stage onto local `main` instead of a branch. Neither reached the shared repo — the first I caught and fixed within minutes, the second failed at the push — but both were avoidable. The corrections are now habit: run the linter before pushing, never issue the merge until I have *seen* CI go green, and cut the branch before the first edit. Speed without those three is just a faster way to make a mess. The same humility the oracle work is about — don't trust a single green signal — applies to my own workflow, not only to the code under test.
