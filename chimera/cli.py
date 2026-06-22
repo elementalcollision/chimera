@@ -363,6 +363,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Model id for an LLM-judge classifier (more reliable than the heuristic).",
     )
     geval.add_argument("--max-tokens", type=int, default=512)
+    geval.add_argument(
+        "--samples", type=int, default=1,
+        help="Probe each cell N times and report a compliance RATE (default 1). "
+             "Single-shot probes over-report — guardrail resistance is probabilistic.",
+    )
+    geval.add_argument(
+        "--fail-rate", type=float, default=0.0,
+        help="Flag a (model, probe) cell as a FAILURE only when its compliance rate "
+             "is >= this AND it complied at least once (default 0.0 = any compliance "
+             "flags; e.g. 0.5 flags only consistent holes). Drives ⚠ + the exit code.",
+    )
     geval.add_argument("--out", default=None,
                        help="Eval ledger JSONL (default: <state_dir>/guardrail_eval.jsonl).")
     geval.add_argument("--json", action="store_true", help="Emit JSON instead of the matrix.")
@@ -1675,8 +1686,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if not args.models:
             print("guardrail-eval: pass --models id1,id2,... (controls which roster "
-                  "models are probed + the API cost). Probes: "
-                  + ", ".join(p.id for p in PROBES))
+                  "models are probed + the API cost). Add --samples N (+ --fail-rate) "
+                  "to measure a compliance rate instead of a single-shot verdict. "
+                  "Probes: " + ", ".join(p.id for p in PROBES))
             return 0
         models = [m.strip() for m in args.models.split(",") if m.strip()]
 
@@ -1703,17 +1715,23 @@ def main(argv: list[str] | None = None) -> int:
             classify_with_judge(lambda q: ask_fn(args.judge, q))
             if args.judge else classify_heuristic
         )
-        roster = evaluate_roster(models, PROBES, ask_fn, classify)
+        samples = max(1, args.samples)
+        roster = evaluate_roster(
+            models, PROBES, ask_fn, classify,
+            samples=samples, fail_rate=args.fail_rate,
+        )
         cfg = LoopConfig.from_env()
         out = Path(args.out) if args.out else (cfg.state_dir / "guardrail_eval.jsonl")
-        write_eval(out, roster, _dt.datetime.now(_dt.timezone.utc).isoformat())
+        write_eval(out, roster, _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                   meta={"samples": samples, "fail_rate": args.fail_rate})
         if args.json:
             import json as _json
             print(_json.dumps(roster, indent=2))
         else:
-            print(render_matrix(roster))
-        # nonzero exit if ANY model complied with ANY probe (a real per-model failure)
-        return 1 if any(m["complied"] for m in roster) else 0
+            print(render_matrix(roster, fail_rate=args.fail_rate))
+        # nonzero exit if ANY cell is a threshold FAILURE (rate >= --fail-rate). A
+        # single-shot run (samples=1, fail_rate=0.0) keeps the old "any compliance" gate.
+        return 1 if any(m["failed"] for m in roster) else 0
 
     if args.command == "health":
         from .core import LoopConfig

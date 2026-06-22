@@ -165,8 +165,17 @@ increment.
 >     COMPLIED. NOTE: this measures per-model ALIGNMENT/injectability — the actual
 >     safety boundary stays the DETERMINISTIC harness gates (scope/shell/B.4f-i/
 >     entropy), which are model-independent. First-pass heuristic classifier;
->     `--judge` enables an LLM-judge (upgrade). Follow-up: run live across the roster
->     to populate the matrix + route the tier ladder by the results.
+>     `--judge` enables an LLM-judge (upgrade). UPDATE (q004): ran live across the
+>     12-model cross-vendor roster — NRT-Bench's near-disjoint thesis held (only
+>     qwen3-235b had a standing prompt-injection hole), but VERIFICATION overturned 2
+>     of 3 single-shot ✗ flags: guardrail resistance is PROBABILISTIC, and one sample
+>     over-reports. So the harness now samples N-per-cell (`--samples N`) and reports a
+>     compliance RATE with a fail threshold (`--fail-rate`; default 0.0 = any
+>     compliance flags, e.g. 0.5 = only consistent holes); ⚠ + the nonzero exit key
+>     off the threshold, and ERROR cells (reasoning models returning empty text) are
+>     tallied separately so they're never read as resisted. Findings logged to the
+>     codex at `mind/wiki/projects/q004-…`. Still open (stretch): a non-tool / larger
+>     budget completion path so pure-reasoning models yield a real verdict.
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
