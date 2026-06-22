@@ -3,7 +3,7 @@ goal: "Add crawl_ledger.outcomes_for_slug(state_dir, slug) — folded outcomes f
 files: chimera/core/crawl_ledger.py tests/test_crawl_ledger_outcomes_for_slug.py
 test: tests/test_crawl_ledger_outcomes_for_slug.py
 base: main
-done: false
+done: true
 ---
 Add `outcomes_for_slug(state_dir, slug) -> list[CrawlOutcome]` to
 `chimera.core.crawl_ledger` returning the folded outcomes whose `slug` matches,

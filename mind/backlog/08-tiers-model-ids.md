@@ -3,7 +3,7 @@ goal: "Add tiers.tier_model_ids(tier) — model ids of a tier ladder in escalati
 files: chimera/providers/tiers.py tests/test_tier_model_ids.py
 test: tests/test_tier_model_ids.py
 base: main
-done: false
+done: true
 ---
 Add `tier_model_ids(tier: str) -> list[str]` to `chimera.providers.tiers`
 returning the `model_id` of each rung in the tier's ladder, in escalation

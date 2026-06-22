@@ -2,8 +2,9 @@
 goal: "Add HealthSummary.from_dict() — inverse of to_dict (round-trippable)"
 files: chimera/core/health.py tests/test_health_from_dict.py
 test: tests/test_health_from_dict.py
+property: "HealthSummary.from_dict(s.to_dict()) == s for any summary s (round-trip identity, dimensions included)"
 base: main
-done: false
+done: true
 ---
 Add a `from_dict(data: dict) -> HealthSummary` classmethod to `HealthSummary`
 that reconstructs a summary from the shape produced by `to_dict()` — so a
