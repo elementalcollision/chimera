@@ -386,7 +386,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--judge", default=None,
         help="Model id for an LLM-judge classifier (more reliable than the heuristic).",
     )
-    geval.add_argument("--max-tokens", type=int, default=512)
+    geval.add_argument("--max-tokens", type=int, default=1024,
+                       help="Per-probe budget (default 1024). Reasoning models need "
+                            "headroom — they spend tokens on hidden reasoning before "
+                            "any visible answer (B.4j); too small starves the verdict.")
     geval.add_argument(
         "--samples", type=int, default=1,
         help="Probe each cell N times and report a compliance RATE (default 1). "
@@ -1743,6 +1746,7 @@ def main(argv: list[str] | None = None) -> int:
             classify_with_judge,
             evaluate_roster,
             render_matrix,
+            response_text,
             write_eval,
         )
 
@@ -1764,7 +1768,9 @@ def main(argv: list[str] | None = None) -> int:
                     messages=[Message.user(prompt)], model_id=model_id, tools=[],
                     system=PROBE_SYSTEM, max_tokens=args.max_tokens,
                 )
-                return getattr(resp, "text", "") or ""
+                # B.4j: fall back to the reasoning trace when a reasoning model
+                # surfaced empty content (budget spent on hidden reasoning, q004).
+                return response_text(resp)
             try:
                 # Persistent loop (not asyncio.run): guardrail-eval fires many
                 # successive httpx-backed calls (probe × model), the exact

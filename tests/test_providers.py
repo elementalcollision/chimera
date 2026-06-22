@@ -180,6 +180,40 @@ async def test_openrouter_complete_with_tools_does_not_open_per_call_clients(mon
     await provider.aclose()
 
 
+async def test_openrouter_captures_reasoning_when_content_empty(monkeypatch):
+    """B.4j: a reasoning model can surface empty `content` + a `reasoning` trace (budget
+    spent on hidden reasoning). The provider must capture `reasoning` so the guardrail
+    eval can fall back to it instead of grading the probe ERROR."""
+    import asyncio
+
+    import httpx
+
+    from chimera.providers import Message
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "choices": [{
+                "message": {"content": "", "reasoning": "I will refuse this request."},
+                "finish_reason": "length",
+            }],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 50},
+        })
+
+    provider = OpenRouterProvider()
+    provider._client = httpx.AsyncClient(
+        timeout=provider._timeout, headers=provider._headers,
+        transport=httpx.MockTransport(_handler),
+    )
+    provider._client_loop = asyncio.get_running_loop()
+    resp = await provider.complete_with_tools(
+        messages=[Message.user("hi")], model_id="x", tools=[], max_tokens=8,
+    )
+    assert resp.text == "" and resp.reasoning == "I will refuse this request."
+    await provider.aclose()
+
+
 @pytest.mark.asyncio
 async def test_openrouter_provider_rebinds_client_on_loop_change(monkeypatch):
     """If a provider instance is reused across distinct loops (tests do

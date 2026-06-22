@@ -266,6 +266,10 @@ class OpenRouterProvider(Provider):
         choice = (payload.get("choices") or [{}])[0]
         message = choice.get("message") or {}
         text = message.get("content") or ""
+        # Reasoning models put their deliberation in `reasoning` (a string), separate
+        # from `content`; capture it so callers (B.4j guardrail eval) can fall back to
+        # it when `content` came back empty (budget spent on hidden reasoning).
+        reasoning = message.get("reasoning") or ""
         finish_raw = choice.get("finish_reason") or "stop"
 
         tool_uses: list[ToolUseBlock] = []
@@ -292,4 +296,5 @@ class OpenRouterProvider(Provider):
             model_id=model_id,
             provider=self.name,
             latency_ms=latency_ms,
+            reasoning=reasoning if isinstance(reasoning, str) else "",
         )
