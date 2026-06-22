@@ -198,3 +198,33 @@ def summarize_outcomes(state_dir: Path, since: str | None = None) -> dict:
         "cost_per_run_usd": round(total_cost / total, 4),
         "cost_per_landed_usd": round(total_cost / merged, 4) if merged else None,
     }
+
+
+# ── single-number RUN-graduation rates (specs 06 / 10) ───────────────
+
+
+def _disposition_rate(outcomes: list, disposition: str, since: str | None = None) -> float:
+    """Pure: the fraction of ``outcomes`` (those with ``ts >= since`` when ``since`` is
+    set) whose ``disposition`` matches, rounded to 4 dp; ``0.0`` for an empty window.
+    The pure core both rate helpers share — and the property-fuzz target (B.4k)."""
+    in_window = [o for o in outcomes if since is None or o.ts >= since]
+    total = len(in_window)
+    if total == 0:
+        return 0.0
+    n = sum(1 for o in in_window if o.disposition == disposition)
+    return round(n / total, 4)
+
+
+def merge_rate(state_dir: Path, since: str | None = None) -> float:
+    """Fraction of folded outcomes that ``merged`` — the RUN-graduation signal in one
+    number (``0.0`` when there are none). Honours the ``summarize_outcomes`` ``since``
+    window."""
+    return _disposition_rate(read_outcomes(state_dir), "merged", since)
+
+
+def revert_rate(state_dir: Path, since: str | None = None) -> float:
+    """Fraction of folded outcomes that ``reverted`` — the safety counterpart to
+    ``merge_rate`` (``0.0`` when there are none). NOTE: this is reverted/TOTAL (the
+    spec-06/10 pair), distinct from ``summarize_outcomes``'s ``revert_rate`` which is
+    reverted/merged (the auto-merge safety signal over LANDED work)."""
+    return _disposition_rate(read_outcomes(state_dir), "reverted", since)
