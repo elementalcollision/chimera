@@ -122,3 +122,35 @@ def test_stratify_groups_by_cell_without_merging():
     # every stratify() group is single-cell → cell_counts never raises on its output.
     for group in cells.values():
         cell_counts(group)
+
+
+# ── ledger I/O (append-only JSONL, fold-latest) ─────────────────────
+
+
+def test_gate_outcomes_ledger_roundtrip_and_fold(tmp_path):
+    from dataclasses import replace
+
+    from chimera.core.gate_calibration import (
+        append_gate_outcome,
+        gate_outcomes_path,
+        load_gate_outcomes,
+    )
+    p = gate_outcomes_path(tmp_path)
+    o = _o(gt=UNKNOWN)
+    append_gate_outcome(p, o)
+    # A ground-truth back-fill is a re-append of the same (gate, run_id, diff_sha) key.
+    append_gate_outcome(p, replace(o, ground_truth=VIOLATION))
+    loaded = load_gate_outcomes(p)
+    assert len(loaded) == 1 and loaded[0].ground_truth == VIOLATION  # fold-latest wins
+
+
+def test_load_gate_outcomes_absent_and_tolerant(tmp_path):
+    from chimera.core.gate_calibration import (
+        append_gate_outcome,
+        load_gate_outcomes,
+    )
+    assert load_gate_outcomes(tmp_path / "none.jsonl") == []
+    p = tmp_path / "g.jsonl"
+    p.write_text('not json\n{"no_gate_field": 1}\n')  # both lines skipped
+    append_gate_outcome(p, _o(gt=CLEAN))
+    assert len(load_gate_outcomes(p)) == 1
