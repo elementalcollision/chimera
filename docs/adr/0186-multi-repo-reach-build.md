@@ -151,8 +151,12 @@ increment.
 >     (`BacklogSpec.regression_cmd` → `CHIMERA_FOREIGN_REGRESSION_CMD`;
 >     `walk_repos.yaml` optional `regression_cmd`; threaded through the soak's
 >     foreign-pr submit), a stderr warning when the worktree restore fails, and
->     detached-HEAD + backstop tests. STILL deferred (stretch): per-test pass→fail
->     diffing (vs the current suite-level base-green→head-green signal).
+>     detached-HEAD + backstop tests. STRETCH ✅ per-test pass→fail diffing: the gate
+>     now captures the regression_cmd's stdout at base vs HEAD, parses the failing
+>     test node-ids (pytest short + verbose forms; degrades to the suite-level signal
+>     on an unrecognised format), and `_foreign_no_regression` returns a
+>     `RegressionResult(ok, new_failures)` so the skip reason NAMES which
+>     previously-passing test(s) the change broke.
 >   - **B.4j per-model guardrail validation (adopted from NRT-Bench arXiv:2606.20408)**
 >     — ✅ 2nd adoption from the arXiv WALK intelligence source. NRT-Bench: a guardrail
 >     stack that helps one model can HURT another (vulnerabilities are near-disjoint),

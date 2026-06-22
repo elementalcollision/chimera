@@ -204,39 +204,75 @@ def _run_gate_cmd_out(worktree: Path, cmd: str) -> tuple[int, str] | None:
     return proc.returncode, proc.stdout
 
 
+# Per-test pass→fail diffing (ADR 0186 B.4i stretch): parse a test runner's stdout so
+# a blocked PR can name WHICH previously-passing test the change broke, not just "the
+# suite regressed". Best-effort over the common pytest forms; an unrecognised format
+# degrades gracefully (empty set → no names, the suite-level signal stands).
+_FAILED_SUMMARY_RE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
+_FAILED_VERBOSE_RE = re.compile(r"^(\S+::\S+)\s+(?:FAILED|ERROR)\b", re.MULTILINE)
+
+
+def _failed_tests(stdout: str) -> set[str]:
+    """Best-effort set of failing test node-ids from a runner's stdout — pytest's
+    short-summary (``FAILED <nodeid>``) and verbose (``<nodeid> FAILED``) forms. Empty
+    when the format is unrecognised (caller keeps the suite-level signal). Pure."""
+    if not stdout:
+        return set()
+    return set(_FAILED_SUMMARY_RE.findall(stdout)) | set(_FAILED_VERBOSE_RE.findall(stdout))
+
+
+@dataclass(frozen=True)
+class RegressionResult:
+    """Outcome of the no-pass-to-pass-regression check. ``ok`` is the proceed/block
+    decision (truthy via ``__bool__``, so ``if not result`` reads naturally);
+    ``new_failures`` names the previously-passing tests the change broke (best-effort,
+    empty when the runner's format wasn't recognised)."""
+    ok: bool
+    new_failures: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
 def _foreign_no_regression(
     worktree: Path, base: str, regression_cmd: str | None
-) -> bool:
+) -> RegressionResult:
     """No pass-to-pass regression (ADR 0186 B.4i, adopted from Phoenix 2606.20243):
     if ``regression_cmd`` (the target's BROADER suite) is GREEN on ``base``, it must
     stay GREEN at HEAD (the agent's commit). This catches a change that edits source
     and silently breaks a previously-passing test — which the SCOPED verify_cmd gate
-    (B.4e) never runs and so cannot see.
+    (B.4e) never runs and so cannot see. On a regression it DIFFS the failing-test sets
+    (base vs HEAD) so the caller can name which tests broke (B.4i stretch).
 
-    Returns True (proceed) when: no ``regression_cmd`` is configured (opt-in — the
+    Returns ok=True (proceed) when: no ``regression_cmd`` is configured (opt-in — the
     common additive-test task can't regress), OR the suite is already RED on base
     (no green baseline to protect — warn, don't block on a pre-existing failure).
-    Returns False (block) only when base was GREEN and HEAD is RED. Fail-OPEN on a
+    Returns ok=False (block) only when base was GREEN and HEAD is RED. Fail-OPEN on a
     harness error (None exit / lost ref): a flaky-infra false block is worse than
     leaning on B.4e + the draft + B.4g; the regression gate is additive assurance,
     not a primary safety boundary. ALWAYS restores the worktree to its original ref."""
     if not regression_cmd or not regression_cmd.strip():
-        return True
+        return RegressionResult(True)
     orig = _git_current_ref(worktree)
     if orig is None:
-        return True  # git error (NOT detached HEAD) → skip rather than risk the tree
+        return RegressionResult(True)  # git error (NOT detached HEAD) → skip
     try:
         if _git_checkout(worktree, base) != 0:
-            return True  # base unavailable → no baseline
-        base_rc = _run_gate_cmd(worktree, regression_cmd)
-        if base_rc != 0:
-            return True  # base already red (or errored) → no green baseline to protect
+            return RegressionResult(True)  # base unavailable → no baseline
+        base_run = _run_gate_cmd_out(worktree, regression_cmd)
+        if base_run is None or base_run[0] != 0:
+            return RegressionResult(True)  # base red/errored → no green baseline
         if _git_checkout(worktree, orig) != 0:
-            return True  # couldn't return to HEAD → skip (finally still restores)
-        head_rc = _run_gate_cmd(worktree, regression_cmd)
-        if head_rc is None:
-            return True  # harness/timeout error at HEAD → fail-open (additive gate)
-        return head_rc == 0  # regression iff base GREEN but HEAD RED
+            return RegressionResult(True)  # couldn't return to HEAD → skip
+        head_run = _run_gate_cmd_out(worktree, regression_cmd)
+        if head_run is None:
+            return RegressionResult(True)  # harness/timeout error → fail-open
+        if head_run[0] == 0:
+            return RegressionResult(True)  # stayed GREEN
+        # Regression: base GREEN, HEAD RED. Name the NEW failures (head minus base);
+        # base was green so its set is ~empty, but diff anyway for correctness.
+        new = tuple(sorted(_failed_tests(head_run[1]) - _failed_tests(base_run[1])))
+        return RegressionResult(False, new)
     finally:
         # ALWAYS restore the worktree to its original ref. If this fails (e.g. a
         # pathological regression_cmd deleted the soak branch by name), the tree is
@@ -474,10 +510,12 @@ def maybe_foreign_pr(
     #     source edit that breaks a previously-passing test (the scoped verify_cmd
     #     above never runs it). Opt-in; runs AFTER the cheap scoped gate so we don't
     #     pay for the broad suite when the scoped gate already failed.
-    if not _foreign_no_regression(worktree, foreign_base, regression_cmd):
+    reg = _foreign_no_regression(worktree, foreign_base, regression_cmd)
+    if not reg:
+        named = (": " + ", ".join(reg.new_failures)) if reg.new_failures else ""
         return SelfPrResult(
             skipped_reason="foreign regression_cmd was GREEN on base but RED at HEAD "
-            "— the change broke a previously-passing test (pass-to-pass regression)"
+            f"— the change broke previously-passing test(s){named} (pass-to-pass regression)"
         )
 
     # 6.6 Behaviour preservation (B.4k stage 3) — for a behaviour-preserving task
