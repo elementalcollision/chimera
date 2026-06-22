@@ -74,6 +74,11 @@ class BacklogSpec:
     # (which over-fit; cf. codex q005). Field named `invariant` to avoid shadowing
     # the @property decorators in this class; the spec key stays `property`.
     invariant: str | None = None
+    # Optional operator-trusted PROPERTY/fuzz test command for the FOREIGN property
+    # gate (ADR 0186 B.4k stage 2b). Must PASS at HEAD; emitted as
+    # CHIMERA_FOREIGN_PROPERTY_CMD. Distinct from `invariant` (the self-task hint the
+    # agent encodes) — this is a foreign-PR gate COMMAND the operator supplies.
+    property_cmd: str | None = None
     errors: tuple[str, ...] = field(default=())
 
     @property
@@ -121,6 +126,10 @@ class BacklogSpec:
         # task as "encode it as a fuzz_check property test". Opt-in.
         if self.invariant:
             env["TASK_PROPERTY"] = self.invariant
+        # Per-spec foreign property/fuzz gate command (B.4k stage 2b) — the foreign-pr
+        # submit CLI reads this as its --property-cmd default. Opt-in.
+        if self.property_cmd:
+            env["CHIMERA_FOREIGN_PROPERTY_CMD"] = self.property_cmd
         return env
 
 
@@ -196,11 +205,15 @@ def parse_spec(path: Path) -> BacklogSpec:
     invariant = data.get("property")
     invariant = str(invariant).strip() if invariant else None
 
+    # Optional operator-trusted property/fuzz gate command for foreign PRs (B.4k 2b).
+    property_cmd = data.get("property_cmd")
+    property_cmd = str(property_cmd).strip() if property_cmd else None
+
     return BacklogSpec(
         path=path, goal=goal, files=files, test=test, base=base,
         body=body, done=done, issue=issue, repo=repo, verify_cmd=verify_cmd,
         regression_cmd=regression_cmd, behavior_cmd=behavior_cmd, invariant=invariant,
-        errors=tuple(errors),
+        property_cmd=property_cmd, errors=tuple(errors),
     )
 
 

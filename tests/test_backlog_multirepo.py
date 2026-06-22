@@ -127,6 +127,27 @@ def test_no_property_not_emitted(tmp_path):
     assert "TASK_PROPERTY" not in env
 
 
+_FOREIGN_PROP = """\
+---
+goal: "Refactor with a property gate"
+files: src/x.py tests/test_x.py
+repo: elementalcollision/claude-daemon
+verify_cmd: "pytest tests/test_x.py"
+property_cmd: "uv run pytest tests/test_props.py -q"
+base: main
+---
+body
+"""
+
+
+def test_property_cmd_parsed_and_emitted(tmp_path):
+    # B.4k 2b per-spec wiring: property_cmd → CHIMERA_FOREIGN_PROPERTY_CMD env.
+    s = parse_spec(_write(tmp_path, _FOREIGN_PROP))
+    assert s.valid and s.property_cmd == "uv run pytest tests/test_props.py -q"
+    assert s.task_env()["CHIMERA_FOREIGN_PROPERTY_CMD"] == "uv run pytest tests/test_props.py -q"
+    assert "CHIMERA_FOREIGN_PROPERTY_CMD" not in parse_spec(_write(tmp_path, _FOREIGN)).task_env()
+
+
 def test_self_repo_spec_unchanged(tmp_path):
     """No repo/verify_cmd → fields None and task_env byte-identical to pre-0186."""
     s = parse_spec(_write(tmp_path, _SELF))

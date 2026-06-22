@@ -439,6 +439,12 @@ def _build_parser() -> argparse.ArgumentParser:
                                 "be byte-identical on base vs HEAD, blocking a behaviour-preserving "
                                 "change that altered observable behaviour (ADR 0186 B.4k). Default "
                                 "$CHIMERA_FOREIGN_BEHAVIOR_CMD; unset → skipped.")
+    fp_submit.add_argument("--property-cmd",
+                           default=os.environ.get("CHIMERA_FOREIGN_PROPERTY_CMD"),
+                           help="optional operator-trusted PROPERTY/fuzz test — must PASS at HEAD "
+                                "(exits nonzero on a counterexample), catching code that passes the "
+                                "fixed-input verify_cmd but is wrong on un-tested inputs (ADR 0186 "
+                                "B.4k 2b). Default $CHIMERA_FOREIGN_PROPERTY_CMD; unset → skipped.")
     fp_submit.add_argument("--run-id", default="")
     fp_submit.add_argument("--state-dir", default=None,
                            help="Persistent governance ledger dir (default: operator state dir).")
@@ -1864,7 +1870,7 @@ def main(argv: list[str] | None = None) -> int:
                 worktree=args.worktree, repo_root=args.worktree,
                 foreign_repo=args.repo, foreign_base=args.base,
                 verify_cmd=args.verify_cmd, regression_cmd=args.regression_cmd,
-                behavior_cmd=args.behavior_cmd,
+                behavior_cmd=args.behavior_cmd, property_cmd=args.property_cmd,
                 run_id=args.run_id, state_dir=state_dir, dry_run=args.dry_run,
             )
             if not res.fired:

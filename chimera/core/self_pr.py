@@ -293,6 +293,27 @@ def _foreign_behavior_preserved(
             )
 
 
+def _foreign_property_holds(worktree: Path, property_cmd: str | None) -> bool:
+    """Property/fuzz gate (ADR 0186 B.4k stage 2b). ``property_cmd`` is an
+    operator-trusted property/fuzz test (e.g. a fuzz_oracle.fuzz_check driver, or a
+    Hypothesis suite) that must PASS at HEAD — it exits nonzero on a counterexample,
+    catching a change that satisfies the scoped fixed-input verify_cmd but is wrong
+    on inputs no fixed test covers (the correctness illusion). HEAD-only (no
+    checkout dance) — unlike B.4i/B.4k-behaviour it asserts a property of the changed
+    code itself, not a base-vs-HEAD relation.
+
+    Returns True (proceed) when no ``property_cmd`` is configured (opt-in) or the
+    runner errors (None → fail-OPEN, additive assurance, same posture as the other
+    foreign gates). Returns False (block) only when the property test ran and FAILED.
+    Operator-trusted, NEVER sourced from an issue body."""
+    if not property_cmd or not property_cmd.strip():
+        return True
+    rc = _run_gate_cmd(worktree, property_cmd)
+    if rc is None:
+        return True  # harness/timeout error → fail-open (additive gate)
+    return rc == 0
+
+
 def maybe_self_pr(
     *,
     worktree: Path | str,
@@ -360,6 +381,7 @@ def maybe_foreign_pr(
     verify_cmd: str | None = None,
     regression_cmd: str | None = None,
     behavior_cmd: str | None = None,
+    property_cmd: str | None = None,
     run_id: str = "",
     state_dir: Path | str | None = None,
     trust_state_path: Path | str | None = None,
@@ -468,6 +490,16 @@ def maybe_foreign_pr(
         return SelfPrResult(
             skipped_reason="foreign behavior_cmd output DIFFERS between base and HEAD "
             "— the change altered observable behaviour (B.4k behaviour-preservation gate)"
+        )
+
+    # 6.7 Property/fuzz (B.4k stage 2b) — if an operator-trusted property_cmd is
+    #     configured, it must PASS at HEAD. A property/fuzz test exits nonzero on a
+    #     counterexample, catching code that satisfies the fixed-input verify_cmd (6)
+    #     but is wrong on inputs no fixed test covers. HEAD-only; opt-in; runs last.
+    if not _foreign_property_holds(worktree, property_cmd):
+        return SelfPrResult(
+            skipped_reason="foreign property_cmd FAILED at HEAD — the change violates a "
+            "stated property on a fuzzed input (B.4k property/fuzz gate)"
         )
 
     # 7. Delegate to the SAME validated submit path — DRAFT, never merge — but
