@@ -433,6 +433,12 @@ def _build_parser() -> argparse.ArgumentParser:
                            help="optional BROADER suite — if GREEN on base it must stay GREEN at "
                                 "HEAD, blocking pass-to-pass regressions (ADR 0186 B.4i). Default "
                                 "$CHIMERA_FOREIGN_REGRESSION_CMD; unset → skipped.")
+    fp_submit.add_argument("--behavior-cmd",
+                           default=os.environ.get("CHIMERA_FOREIGN_BEHAVIOR_CMD"),
+                           help="optional DETERMINISTIC characterization driver — its stdout must "
+                                "be byte-identical on base vs HEAD, blocking a behaviour-preserving "
+                                "change that altered observable behaviour (ADR 0186 B.4k). Default "
+                                "$CHIMERA_FOREIGN_BEHAVIOR_CMD; unset → skipped.")
     fp_submit.add_argument("--run-id", default="")
     fp_submit.add_argument("--state-dir", default=None,
                            help="Persistent governance ledger dir (default: operator state dir).")
@@ -1858,6 +1864,7 @@ def main(argv: list[str] | None = None) -> int:
                 worktree=args.worktree, repo_root=args.worktree,
                 foreign_repo=args.repo, foreign_base=args.base,
                 verify_cmd=args.verify_cmd, regression_cmd=args.regression_cmd,
+                behavior_cmd=args.behavior_cmd,
                 run_id=args.run_id, state_dir=state_dir, dry_run=args.dry_run,
             )
             if not res.fired:

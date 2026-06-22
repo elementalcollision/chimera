@@ -661,10 +661,14 @@ if [ "$FOREIGN_MODE" = "1" ]; then
         # (set by a spec's task_env) as --regression-cmd. Array preserves spaces in the cmd.
         _fpr_reg=()
         [ -n "${CHIMERA_FOREIGN_REGRESSION_CMD:-}" ] && _fpr_reg=(--regression-cmd "$CHIMERA_FOREIGN_REGRESSION_CMD")
+        # Per-task behaviour-preservation driver (B.4k) — thread $CHIMERA_FOREIGN_BEHAVIOR_CMD
+        # (set by a behaviour-preserving spec's task_env) as --behavior-cmd. Array preserves spaces.
+        _fpr_beh=()
+        [ -n "${CHIMERA_FOREIGN_BEHAVIOR_CMD:-}" ] && _fpr_beh=(--behavior-cmd "$CHIMERA_FOREIGN_BEHAVIOR_CMD")
         # shellcheck disable=SC2086  # _fpr_dry is a single optional flag
         ( cd "${RUNNER_ROOT:-$REPO_ROOT}" && uv run chimera foreign-pr submit \
             --repo "$TASK_REPO" --worktree "$WORKTREE" --base "$TASK_BASE" \
-            --verify-cmd "$TASK_VERIFY_CMD" "${_fpr_reg[@]}" \
+            --verify-cmd "$TASK_VERIFY_CMD" "${_fpr_reg[@]}" "${_fpr_beh[@]}" \
             --run-id "$RUN_ID" --state-dir "${RUNNER_ROOT:-$REPO_ROOT}/state" $_fpr_dry ) 2>&1 | tee -a "$LOG" || true
     fi
     log "── foreign mode: branch '$BRANCH' left in $WORKTREE for review ──"

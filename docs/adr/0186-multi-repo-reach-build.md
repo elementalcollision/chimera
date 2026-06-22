@@ -194,10 +194,15 @@ increment.
 >     forward-looking). NOT a universal gate (cf. B.4i): opt-in, pure-function-scoped,
 >     and it MUST log N/A so "no oracle" is never read as "verified". Fuzz is SEEDED
 >     and records the failing seed (reproducibility — rhymes with q004's
->     "a non-reproducible signal lies"). STAGED BUILD: (1) pure + injectable core
+>     "a non-reproducible signal lies"). STAGED BUILD: (1) ✅ pure + injectable core
 >     `chimera/core/fuzz_oracle.py` (property + differential, seeded, counterexample
->     +seed) [next]; (2) `BacklogSpec` property field + a soak gate rung + the agent
->     emits the property; (3) differential auto-activate (deepens B.4i).
+>     +seed) — #374; (3) ✅ differential behaviour-preservation GATE deepening B.4i —
+>     `_foreign_behavior_preserved` runs an operator-trusted characterization driver
+>     (`behavior_cmd`) at base vs HEAD and blocks if stdout DIFFERS; threaded through
+>     `BacklogSpec.behavior_cmd` → task_env → soak → `foreign-pr submit --behavior-cmd`
+>     → gate 6.6, mirroring B.4i (config flag CHIMERA_FOREIGN_BEHAVIOR_CMD; never from
+>     an issue body). (2) [next] property path — `BacklogSpec` property field + a soak
+>     gate rung running `fuzz_check` + the agent emits the property (high applicability).
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
