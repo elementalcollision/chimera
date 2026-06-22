@@ -176,6 +176,28 @@ increment.
 >     tallied separately so they're never read as resisted. Findings logged to the
 >     codex at `mind/wiki/projects/q004-…`. Still open (stretch): a non-tool / larger
 >     budget completion path so pure-reasoning models yield a real verdict.
+>   - **B.4k seeded-fuzz correctness oracle (adopted from arXiv:2606.20128, "The
+>     Correctness Illusion in LLM GPU Kernels")** — 🔬 DESIGN (evaluation: codex q005).
+>     Paper: a fixed-input `allclose` test certifies buggy code; seeded property/fuzz
+>     vs a high-precision reference catches it. CRUX = the oracle-source problem —
+>     fuzzing inputs is trivial; what you compare the output AGAINST is the hard part.
+>     Three sources: (a) DIFFERENTIAL (pre-change code = reference) for
+>     behavior-preserving tasks only; (b) PROPERTY/metamorphic (an invariant is the
+>     oracle — range, round-trip, idempotence, ordering, conservation) for pure
+>     functions; (c) REFERENCE-IMPL (an independent naive twin) — powerful but
+>     expensive + itself fallible. EVIDENCE (16 backlog specs): ~0 refactors / 11
+>     additive-test; the dominant task is "add a small pure helper + a fixed-input
+>     test" (specs literally say "assert its ACTUAL behavior") — exactly the over-fit
+>     risk the paper names, and the textbook property-fuzz target. DECISION: PROPERTY
+>     fuzz LEADS (high applicability); DIFFERENTIAL is a SECONDARY mode that
+>     auto-activates on behavior-preserving tasks (near-zero applicability today —
+>     forward-looking). NOT a universal gate (cf. B.4i): opt-in, pure-function-scoped,
+>     and it MUST log N/A so "no oracle" is never read as "verified". Fuzz is SEEDED
+>     and records the failing seed (reproducibility — rhymes with q004's
+>     "a non-reproducible signal lies"). STAGED BUILD: (1) pure + injectable core
+>     `chimera/core/fuzz_oracle.py` (property + differential, seeded, counterexample
+>     +seed) [next]; (2) `BacklogSpec` property field + a soak gate rung + the agent
+>     emits the property; (3) differential auto-activate (deepens B.4i).
 ## Context
 
 ADR 0183 Pillar B (multi-repo reach) was deliberately deferred to its own build
