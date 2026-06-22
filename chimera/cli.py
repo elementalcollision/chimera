@@ -338,6 +338,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Digest output dir (default: <mind_dir>/research).",
     )
     arxiv.add_argument("--top", type=int, default=12, help="Shortlist size (default 12).")
+    arxiv.add_argument(
+        "--seen", default=None,
+        help="Delta-dedup ledger of already-digested arXiv ids "
+             "(default: <state_dir>/arxiv_seen.json). Only genuinely-new papers "
+             "are surfaced each run.",
+    )
 
     # CRAWL outcome ledger (ADR 0182 Phase 3 evidence base).
     crawl_p = sub.add_parser(
@@ -1619,10 +1625,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0  # fail-soft: a missing source must not break the daily driver
         cfg = LoopConfig.from_env()
         out = Path(args.out) if args.out else (cfg.mind_dir / "research")
-        status = write_digest_if_new(Path(args.feed), out, top_n=args.top)
+        # Delta-dedup ledger: only surface papers not seen in a prior run, so an
+        # overlapping 7-day window re-scrape doesn't re-emit the whole set.
+        seen = Path(args.seen) if args.seen else (cfg.state_dir / "arxiv_seen.json")
+        status = write_digest_if_new(Path(args.feed), out, top_n=args.top, seen_path=seen)
         print(
             f"arxiv-digest: {status['status']} "
-            f"(run={status['run_date'] or '—'}, records={status['count']})"
+            f"(run={status['run_date'] or '—'}, new={status['count']}"
+            f"/{status.get('total', status['count'])})"
             + (f" -> {status['path']}" if status.get("path") else "")
         )
         return 0
