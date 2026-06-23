@@ -31,6 +31,14 @@ adds assertions), instead of any-test-touched. Low-risk, scoped to `submit_pr.py
 real improvement, but defense-in-depth refinement, not a gap — file as a candidate, not
 an emergency.
 
+**SHIPPED ([#393](https://github.com/elementalcollision/chimera/pull/393)).** Replaced
+the blanket with a per-source RELATION check — a touched test covers a source only if
+it name-corresponds OR **imports the source module**. The import signal was the key
+finding during the build: pure name-correspondence (the original proposal) would have
+*false-blocked* real PRs (`tiers.py` is tested by `test_tier_model_ids.py`; PR #386
+touched exactly that), so the import relation is accepted too. Defense-in-depth still:
+the mutation/faithfulness gate remains the authoritative check.
+
 ## 2. Validation + future-design — "Calibration Is Not Control: Why LLM-Agent Oversight Needs Intervention" (arXiv:2606.21399, cs.AI)
 
 This is the paper B.4l should have cited. Its thesis: scalar risk prediction
