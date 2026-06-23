@@ -208,6 +208,68 @@ def issue_to_spec_markdown(
     return f"---\n{front}\n---\n{body_note}"
 
 
+def _path_on_base(repo: str, path: str, ref: str) -> bool | None:
+    """Whether ``path`` exists on ``repo`` at ``ref`` — ``True``/``False`` when
+    GitHub answers definitively, ``None`` on ANY indeterminate failure
+    (network / auth / rate-limit / unexpected output).
+
+    The ``None`` (fail-open) third state is the safety contract: the stale-issue
+    pre-filter only SUPPRESSES work on a definite ``True``, so a transient gh
+    error must never read as "absent" and never as "present" — it reads as
+    "unknown" and the issue ingests as before. Never raises."""
+    if not (_safe_rel_path(path) and _safe_rel_path(ref)):
+        return None
+    # ref in the URL (argv list → no shell, so '?' is literal); GET by default.
+    argv = ["gh", "api", f"repos/{repo}/contents/{path}?ref={ref}"]
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode == 0:
+        return True
+    err = proc.stderr or ""
+    # gh prints "gh: Not Found (HTTP 404)" for an absent path — match the HTTP
+    # STATUS, not a bare "404"/"Not Found" substring an unrelated error could
+    # carry, so a non-404 failure stays indeterminate (None → fail-open). (A
+    # mis-read absence would still ingest, not suppress — but the contract is
+    # "False == definitely absent", so keep it honest.)
+    if "HTTP 404" in err:
+        return False
+    return None
+
+
+def is_stale_foreign_issue(
+    issue: dict,
+    repo: str,
+    *,
+    path_exists_on_base,
+) -> bool:
+    """True iff this FOREIGN crawl-ready issue's additive test target ALREADY
+    exists on its base branch — i.e. the work it describes is almost certainly
+    done, and soaking it would burn an agent cycle producing a duplicate or
+    gate-doomed PR (motivated 2026-06-23 by a stale drift-monitor issue whose
+    ``tests/test_window.py`` was already written by a merged PR, referencing a
+    class that never existed).
+
+    Fail-closed-to-False: returns ``True`` ONLY when ``path_exists_on_base``
+    DEFINITELY reports the target present. No spec block, no validated test
+    path, an unsafe base, or an unknown/error existence result (``None``) all
+    return ``False`` so a real task is never silently suppressed.
+    ``path_exists_on_base`` is ``(repo, path, ref) -> bool | None`` (injected;
+    see :func:`_path_on_base`)."""
+    block = spec_block(issue.get("body"))
+    if not block:
+        return False
+    files = _norm_files(block.get("files"))
+    test = _safe_test_path(block.get("test"), files)
+    if not test:
+        return False
+    base = block.get("base") or "main"
+    if not _safe_rel_path(base):
+        return False
+    return path_exists_on_base(repo, test, base) is True
+
+
 def ingest_issues(
     repo: str,
     *,
@@ -219,6 +281,8 @@ def ingest_issues(
     behavior_cmd: str | None = None,
     property_cmd: str | None = None,
     issues: list[dict] | None = None,
+    path_exists_on_base=None,
+    dry_run: bool = False,
 ) -> list[IngestResult]:
     """Materialise crawl-ready issues from ``repo`` into ``mind/backlog/``.
 
@@ -230,6 +294,18 @@ def ingest_issues(
     can't clobber operator edits, ``done:`` markers, or dispatch state (a landed
     task whose issue is still open won't be resurrected). Returns one
     :class:`IngestResult` per issue.
+
+    ``path_exists_on_base`` (foreign-only stale-issue pre-filter): an optional
+    ``(repo, path, ref) -> bool | None`` checker. When supplied, a FOREIGN issue
+    whose additive test target already exists on its base branch is SKIPPED
+    (:func:`is_stale_foreign_issue`) before any write — fail-open, so only a
+    definite "present" suppresses. ``None`` (default) disables the filter, i.e.
+    pre-pre-filter behaviour, so library/test callers are unaffected.
+
+    ``dry_run`` (preview): run EVERY filter (no-spec / already-written / stale)
+    but write nothing — the would-ingest issues come back with their target
+    ``written`` path and reason ``"would ingest"``, so a caller's count matches a
+    real run's writes exactly (the single source of truth for ``--walk --dry-run``).
     """
     if issues is None:
         # Fail-closed: foreign ingestion without a label would scan ALL open issues
@@ -239,7 +315,8 @@ def ingest_issues(
             return [IngestResult(0, "", None, "foreign ingest requires a non-empty label")]
         issues = _fetch_issues(repo, label=label)
     out_dir = backlog_dir(mind_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
 
     results: list[IngestResult] = []
     for issue in issues:
@@ -254,8 +331,29 @@ def ingest_issues(
             results.append(IngestResult(number, title, None, "no usable spec block"))
             continue
         path = out_dir / f"{_issue_stem(repo, number)}.md"
+        # Idempotent-add: an existing spec is kept. Checked BEFORE the staleness
+        # probe so a re-run short-circuits without a gh round-trip (and so dry-run
+        # counts match the real path's skips exactly).
         if path.exists():
             results.append(IngestResult(number, title, None, "exists (kept)"))
+            continue
+        # Stale-issue pre-filter (foreign WALK hygiene): skip an issue whose test
+        # target already exists on base — the work is done, soaking it would only
+        # produce a duplicate/gate-doomed PR. Opt-in (path_exists_on_base set) and
+        # fail-open (only a definite "present" suppresses).
+        if (
+            foreign
+            and path_exists_on_base is not None
+            and is_stale_foreign_issue(issue, repo, path_exists_on_base=path_exists_on_base)
+        ):
+            results.append(
+                IngestResult(number, title, None, "target exists on base (likely done)")
+            )
+            continue
+        if dry_run:
+            # WOULD ingest: report the target path WITHOUT writing it, so a
+            # `--dry-run` preview reflects exactly what a real run would create.
+            results.append(IngestResult(number, title, path, "would ingest"))
             continue
         path.write_text(md, encoding="utf-8")
         results.append(IngestResult(number, title, path, "ingested"))
