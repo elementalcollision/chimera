@@ -34,6 +34,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 UNCERTIFIED = "uncertified"
+PROMOTABLE = "promotable"        # stage 5: cell may be promoted to a hard gate
+EXCEEDS = "exceeds_budget"       # stage 5: certified but FNR bound > the operator budget
 
 # Ground-truth labels for a gate firing.
 VIOLATION = "violation"   # a real violation WAS present on this input
@@ -256,26 +258,36 @@ def _drift_field(d):
 
 
 def build_report(state_dir: Path, *, alpha: float = 0.05, n_floor: int = 30,
-                 drift_p0: float = 0.1) -> dict:
+                 drift_p0: float = 0.1, max_fnr: float = 0.05) -> dict:
     """Assemble the advisory calibration report: the CRAWL landed-work revert rate
     (the one real aggregate signal today) plus a per-(gate × model × repo_class) FNR
-    upper bound — or ``UNCERTIFIED`` below the n-floor — and an anytime-valid DRIFT
-    status per cell (stage 4; ``INSUFFICIENT`` until a stream accrues). Every number
-    names its target POPULATION (benchmark ≠ field; the revert signal is a noisy
-    proxy). Advisory only: nothing here is a gate decision."""
+    upper bound — or ``UNCERTIFIED`` below the n-floor — an anytime-valid DRIFT status
+    (stage 4), and a hard-gate PROMOTION eligibility per cell + a SOUND stack
+    slip-through bound (stage 5; both ``UNCERTIFIED`` until cells certify). Every
+    number names its target POPULATION (benchmark ≠ field; the revert signal is a
+    noisy proxy). Advisory only: nothing here is a gate decision."""
     from .crawl_ledger import summarize_outcomes  # lazy: one-directional, no cycle
 
     state_dir = Path(state_dir)
     crawl = summarize_outcomes(state_dir)
+    groups = sorted(stratify(load_gate_outcomes(gate_outcomes_path(state_dir))).items())
+    # Multiplicity: with k cells each reported at α, P(some cell's true FNR exceeds its
+    # bound) inflates toward 1 — so a dashboard read across cells must spend α/k each
+    # (Bonferroni) for SIMULTANEOUS coverage. Applied by default so the bounds (and the
+    # promotion decisions they drive) can't be cherry-picked across cells.
+    eff_alpha = bonferroni_alpha(alpha, len(groups))
     cells = []
-    for cell, group in sorted(stratify(load_gate_outcomes(gate_outcomes_path(state_dir))).items()):
+    for cell, group in groups:
         misses, positives = cell_counts(group)
+        promo = promotion_decision(misses, positives, alpha=eff_alpha, max_fnr=max_fnr,
+                                   n_floor=n_floor)
         cells.append({
             "cell": list(cell),
             "misses": misses,
             "positives": positives,
-            "bound": fnr_upper(misses, positives, alpha=alpha, n_floor=n_floor),
-            "drift": _drift_field(drift_status(group, drift_p0, alpha=alpha)),
+            "bound": promo.bound,
+            "drift": _drift_field(drift_status(group, drift_p0, alpha=eff_alpha)),
+            "promotion": promo.status,
             "population": "labelled known-positives in this stratum",
         })
     return {
@@ -287,8 +299,13 @@ def build_report(state_dir: Path, *, alpha: float = 0.05, n_floor: int = 30,
         },
         "cells": cells,
         "alpha": alpha,
+        "effective_alpha": eff_alpha,   # Bonferroni-corrected (α / n_cells) — simultaneous
+        "n_cells": len(groups),
         "n_floor": n_floor,
         "drift_p0": drift_p0,
+        "max_fnr": max_fnr,
+        # SOUND stack composition: P(violation slips ALL gates) ≤ min per-gate FNR.
+        "stack_slip_bound": stack_slip_bound([c["bound"] for c in cells]),
     }
 
 
@@ -312,8 +329,11 @@ def render_report(report: dict) -> str:
             f"(n-floor {report['n_floor']}). The substrate is in place; the data is not."
         )
     else:
+        eff = report.get("effective_alpha", report["alpha"])
+        bonf = ("" if eff == report["alpha"]
+                else f"; Bonferroni α/{report.get('n_cells', 1)}={eff:g} for simultaneous coverage")
         lines.append(
-            f"Per-gate FNR upper bounds (one-sided, 1-α={1 - report['alpha']:.2f}; "
+            f"Per-gate FNR upper bounds (one-sided, 1-α={1 - report['alpha']:.2f}{bonf}; "
             f"UNCERTIFIED below n={report['n_floor']} known-positives):"
         )
         for cell in report["cells"]:
@@ -327,15 +347,26 @@ def render_report(report: dict) -> str:
                 drift = f"drift: ⚠ DEGRADED (e={d['e_value']})"
             else:
                 drift = f"drift: ok (e={d['e_value']})"
+            promo = {PROMOTABLE: "promote: ✓", EXCEEDS: "promote: ✗(>budget)"}.get(
+                cell.get("promotion"), "promote: —")
             lines.append(
                 f"  {gate} [{model}/{repo_class}]  {shown}  "
-                f"(misses {cell['misses']}/{cell['positives']})  {drift}"
+                f"(misses {cell['misses']}/{cell['positives']})  {drift}  {promo}"
             )
         if report.get("drift_p0") is not None:
             lines.append(
                 f"\ndrift = anytime-valid e-process vs baseline miss rate "
                 f"p0={report['drift_p0']:g} (⚠ at e≥{1 / report['alpha']:g}); "
-                f"'—' = insufficient stream. Advisory."
+                f"'—' = insufficient stream."
+            )
+        ssb = report.get("stack_slip_bound")
+        mf = report.get("max_fnr")
+        if mf is not None:
+            shown_ssb = "UNCERTIFIED" if ssb == UNCERTIFIED or ssb is None else f"≤ {ssb:.1%}"
+            lines.append(
+                f"promote ✓ = FNR provably ≤ budget {mf:g} (operator α/δ decision, never "
+                f"auto-applied). Stack slip-through (min per-gate FNR, no independence "
+                f"assumed): {shown_ssb}. Advisory."
             )
     return "\n".join(lines) + "\n"
 
@@ -404,3 +435,61 @@ def drift_status(outcomes, p0: float = 0.1, *, lam: float = 1.0,
         return INSUFFICIENT
     seq = [1 if o.verdict == PASS else 0 for o in positives]
     return drift_eprocess(seq, p0, lam=lam, alpha=alpha)
+
+
+# ── stage 5: hard-bound promotion + sound stack composition (B.4l) ───
+#
+# Conditional and operator-driven: a gate is only ever promoted from advisory to a
+# HARD (blocking) gate by an operator who commits an FNR budget (max_fnr) AND has the
+# data to certify it. This module SURFACES eligibility; it never auto-promotes.
+
+
+@dataclass(frozen=True)
+class PromotionResult:
+    """Whether a cell may be promoted to a hard gate. ``status`` ∈ {PROMOTABLE,
+    EXCEEDS, UNCERTIFIED}; ``bound`` is the CP FNR upper bound (or UNCERTIFIED)."""
+    status: str
+    bound: float | str
+    max_fnr: float
+    n: int
+
+
+def promotion_decision(misses: int, n: int, *, alpha: float = 0.05,
+                       max_fnr: float = 0.05, n_floor: int = 30) -> PromotionResult:
+    """May this gate cell be PROMOTED from advisory to a HARD (blocking) gate? Only if
+    its false-negative rate is provably ≤ ``max_fnr`` (the operator's committed budget)
+    at 1-alpha confidence. ``n < n_floor`` → UNCERTIFIED (never auto-promote on thin
+    data). Else the CP upper bound U: U ≤ max_fnr → PROMOTABLE; U > max_fnr → EXCEEDS
+    (too leaky, or data too sparse to certify below budget). NEVER auto-applied — this
+    is surfaced for an explicit operator α/δ decision (the critic `false_approve==0`
+    floor, generalized)."""
+    b = fnr_upper(misses, n, alpha=alpha, n_floor=n_floor)
+    if b == UNCERTIFIED:
+        return PromotionResult(UNCERTIFIED, UNCERTIFIED, max_fnr, n)
+    return PromotionResult(PROMOTABLE if b <= max_fnr else EXCEEDS, b, max_fnr, n)
+
+
+def stack_slip_bound(bounds):
+    """SOUND upper bound on P(a violation slips the WHOLE stack undetected) — i.e.
+    EVERY gate misses it. Since all-miss ⊆ {gate_i misses} for each i, P(all miss) ≤
+    min_i FNR_i for ANY joint distribution — no independence assumed. This is the
+    assumption-free composition:
+
+    * NOT the product (∏ FNR_i assumes INDEPENDENCE — unsound under correlated misses,
+      which Chimera has: one confusing diff fools several gates at once), and
+    * NOT the sum (Σ bounds P(SOME gate misses) — a different event).
+
+    ``bounds`` is per-gate FNR upper bounds; UNCERTIFIED entries are ignored.
+    UNCERTIFIED if none are certified."""
+    numeric = [b for b in bounds if b != UNCERTIFIED]
+    return min(numeric) if numeric else UNCERTIFIED
+
+
+def bonferroni_alpha(alpha: float, k: int) -> float:
+    """The per-cell α for SIMULTANEOUS 1-alpha coverage across ``k`` reported cells
+    (Bonferroni): with ``k`` cells each at α, P(some cell's true FNR exceeds its bound)
+    can approach 1 — so a dashboard read across many cells must spend α/k per cell. No
+    independence assumed (union bound). ``k <= 1`` → alpha unchanged."""
+    if k <= 1:
+        return alpha
+    return alpha / k

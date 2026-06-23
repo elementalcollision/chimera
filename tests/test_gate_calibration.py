@@ -8,20 +8,25 @@ import pytest
 
 from chimera.core.gate_calibration import (
     CLEAN,
+    EXCEEDS,
     FAIL,
     INSUFFICIENT,
     PASS,
+    PROMOTABLE,
     UNCERTIFIED,
     UNKNOWN,
     VIOLATION,
     DriftResult,
     GateOutcome,
+    bonferroni_alpha,
     cell_counts,
     clopper_pearson_upper,
     drift_eprocess,
     drift_status,
     fnr_upper,
+    promotion_decision,
     regularized_incomplete_beta,
+    stack_slip_bound,
     stratify,
 )
 
@@ -278,3 +283,62 @@ def test_report_includes_drift_field(tmp_path):
     cell = next(c for c in rep["cells"] if c["cell"] == ["critic", "opus", "self"])
     assert cell["drift"] != INSUFFICIENT and cell["drift"]["alerted"] is False
     assert "drift:" in render_report(rep)
+
+
+# ── stage 5: hard-bound promotion + sound composition ───────────────
+
+
+def test_promotion_decision_states():
+    # 0/300 → CP ~0.0099 ≤ budget 0.05 → PROMOTABLE.
+    assert promotion_decision(0, 300, max_fnr=0.05).status == PROMOTABLE
+    # 0/30 → CP ~0.095 > 0.05 → certified but EXCEEDS the budget.
+    assert promotion_decision(0, 30, max_fnr=0.05).status == EXCEEDS
+    # 0/30 with a looser 0.10 budget → PROMOTABLE.
+    assert promotion_decision(0, 30, max_fnr=0.10).status == PROMOTABLE
+    # below the n-floor → never auto-promote.
+    r = promotion_decision(0, 12, n_floor=30)
+    assert r.status == UNCERTIFIED and r.bound == UNCERTIFIED
+
+
+def test_stack_slip_bound_is_min_not_product_or_sum():
+    # SOUND bound on 'violation slips ALL gates' = min per-gate FNR (no independence).
+    assert stack_slip_bound([0.01, 0.2, UNCERTIFIED]) == 0.01
+    assert stack_slip_bound([UNCERTIFIED, UNCERTIFIED]) == UNCERTIFIED
+    assert stack_slip_bound([]) == UNCERTIFIED
+    # explicitly NOT the product (0.01*0.2=0.002) nor the sum (0.21).
+    assert stack_slip_bound([0.01, 0.2]) == 0.01
+
+
+def test_bonferroni_alpha():
+    assert bonferroni_alpha(0.05, 4) == 0.0125
+    assert bonferroni_alpha(0.05, 1) == 0.05
+    assert bonferroni_alpha(0.05, 0) == 0.05
+
+
+def test_report_promotion_and_stack_slip(tmp_path):
+    from chimera.core.gate_calibration import build_report, render_report
+    _seed_cell(tmp_path, 300)  # 0 misses / 300 positives → CP ~0.0099 → promotable
+    rep = build_report(tmp_path, max_fnr=0.05)
+    cell = next(c for c in rep["cells"] if c["cell"] == ["critic", "opus", "self"])
+    assert cell["promotion"] == PROMOTABLE
+    assert rep["stack_slip_bound"] != UNCERTIFIED and rep["stack_slip_bound"] < 0.02
+    assert "promote: ✓" in render_report(rep)
+
+
+def test_report_promotion_uncertified_below_floor(tmp_path):
+    from chimera.core.gate_calibration import build_report
+    _seed_cell(tmp_path, 12)  # below floor
+    rep = build_report(tmp_path)
+    cell = next(c for c in rep["cells"] if c["cell"] == ["critic", "opus", "self"])
+    assert cell["promotion"] == UNCERTIFIED and rep["stack_slip_bound"] == UNCERTIFIED
+
+
+def test_report_bonferroni_corrects_alpha_across_cells(tmp_path):
+    from chimera.core.gate_calibration import build_report, render_report
+    # Two distinct cells (different gate → distinct fold key) → α spent α/2 each for
+    # simultaneous coverage, so a dashboard read can't cherry-pick the tightest.
+    _seed_cell(tmp_path, 50, gate="critic")
+    _seed_cell(tmp_path, 50, gate="witness")
+    rep = build_report(tmp_path, alpha=0.05)
+    assert rep["n_cells"] == 2 and rep["effective_alpha"] == 0.025
+    assert "Bonferroni" in render_report(rep)
