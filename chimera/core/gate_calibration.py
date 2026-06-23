@@ -248,12 +248,21 @@ def load_gate_outcomes(path: Path) -> list[GateOutcome]:
 # ── advisory report (observability only — NEVER a gate decision) ─────
 
 
-def build_report(state_dir: Path, *, alpha: float = 0.05, n_floor: int = 30) -> dict:
+def _drift_field(d):
+    """JSON-friendly drift summary for the report (sentinel string or a small dict)."""
+    if d == INSUFFICIENT:
+        return INSUFFICIENT
+    return {"alerted": d.alerted, "e_value": round(d.e_value, 3), "n": d.n}
+
+
+def build_report(state_dir: Path, *, alpha: float = 0.05, n_floor: int = 30,
+                 drift_p0: float = 0.1) -> dict:
     """Assemble the advisory calibration report: the CRAWL landed-work revert rate
     (the one real aggregate signal today) plus a per-(gate × model × repo_class) FNR
-    upper bound — or ``UNCERTIFIED`` below the n-floor. Every number names its target
-    POPULATION (benchmark ≠ field; the revert signal is a noisy proxy). Advisory only:
-    nothing here is a gate decision."""
+    upper bound — or ``UNCERTIFIED`` below the n-floor — and an anytime-valid DRIFT
+    status per cell (stage 4; ``INSUFFICIENT`` until a stream accrues). Every number
+    names its target POPULATION (benchmark ≠ field; the revert signal is a noisy
+    proxy). Advisory only: nothing here is a gate decision."""
     from .crawl_ledger import summarize_outcomes  # lazy: one-directional, no cycle
 
     state_dir = Path(state_dir)
@@ -266,6 +275,7 @@ def build_report(state_dir: Path, *, alpha: float = 0.05, n_floor: int = 30) -> 
             "misses": misses,
             "positives": positives,
             "bound": fnr_upper(misses, positives, alpha=alpha, n_floor=n_floor),
+            "drift": _drift_field(drift_status(group, drift_p0, alpha=alpha)),
             "population": "labelled known-positives in this stratum",
         })
     return {
@@ -278,6 +288,7 @@ def build_report(state_dir: Path, *, alpha: float = 0.05, n_floor: int = 30) -> 
         "cells": cells,
         "alpha": alpha,
         "n_floor": n_floor,
+        "drift_p0": drift_p0,
     }
 
 
@@ -309,8 +320,87 @@ def render_report(report: dict) -> str:
             gate, model, repo_class = cell["cell"]
             b = cell["bound"]
             shown = "UNCERTIFIED" if b == UNCERTIFIED else f"FNR ≤ {b:.1%}"
+            d = cell.get("drift")
+            if d == INSUFFICIENT or d is None:
+                drift = "drift: —"
+            elif d["alerted"]:
+                drift = f"drift: ⚠ DEGRADED (e={d['e_value']})"
+            else:
+                drift = f"drift: ok (e={d['e_value']})"
             lines.append(
                 f"  {gate} [{model}/{repo_class}]  {shown}  "
-                f"(misses {cell['misses']}/{cell['positives']})"
+                f"(misses {cell['misses']}/{cell['positives']})  {drift}"
+            )
+        if report.get("drift_p0") is not None:
+            lines.append(
+                f"\ndrift = anytime-valid e-process vs baseline miss rate "
+                f"p0={report['drift_p0']:g} (⚠ at e≥{1 / report['alpha']:g}); "
+                f"'—' = insufficient stream. Advisory."
             )
     return "\n".join(lines) + "\n"
+
+
+# ── stage 4: anytime-valid drift monitor (ADR 0186 B.4l) ─────────────
+#
+# Has a gate's miss rate DEGRADED past an acceptable baseline p0? A fixed-n
+# Clopper-Pearson bound (stages 1-3) is voided by continuous re-checking (optional
+# stopping) and by drift; an e-process is the prior-art family that survives both —
+# its false-ALARM rate is controlled at ANY stopping time (Ville's inequality), with
+# no i.i.d. assumption. Honest caveat (codex q006): this controls false alarms on the
+# (proxy-labelled) miss signal; it does not de-bias the underlying rate estimate.
+# Inert until the calibration ledger accrues a per-cell stream — reports INSUFFICIENT.
+
+INSUFFICIENT = "insufficient"   # too few known-positives to monitor drift
+
+
+@dataclass(frozen=True)
+class DriftResult:
+    """Outcome of the drift e-process. ``alerted`` iff the running e-value ever crossed
+    ``threshold`` (=1/alpha) — by Ville that happens with probability ≤ alpha while the
+    true miss rate stays ≤ ``p0``, so an alert is α-valid evidence of degradation."""
+    alerted: bool
+    e_value: float      # final E_n
+    peak: float         # max E_n over the run (the anytime statistic)
+    n: int
+    threshold: float
+
+
+def drift_eprocess(observations, p0: float, *, lam: float = 1.0,
+                   alpha: float = 0.05) -> DriftResult:
+    """Anytime-valid test that a gate's true miss rate exceeds ``p0``, via the betting
+    test-martingale ``E_n = ∏ (1 + λ(x_i - p0))`` over a 0/1 miss sequence (1 = the gate
+    PASSED a known violation = a miss). Under H0 (rate ≤ p0) E_n is a non-negative
+    SUPERmartingale with E[E_n] ≤ 1 (= 1 exactly at rate p0; < 1 when better), so
+    P(sup_n E_n ≥ 1/alpha) ≤ alpha (Ville) — valid under peeking AND non-i.i.d. ``lam``
+    is clamped to ``[0, 1/p0]`` to keep every factor non-negative; soundness holds for
+    any λ in range (λ only tunes power). NB: this controls the false-ALARM rate of the
+    test, not bias in the underlying (proxy-labelled) miss-rate estimate."""
+    if not 0.0 < p0 < 1.0:
+        raise ValueError("p0 (baseline miss rate) must be in (0, 1)")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be in (0, 1)")
+    lam = max(0.0, min(lam, 1.0 / p0))
+    threshold = 1.0 / alpha
+    e = 1.0
+    peak = 1.0
+    n = 0
+    for x in observations:
+        e *= 1.0 + lam * ((1.0 if x else 0.0) - p0)
+        peak = max(peak, e)
+        n += 1
+    return DriftResult(alerted=peak >= threshold, e_value=e, peak=peak, n=n,
+                       threshold=threshold)
+
+
+def drift_status(outcomes, p0: float = 0.1, *, lam: float = 1.0,
+                 alpha: float = 0.05, min_n: int = 10):
+    """Drift status for one cell: order its KNOWN-POSITIVE outcomes by ts, form the
+    miss sequence (1 = gate PASSED a violation, 0 = caught), and run the e-process.
+    Returns a :class:`DriftResult`, or the ``INSUFFICIENT`` sentinel when fewer than
+    ``min_n`` known-positives exist (the monitor needs a stream)."""
+    positives = sorted((o for o in outcomes if o.ground_truth == VIOLATION),
+                       key=lambda o: o.ts)
+    if len(positives) < min_n:
+        return INSUFFICIENT
+    seq = [1 if o.verdict == PASS else 0 for o in positives]
+    return drift_eprocess(seq, p0, lam=lam, alpha=alpha)

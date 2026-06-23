@@ -9,13 +9,17 @@ import pytest
 from chimera.core.gate_calibration import (
     CLEAN,
     FAIL,
+    INSUFFICIENT,
     PASS,
     UNCERTIFIED,
     UNKNOWN,
     VIOLATION,
+    DriftResult,
     GateOutcome,
     cell_counts,
     clopper_pearson_upper,
+    drift_eprocess,
+    drift_status,
     fnr_upper,
     regularized_incomplete_beta,
     stratify,
@@ -205,3 +209,72 @@ def test_build_report_uncertified_below_floor(tmp_path):
     rep = build_report(tmp_path)  # n_floor=30
     cell = next(c for c in rep["cells"] if c["cell"] == ["critic", "opus", "self"])
     assert cell["positives"] == 12 and cell["bound"] == UNCERTIFIED
+
+
+# ── stage 4: anytime-valid drift e-process ──────────────────────────
+
+
+def test_drift_eprocess_empty_and_clean_never_alert():
+    assert drift_eprocess([], 0.1).n == 0
+    assert drift_eprocess([], 0.1).alerted is False
+    clean = drift_eprocess([0] * 200, 0.1)   # rate 0 ≪ p0 → e shrinks
+    assert clean.alerted is False and clean.peak <= 1.0
+
+
+def test_drift_eprocess_alerts_on_sustained_degradation():
+    r = drift_eprocess([1] * 20, 0.1)        # rate 1.0 ≫ p0 → e explodes
+    assert r.alerted is True and r.peak >= r.threshold
+
+
+def test_drift_eprocess_no_false_alarm_at_null_rate():
+    # A long sequence at exactly the baseline rate p0 must (almost) never alert — the
+    # martingale stays bounded (this is the Ville guarantee in action).
+    p0 = 0.2
+    seq = ([1] + [0] * 4) * 60   # rate exactly 0.2 over 300 obs
+    assert drift_eprocess(seq, p0).alerted is False
+
+
+def test_drift_eprocess_deterministic_and_validates_params():
+    seq = [1, 0, 1, 1, 0]
+    assert drift_eprocess(seq, 0.1).e_value == drift_eprocess(seq, 0.1).e_value
+    with pytest.raises(ValueError, match="p0"):
+        drift_eprocess([1], 0.0)
+    with pytest.raises(ValueError, match="alpha"):
+        drift_eprocess([1], 0.1, alpha=1.0)
+
+
+def test_drift_eprocess_lambda_clamped_keeps_factors_nonnegative():
+    # An over-large lam is clamped to 1/p0 so e never goes negative on a clean obs.
+    r = drift_eprocess([0] * 5, 0.25, lam=1000.0)
+    assert r.e_value >= 0.0 and isinstance(r, DriftResult)
+
+
+def _pos(verdict, ts):
+    return GateOutcome(gate="g", run_id=f"r{ts}", diff_sha=f"d{ts}", model_id="m",
+                       repo_class="self", verdict=verdict, ground_truth=VIOLATION, ts=ts)
+
+
+def test_drift_status_insufficient_then_alerts():
+    assert drift_status([_pos(PASS, f"t{i}") for i in range(5)], 0.1, min_n=10) == INSUFFICIENT
+    # 15 known-positives all MISSED (gate PASSED a violation) → degraded → alert.
+    missed = [_pos(PASS, f"t{i:02d}") for i in range(15)]
+    r = drift_status(missed, 0.1, min_n=10)
+    assert r != INSUFFICIENT and r.alerted is True
+
+
+def test_drift_status_orders_by_ts_and_ignores_non_positives():
+    # CLEAN/UNKNOWN outcomes are not part of the known-positive stream.
+    outs = [_pos(FAIL, f"t{i:02d}") for i in range(12)]
+    outs.append(GateOutcome(gate="g", run_id="x", diff_sha="x", model_id="m",
+                            repo_class="self", verdict=PASS, ground_truth=CLEAN, ts="t99"))
+    r = drift_status(outs, 0.1, min_n=10)
+    assert r != INSUFFICIENT and r.n == 12 and r.alerted is False  # all caught → no drift
+
+
+def test_report_includes_drift_field(tmp_path):
+    from chimera.core.gate_calibration import build_report, render_report
+    _seed_cell(tmp_path, 12)  # 12 known-positives, all caught (verdict=FAIL by default)
+    rep = build_report(tmp_path, drift_p0=0.1)
+    cell = next(c for c in rep["cells"] if c["cell"] == ["critic", "opus", "self"])
+    assert cell["drift"] != INSUFFICIENT and cell["drift"]["alerted"] is False
+    assert "drift:" in render_report(rep)
