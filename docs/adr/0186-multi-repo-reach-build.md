@@ -260,9 +260,13 @@ increment.
 >     key (`run_id` on critic-gate-log) added. (3) ✅ advisory report — `chimera
 >     gate-calibration` surfaces the landed-work revert rate + per-cell FNR bounds (or
 >     UNCERTIFIED), wired into the daily crawl summary; observability only, never a gate
->     decision. (4) DEFERRED &
->     conditional: an anytime-valid e-process drift monitor (the only family valid under
->     drift), then — only IF a gate's stratified n ever clears the floor AND an operator
+>     decision. (4) ✅ anytime-valid DRIFT monitor — `drift_eprocess` (a betting
+>     test-supermartingale `E_n = ∏(1+λ(xᵢ-p0))`; Ville gives an α-valid alert at ANY
+>     stopping time, the only family that survives Chimera's peeking + non-i.i.d.
+>     drift) + `drift_status` (per-cell miss stream) surfaced in the advisory report.
+>     Pure + INERT until a per-cell stream accrues (reports `INSUFFICIENT`); soundness
+>     independently audited (supermartingale/Ville/λ-clamp verified). (5) [next, still
+>     conditional] only IF a gate's stratified n ever clears the floor AND an operator
 >     commits an α/δ — promote ONE gate to a hard bound (critic `false_approve==0`
 >     pattern generalized), composing with the union bound (never the product).
 >   - **B.4l soundness guards (from the critique, non-negotiable if any bound is emitted):**

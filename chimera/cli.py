@@ -367,6 +367,9 @@ def _build_parser() -> argparse.ArgumentParser:
     gcal.add_argument("--alpha", type=float, default=0.05, help="1-alpha confidence (default 0.05).")
     gcal.add_argument("--n-floor", type=int, default=30,
                       help="min known-positives for a bound; below → UNCERTIFIED (default 30).")
+    gcal.add_argument("--drift-p0", type=float, default=0.1,
+                      help="baseline miss rate for the anytime-valid drift monitor "
+                           "(stage 4); alerts if a gate degrades past it (default 0.1).")
     gcal.add_argument("--json", action="store_true", help="Emit JSON instead of the report.")
 
     # Per-model guardrail validation (ADR 0186, from NRT-Bench): probe each model's
@@ -1706,7 +1709,8 @@ def main(argv: list[str] | None = None) -> int:
         from .core.gate_calibration import build_report, render_report
 
         cfg = LoopConfig.from_env()
-        rep = build_report(cfg.state_dir, alpha=args.alpha, n_floor=args.n_floor)
+        rep = build_report(cfg.state_dir, alpha=args.alpha, n_floor=args.n_floor,
+                           drift_p0=args.drift_p0)
         if args.json:
             import json as _json
             print(_json.dumps(rep, indent=2))
