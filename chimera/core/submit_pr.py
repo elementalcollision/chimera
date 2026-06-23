@@ -231,21 +231,53 @@ def _check_inbox_honesty(
     return invalid
 
 
+def _source_is_covered(
+    source: str,
+    changed_tests: list[str],
+    test_bodies: dict[str, str],
+    worktree: Path | None,
+) -> bool:
+    """True if ``source`` (a ``chimera/…/foo.py``) is covered by a test that genuinely
+    RELATES to it: a CHANGED test that name-corresponds (``tests/test_foo.py`` or a
+    ``test_foo_*.py`` variant) OR imports the source's module
+    (``from chimera.core.foo import …``); or, for behaviour-neutral cleanups, a
+    name-corresponding ``tests/test_foo.py`` that already EXISTS."""
+    stem = Path(source).stem                  # "crawl_ledger"
+    module = source[:-3].replace("/", ".")    # "chimera.core.crawl_ledger"
+
+    def name_matches(test_name: str) -> bool:
+        return test_name == f"test_{stem}.py" or test_name.startswith(f"test_{stem}_")
+
+    # (a) a CHANGED test that name-corresponds OR imports the source module.
+    for t in changed_tests:
+        if name_matches(Path(t).name) or module in test_bodies.get(t, ""):
+            return True
+    # (b) a name-corresponding test already EXISTS (precision: behaviour-neutral
+    #     cleanup of already-tested source — the existing suite is its coverage).
+    if worktree is not None and (worktree / "tests" / f"test_{stem}.py").exists():
+        return True
+    return False
+
+
 def _check_fix_without_test(
     changed_files: list[str], worktree: Path | None = None
 ) -> list[str]:
     """v4.92 gate: chimera/ source must be COVERED by tests. Returns uncovered
     sources (empty = pass).
 
-    A touched source is covered when EITHER (a) the branch also changed a
-    ``tests/`` file, OR (b) a corresponding ``tests/test_<name>.py`` already
-    EXISTS in the worktree. Case (b) is the precision fix (2026-06-03 e2e
-    finding): a behaviour-neutral lint cleanup of already-tested source adds no
-    new test, and the existing suite (re-run green by ``chimera verify`` /
-    `_validate_tests_actually_pass`) IS its coverage — requiring a *changed* test
-    was a false-positive that blocked the self-PR of gate-approved cleanups.
-    Net-new source with no test file is still flagged. ``worktree=None`` falls
-    back to the original change-based check (conservative).
+    A touched source is covered when a test in the branch genuinely RELATES to it —
+    by NAME (a changed/existing ``tests/test_<name>.py`` or ``test_<name>_*.py``) or by
+    IMPORT (a changed test imports the source's module). The import signal is the
+    precision upgrade (2026-06-23 triage, arXiv:2606.18168 "Oracle Signals in
+    Agent-Authored Test Code"): the old check counted ANY touched ``tests/`` file as
+    coverage for ALL touched source — a 'touched-test ⇒ verified' over-estimate a diff
+    editing an *unrelated* test could exploit. Pure name-correspondence is too strict
+    for Chimera (``tiers.py`` is tested by ``test_tier_model_ids.py``), so the import
+    relation is accepted too. Case (b) — a name-matching test already EXISTS — keeps
+    the 2026-06-03 precision fix for behaviour-neutral cleanups of already-tested
+    source. ``worktree=None`` (conservative) restricts to the name signal on changed
+    tests. This is the CHEAP first-pass; the soak's mutation/faithfulness gate is the
+    authoritative 'does the test actually verify' check (B.4k).
     """
     src = [
         p for p in changed_files
@@ -255,16 +287,21 @@ def _check_fix_without_test(
     ]
     if not src:
         return []
-    if any(p.startswith("tests/") and p.endswith(".py") for p in changed_files):
-        return []
-    if worktree is None:
-        return src
-    uncovered = []
-    for p in src:
-        test_path = worktree / "tests" / f"test_{Path(p).name}"
-        if not test_path.exists():
-            uncovered.append(p)
-    return uncovered
+    changed_tests = [
+        c for c in changed_files if c.startswith("tests/") and c.endswith(".py")
+    ]
+    # Read changed test bodies once (for the import relation); only with a worktree.
+    test_bodies: dict[str, str] = {}
+    if worktree is not None:
+        for t in changed_tests:
+            try:
+                test_bodies[t] = (worktree / t).read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                test_bodies[t] = ""
+    return [
+        p for p in src
+        if not _source_is_covered(p, changed_tests, test_bodies, worktree)
+    ]
 
 
 def _validate_tests_actually_pass(

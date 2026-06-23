@@ -507,3 +507,39 @@ def test_fix_without_test_accepts_existing_test(tmp_path):
     # A changed test still passes everything (original behaviour).
     assert _check_fix_without_test(
         ["chimera/server/newmod.py", "tests/test_newmod.py"], tmp_path) == []
+
+
+def test_fix_without_test_import_relation_covers_name_mismatch(tmp_path):
+    """2026-06-23 triage (arXiv:2606.18168): a touched test that IMPORTS the source
+    covers it even when the test NAME doesn't match (tiers.py ↔ test_tier_model_ids.py
+    — the real PR #386 case) — so the tightening doesn't false-block."""
+    from chimera.core.submit_pr import _check_fix_without_test
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_tier_model_ids.py").write_text(
+        "from chimera.providers.tiers import tier_model_ids\n\ndef test_x(): pass\n"
+    )
+    changed = ["chimera/providers/tiers.py", "tests/test_tier_model_ids.py"]
+    assert _check_fix_without_test(changed, tmp_path) == []  # import relation → covered
+
+
+def test_fix_without_test_unrelated_touched_test_no_longer_covers(tmp_path):
+    """The tightening: editing an UNRELATED test no longer launders source past the
+    gate (the 'touched-test ⇒ verified' over-estimate the paper names)."""
+    from chimera.core.submit_pr import _check_fix_without_test
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_unrelated.py").write_text(
+        "from chimera.core.health import HealthSummary\n\ndef test_x(): pass\n"
+    )
+    changed = ["chimera/core/newmod.py", "tests/test_unrelated.py"]
+    # no name match, the changed test imports health (not newmod), no test_newmod.py
+    # exists → newmod stays flagged.
+    assert _check_fix_without_test(changed, tmp_path) == ["chimera/core/newmod.py"]
+
+
+def test_fix_without_test_name_variant_covers(tmp_path):
+    """A variant-named changed test (test_<stem>_*.py) covers the source by name."""
+    from chimera.core.submit_pr import _check_fix_without_test
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_crawl_ledger_merge_rate.py").write_text("def t(): pass\n")
+    changed = ["chimera/core/crawl_ledger.py", "tests/test_crawl_ledger_merge_rate.py"]
+    assert _check_fix_without_test(changed, tmp_path) == []  # test_crawl_ledger_* → covered
