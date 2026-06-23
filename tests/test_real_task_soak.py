@@ -63,3 +63,36 @@ def test_missing_required_param_fails():
     p = _run({"TASK_FILES": "chimera/x.py"})  # no TASK_GOAL
     assert p.returncode != 0
     assert "TASK_GOAL" in p.stderr
+
+
+def test_foreign_submit_optional_args_are_set_u_safe():
+    """The foreign-pr submit invocation expands its OPTIONAL arg arrays with the
+    ${arr[@]+"${arr[@]}"} guard, never a bare "${arr[@]}".
+
+    On bash 3.2 (macOS default) a bare "${arr[@]}" on an EMPTY array trips
+    `set -u` with "unbound variable" — which silently aborted the submit subshell
+    and skipped the foreign PR (2026-06-23 drift-monitor walk-base: _fpr_reg set,
+    _fpr_beh/_fpr_prop empty). The guard expands an empty array to nothing. This
+    is a static check because TASK_DRYRUN exits before the submit block and the
+    only path that reaches it runs the full agent loop.
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+    for arr in ("_fpr_reg", "_fpr_beh", "_fpr_prop"):
+        bare = f'"${{{arr}[@]}}"'             # "${_fpr_reg[@]}"
+        guarded = f'${{{arr}[@]+{bare}}}'     # ${_fpr_reg[@]+"${_fpr_reg[@]}"}
+        assert guarded in text, (
+            f"{arr} missing the set -u-safe ${{arr[@]+...}} guard"
+        )
+        # The bare form is a substring of the guard, so the safe invariant is that
+        # EVERY bare expansion is the inner part of a guard — never standalone.
+        assert text.count(bare) == text.count(guarded), (
+            f'{arr} has an UNGUARDED "${{{arr}[@]}}" — unbound-variable on bash 3.2'
+        )
+
+
+def test_real_task_soak_is_syntactically_valid():
+    """`bash -n` parses the whole script (guards against edit typos)."""
+    p = subprocess.run(
+        ["bash", "-n", str(_SCRIPT)], capture_output=True, text=True,
+    )
+    assert p.returncode == 0, p.stderr
