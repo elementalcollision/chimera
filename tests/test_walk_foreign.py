@@ -10,8 +10,10 @@ from pathlib import Path
 
 from chimera.core.backlog import backlog_dir, parse_spec
 from chimera.core.issue_backlog import (
+    _path_on_base,
     _safe_test_path,
     ingest_issues,
+    is_stale_foreign_issue,
     issue_to_spec_markdown,
     load_walk_repos,
 )
@@ -206,6 +208,159 @@ def test_load_walk_repos(tmp_path):
     assert repos[0] == {"repo": REPO, "label": "crawl",
                         "verify_cmd_template": TMPL, "regression_cmd": None,
                         "behavior_cmd": None, "property_cmd": None}
+
+
+# ── stale-issue pre-filter (foreign WALK hygiene, 2026-06-23) ──────────
+#
+# Motivated by a live run: WALK surfaced a stale drift-monitor issue whose test
+# target (tests/test_window.py) was already written by a merged PR and which
+# referenced a class that never existed. Soaking it would have burned an agent
+# cycle on a duplicate/gate-doomed PR. The filter skips foreign issues whose test
+# target already exists on base — fail-open (only a definite "present" suppresses).
+
+
+def _exists(result):
+    """A path_exists_on_base checker that always answers ``result``."""
+    def _check(repo, path, ref):
+        return result
+    return _check
+
+
+def test_stale_filter_skips_when_target_on_base(tmp_path):
+    mind = tmp_path / "mind"
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)], path_exists_on_base=_exists(True),
+    )
+    assert len(results) == 1
+    assert results[0].written is None
+    assert "exists on base" in results[0].reason
+    assert not list(backlog_dir(mind).glob("*.md"))  # nothing written
+
+
+def test_stale_filter_ingests_when_target_absent(tmp_path):
+    mind = tmp_path / "mind"
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)], path_exists_on_base=_exists(False),
+    )
+    assert results[0].written is not None
+    assert results[0].reason == "ingested"
+
+
+def test_stale_filter_fails_open_on_unknown(tmp_path):
+    # None = indeterminate (network/auth) → ingest, never suppress real work.
+    mind = tmp_path / "mind"
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)], path_exists_on_base=_exists(None),
+    )
+    assert results[0].written is not None
+
+
+def test_stale_filter_disabled_by_default(tmp_path):
+    # path_exists_on_base=None (default) → NO filtering: library/test callers and
+    # the pre-pre-filter behaviour are unaffected even if the target exists.
+    mind = tmp_path / "mind"
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)],
+    )
+    assert results[0].written is not None
+
+
+def test_stale_filter_is_foreign_only(tmp_path):
+    # A self (non-foreign) ingest never consults the checker — the filter is a
+    # foreign-WALK concern. A True checker must NOT suppress a self spec.
+    mind = tmp_path / "mind"
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=False,
+        issues=[_issue(n=3)], path_exists_on_base=_exists(True),
+    )
+    assert results[0].written is not None
+
+
+def test_is_stale_foreign_issue_unit():
+    iss = _issue(n=3)
+    assert is_stale_foreign_issue(iss, REPO, path_exists_on_base=_exists(True)) is True
+    assert is_stale_foreign_issue(iss, REPO, path_exists_on_base=_exists(False)) is False
+    # unknown → not stale (fail-open)
+    assert is_stale_foreign_issue(iss, REPO, path_exists_on_base=_exists(None)) is False
+
+
+def test_is_stale_foreign_issue_no_spec_block():
+    no_block = {"number": 1, "title": "vague request", "body": "no yaml here"}
+    assert is_stale_foreign_issue(no_block, REPO, path_exists_on_base=_exists(True)) is False
+
+
+def test_is_stale_foreign_issue_no_valid_test():
+    # test not in the files allowlist → no validated test path → not stale.
+    bad = _issue(n=1, files="tests/test_x.py", test="tests/other.py")
+    assert is_stale_foreign_issue(bad, REPO, path_exists_on_base=_exists(True)) is False
+
+
+def test_path_on_base_rejects_unsafe_without_network():
+    # Unsafe path/ref short-circuit to None BEFORE any gh call (injection guard).
+    assert _path_on_base(REPO, "../etc/passwd", "main") is None
+    assert _path_on_base(REPO, "tests/test_x.py", "-main") is None
+
+
+# ── dry-run unification: --walk --dry-run mirrors the real path exactly ──
+
+
+def test_dry_run_reports_would_ingest_without_writing(tmp_path):
+    mind = tmp_path / "mind"
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)], path_exists_on_base=_exists(False), dry_run=True,
+    )
+    assert results[0].written is not None
+    assert results[0].reason == "would ingest"
+    assert not list(backlog_dir(mind).glob("*.md"))  # preview writes nothing
+
+
+def test_dry_run_applies_stale_filter(tmp_path):
+    mind = tmp_path / "mind"
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)], path_exists_on_base=_exists(True), dry_run=True,
+    )
+    assert results[0].written is None
+    assert "exists on base" in results[0].reason
+
+
+def test_dry_run_count_matches_real_for_already_written(tmp_path):
+    # The blocker the review caught: a dry-run must NOT count an already-written
+    # spec as would-ingest (the real path skips it "exists (kept)").
+    mind = tmp_path / "mind"
+    ingest_issues(REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+                  issues=[_issue(n=3)], path_exists_on_base=_exists(False))
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)], path_exists_on_base=_exists(False), dry_run=True,
+    )
+    assert results[0].written is None
+    assert results[0].reason == "exists (kept)"
+
+
+def test_existing_spec_short_circuits_before_network_probe(tmp_path):
+    # path.exists() is checked BEFORE the staleness probe, so a re-run never makes
+    # a gh round-trip for an already-written spec.
+    mind = tmp_path / "mind"
+    ingest_issues(REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+                  issues=[_issue(n=3)], path_exists_on_base=_exists(False))
+    calls = []
+
+    def _spy(repo, path, ref):
+        calls.append((repo, path, ref))
+        return True
+
+    results = ingest_issues(
+        REPO, mind_dir=mind, foreign=True, verify_cmd_template=TMPL,
+        issues=[_issue(n=3)], path_exists_on_base=_spy,
+    )
+    assert results[0].reason == "exists (kept)"
+    assert calls == []  # no network probe for an already-written spec
 
 
 def test_load_walk_repos_absent_is_empty(tmp_path):

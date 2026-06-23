@@ -72,30 +72,25 @@ def _cmd_backlog(args, parser) -> int:
             dry = getattr(args, "dry_run", False)  # MF-4: --walk must honor --dry-run
             total = 0
             for src in sources:
-                if dry:
-                    from ..core.issue_backlog import (
-                        _fetch_issues,
-                        issue_to_spec_markdown,
-                    )
+                from ..core.issue_backlog import _path_on_base
 
-                    issues = _fetch_issues(src["repo"], label=src["label"] or None)
-                    n = sum(
-                        1 for i in issues
-                        if issue_to_spec_markdown(
-                            i, src["repo"], foreign=True,
-                            verify_cmd_template=src["verify_cmd_template"],
-                        ) is not None
-                    )
-                    print(f"  [dry] {src['repo']}: {len(issues)} open, {n} crawl-ready")
+                # Dry + real share ONE code path through ingest_issues (dry_run
+                # writes nothing): the preview's count is exactly what a real run
+                # would create — every skip (no-spec / already-written / stale)
+                # applies identically. Stale filter is opt-in + fail-open.
+                results = ingest_issues(
+                    src["repo"], mind_dir=mind_dir, label=src["label"] or None,
+                    foreign=True, verify_cmd_template=src["verify_cmd_template"],
+                    regression_cmd=src.get("regression_cmd"),
+                    behavior_cmd=src.get("behavior_cmd"),
+                    property_cmd=src.get("property_cmd"),
+                    path_exists_on_base=_path_on_base, dry_run=dry,
+                )
+                if dry:
+                    n = sum(1 for r in results if r.written is not None)
+                    print(f"  [dry] {src['repo']}: {len(results)} open, {n} would ingest")
                     total += n
                 else:
-                    results = ingest_issues(
-                        src["repo"], mind_dir=mind_dir, label=src["label"] or None,
-                        foreign=True, verify_cmd_template=src["verify_cmd_template"],
-                        regression_cmd=src.get("regression_cmd"),
-                        behavior_cmd=src.get("behavior_cmd"),
-                        property_cmd=src.get("property_cmd"),
-                    )
                     total += _report(results, src["repo"])
             verb = "would ingest" if dry else "ingested"
             tag = " (dry-run)" if dry else ""
