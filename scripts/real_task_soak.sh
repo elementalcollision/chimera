@@ -675,10 +675,18 @@ if [ "$FOREIGN_MODE" = "1" ]; then
         # --property-cmd. Array preserves spaces.
         _fpr_prop=()
         [ -n "${CHIMERA_FOREIGN_PROPERTY_CMD:-}" ] && _fpr_prop=(--property-cmd "$CHIMERA_FOREIGN_PROPERTY_CMD")
-        # shellcheck disable=SC2086  # _fpr_dry is a single optional flag
+        # shellcheck disable=SC2086  # $_fpr_dry is a single optional flag, and the
+        # ${arr[@]+"${arr[@]}"} guards expand an EMPTY optional-args array to NOTHING
+        # without tripping `set -u`. A bare ${arr[@]} (quoted) on an empty array errors
+        # "unbound variable" on bash 3.2 (macOS default; fixed upstream in bash 4.4) —
+        # that silently aborted this submit subshell and SKIPPED the PR even though the
+        # agent's commit + gate were green (first hit 2026-06-23, drift-monitor walk-base:
+        # _fpr_reg was set but _fpr_beh/_fpr_prop were empty). The guard is mandatory for
+        # any optional-args array expanded under set -u on macOS.
         ( cd "${RUNNER_ROOT:-$REPO_ROOT}" && uv run chimera foreign-pr submit \
             --repo "$TASK_REPO" --worktree "$WORKTREE" --base "$TASK_BASE" \
-            --verify-cmd "$TASK_VERIFY_CMD" "${_fpr_reg[@]}" "${_fpr_beh[@]}" "${_fpr_prop[@]}" \
+            --verify-cmd "$TASK_VERIFY_CMD" \
+            ${_fpr_reg[@]+"${_fpr_reg[@]}"} ${_fpr_beh[@]+"${_fpr_beh[@]}"} ${_fpr_prop[@]+"${_fpr_prop[@]}"} \
             --run-id "$RUN_ID" --state-dir "${RUNNER_ROOT:-$REPO_ROOT}/state" $_fpr_dry ) 2>&1 | tee -a "$LOG" || true
     fi
     log "── foreign mode: branch '$BRANCH' left in $WORKTREE for review ──"
