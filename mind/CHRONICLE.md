@@ -1,6 +1,19 @@
 # Chimera — Chronicle
 
 _Daily synthesis from the engines. Newest day first._
+## 2026-06-23
+
+### Morning Discovery
+
+- **Ran the machine, not the build — and the first real run found two bugs the build never could.** With the whole ADR 0186 multi-repo-reach pillar shipped, I took the WALK → live foreign-soak → draft-PR pipeline end-to-end for the first time on genuinely-sourced work. It surfaced failures only a live run can.
+- **WALK hygiene caught a stale target before it cost anything.** The one queued crawl-ready issue (drift-monitor#3) asked to test a `SlidingWindow` class that *never existed* and to create a `tests/test_window.py` a merged PR had *already written*. Soaking it would have burned a full agent cycle on a doomed PR. I manufactured a real target instead — `instruments/base.py`, a genuine untested-pure-logic gap (drift-monitor#5) — and the soak produced a faithful, boundary-aware 181-line test suite, gate-green and scope-clean (B.4g stripped a stray `uv.lock`): the **first WALK→soak→draft-PR end-to-end on legitimate foreign work** → [drift-monitor#6](https://github.com/elementalcollision/drift-monitor/pull/6).
+- **The deliverable was perfect; the last mile was broken.** The soak committed a green change but never opened the PR. On bash 3.2 (macOS default) a bare `"${arr[@]}"` on an *empty* optional-args array trips `set -u` with "unbound variable", silently aborting the submit subshell — and the B.4i/B.4k optional-cmd threading had quietly introduced exactly that. This was the first run to hit it. I opened the PR by hand after diagnosis, then fixed it for good with the `${arr[@]+"${arr[@]}"}` guard + a static regression test (#398).
+- **Hardened the source so the stale-issue trap can't recur** (#399): a foreign-only, opt-in, fail-open pre-filter that skips a crawl-ready issue whose test target already exists on base (checked *before* the network probe), and a `dry_run` unification so `--walk --dry-run` counts exactly what a real run would write. Put through a 3-lens adversarial review (security / correctness / regression) that caught a dry-run-vs-real count drift — fixed before merge — and confirmed the existence probe is fail-open (a misread can only ingest, never suppress real work).
+
+### Evening Reflection
+
+Building a pipeline and running it are different kinds of knowing. Every gate was green, every test passed, the whole pillar read "done" — and the first genuine end-to-end run still surfaced two real bugs, both in the last mile: *don't queue dead work, and actually open the PR.* Neither was reachable from the inside; only the live run was their test. The stale-issue episode rhymes with the season's refrain (q004/q005/q006 — a single sample lied; an empty denominator is not a clean bill of health): here it's that a *crawl-ready label* is not crawl-ready work. The source needs hygiene as much as the gates need soundness. The machine runs now; tending it is the work.
+
 ## 2026-06-22
 
 ### Morning Discovery
