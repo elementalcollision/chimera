@@ -370,6 +370,10 @@ def _build_parser() -> argparse.ArgumentParser:
     gcal.add_argument("--drift-p0", type=float, default=0.1,
                       help="baseline miss rate for the anytime-valid drift monitor "
                            "(stage 4); alerts if a gate degrades past it (default 0.1).")
+    gcal.add_argument("--max-fnr", type=float, default=0.05,
+                      help="FNR budget for hard-gate PROMOTION eligibility (stage 5): a "
+                           "cell is promotable iff its bound ≤ this (default 0.05). "
+                           "Advisory — promotion is never auto-applied.")
     gcal.add_argument("--json", action="store_true", help="Emit JSON instead of the report.")
 
     # Per-model guardrail validation (ADR 0186, from NRT-Bench): probe each model's
@@ -1710,7 +1714,7 @@ def main(argv: list[str] | None = None) -> int:
 
         cfg = LoopConfig.from_env()
         rep = build_report(cfg.state_dir, alpha=args.alpha, n_floor=args.n_floor,
-                           drift_p0=args.drift_p0)
+                           drift_p0=args.drift_p0, max_fnr=args.max_fnr)
         if args.json:
             import json as _json
             print(_json.dumps(rep, indent=2))

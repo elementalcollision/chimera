@@ -265,10 +265,19 @@ increment.
 >     stopping time, the only family that survives Chimera's peeking + non-i.i.d.
 >     drift) + `drift_status` (per-cell miss stream) surfaced in the advisory report.
 >     Pure + INERT until a per-cell stream accrues (reports `INSUFFICIENT`); soundness
->     independently audited (supermartingale/Ville/λ-clamp verified). (5) [next, still
->     conditional] only IF a gate's stratified n ever clears the floor AND an operator
->     commits an α/δ — promote ONE gate to a hard bound (critic `false_approve==0`
->     pattern generalized), composing with the union bound (never the product).
+>     independently audited (supermartingale/Ville/λ-clamp verified). (5) ✅ hard-gate
+>     PROMOTION (still operator-gated, never auto-applied): `promotion_decision` —
+>     PROMOTABLE iff a cell's CP FNR bound ≤ an operator-committed `max_fnr` budget at
+>     1-α (the critic `false_approve==0` floor generalized), else EXCEEDS/UNCERTIFIED;
+>     surfaced in the advisory report. SOUND stack composition `stack_slip_bound` = the
+>     **min** per-gate FNR (P(violation slips ALL gates) ≤ min_i FNR_i, assumption-free
+>     — NOT the product, which needs independence Chimera lacks; NOT the sum, a
+>     different event). Bonferroni α/k is AUTO-applied across the reported cells so
+>     per-cell bounds + promotion decisions have SIMULTANEOUS coverage (can't be
+>     cherry-picked) — closing the critique's multiplicity finding. Soundness
+>     independently audited (min-composition / promotion logic / Bonferroni verified).
+>     B.4l DONE — measurement substrate (1-3) + drift monitor (4) + promotion (5), all
+>     advisory/operator-gated, inert until the calibration ledger accrues real data.
 >   - **B.4l soundness guards (from the critique, non-negotiable if any bound is emitted):**
 >     every number names its TARGET POPULATION (benchmark ≠ field) and reports n; one-sided
 >     only, never a point FNR; `reverted` is a noisy UNDERCOUNT so it is a lower-bound
