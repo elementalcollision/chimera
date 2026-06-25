@@ -64,15 +64,16 @@ Adopt Fugu behind the existing `Provider` abstraction, incrementally.
   soak). It is reachable only via explicit flags until the tests below justify a
   role.
 
-**Planned roles (later increments, gated on results):**
-- **Adversarial critic / arbiter** (primary): `fugu-ultra` as the deep,
-  self-verifying adjudicator — used as an *expensive arbiter* for contested /
-  low-confidence gate decisions, not every call.
-- **Witness-panel member** (optional): one pool slot — but measure vote-
-  correlation with existing slots first (Fugu is itself cross-vendor, so it may
-  not be independent).
-- **Hard-task proposer escalation** (niche): `fugu-ultra` only for complex
-  targets; never the cheap workhorse tier (cost + latency).
+**Roles (evaluated):**
+- **Adversarial arbiter** (chosen, SHIPPED as #5): `fugu-ultra` as the deep,
+  self-verifying adjudicator — an *expensive arbiter* for contested / low-
+  confidence gate decisions (the shadow arbiter, Increment 2), not every call.
+- **Witness-panel member** — *evaluated, declined for `fugu-ultra`* (#4). Its
+  votes agreed 75–89% with the existing panel members: a cross-vendor router
+  CORRELATES with the panel rather than adding an independent gradient, so it
+  earns no seat. `fugu` (non-ultra) is a plausible future candidate, deferred.
+- **Hard-task proposer escalation** (niche, not pursued): `fugu-ultra` only for
+  complex targets; never the cheap workhorse tier (cost + latency).
 
 **Guards.** Data egress to api.sakana.ai forwards to multiple third parties; the
 B.4a gate sandbox (secret-stripping) remains the authority — never send foreign-
@@ -142,6 +143,22 @@ which faked 57% / 6-of-7 false-rejects) — and the sound numbers only appeared
 after fixing each. Validate the instrument (sample size, classifier, timeout)
 before judging the model. (The 60s→180s Sakana timeout default came directly from
 this.)
+
+**#4 witness-panel A/B** — `witness-calibrate` shipped (#410), then hardened to
+EXCLUDE provider errors (#411): the first live run's Sakana credits ran out
+mid-leg and `witness_code_change`'s fail-open-to-approve fabricated false-approves
+(the q004 lesson a *fourth* time — this time in our own harness). Valid base
+members: sonnet 75% / deepseek 75% / gpt-5.1-codex-max 82%; panel 79%. The
+contaminated-but-directional signal: `fugu-ultra`'s vote-agreement with the panel
+was **high (75 / 82 / 89%)** — it correlates rather than adds an independent
+gradient. **Conclusion (operator-confirmed): no witness-panel seat for
+`fugu-ultra`; its role is the #5 arbiter.** A clean re-run is gated only on credits.
+
+**Arc complete.** Research → provider (#402) → independent judge (#403) →
+measurement tests #1/#2/#3 → role #5 (shadow arbiter, #407) → ground-truth link
+(#409) → #4 evaluated-and-declined. Every step was gated by evidence, and every
+*false* verdict about Fugu was traced to its instrument (sample size, classifier,
+timeout, credit-exhaustion) rather than the model.
 
 ## Consequences
 
