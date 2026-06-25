@@ -14,6 +14,7 @@ from . import __version__
 from .cli_cmds.backlog import _cmd_backlog
 from .cli_cmds.charter import _cmd_charter
 from .cli_cmds.critic_calibrate import _cmd_critic_calibrate
+from .cli_cmds.witness_calibrate import _cmd_witness_calibrate
 from .cli_cmds.evals import (
     _build_openrouter_answer_fn,  # noqa: F401 — re-export: tests use chimera.cli._build_openrouter_answer_fn
     _cmd_evals_locomo,
@@ -274,6 +275,21 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="Per-review token budget (default 1024). Reasoning "
                             "models/ensembles need headroom — too small starves the "
                             "verdict to empty (fail-closed reject), inflating false-rejects.")
+
+    wcal = sub.add_parser(
+        "witness-calibrate",
+        help="A/B a candidate witness-panel member (default Sakana fugu-ultra) on a "
+             "labelled change set: per-member accuracy, the candidate's vote-agreement "
+             "with each member (independence), and panel accuracy with/without it "
+             "(ADR 0187 #4). Measurement only.",
+    )
+    wcal.add_argument("--candidate-provider", default="sakana",
+                      choices=("anthropic", "openrouter", "sakana"),
+                      help="Provider for the candidate member (default sakana).")
+    wcal.add_argument("--candidate-model", default="fugu-ultra",
+                      help="Model id for the candidate member (default fugu-ultra).")
+    wcal.add_argument("--max-tokens", type=int, default=2048,
+                      help="Per-review budget (default 2048; ensembles need headroom).")
 
     sscan = sub.add_parser(
         "self-scan",
@@ -2600,6 +2616,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_review(args)
     if args.command == "critic-calibrate":
         return _cmd_critic_calibrate(args)
+    if args.command == "witness-calibrate":
+        return _cmd_witness_calibrate(args)
     if args.command == "self-scan":
         return _cmd_self_scan(args)
     if args.command == "ping":
