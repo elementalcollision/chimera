@@ -1,9 +1,27 @@
 # ADR 0187 — Sakana Fugu as a tool-agent provider
 
 **Status:** Accepted — *in progress.* Increment 1 (provider + liveness +
-guardrail-eval wiring) implemented (#402) and an independent `--judge-provider`
-added for sound resistance rates (#403). Tests #1 + #2 run live — results below.
-Role integration to follow, gated on those results.
+guardrail-eval wiring, #402; independent `--judge-provider`, #403; critic A/B,
+#405) and Increment 2 (#5 **shadow arbiter** — the first *role* wiring) shipped.
+Tests #1/#2/#3 run live — results below. The shadow arbiter is inert until
+opted in and accrues ledger data.
+
+## Increment 2 — shadow arbiter (#5, first role wiring)
+
+`chimera/core/shadow_arbiter.py`: when the cross-provider witness panel SPLITS
+(contested), an opt-in (`CHIMERA_SHADOW_ARBITER`) log-only arbiter — Sakana
+`fugu-ultra` by default — reviews the same diff and records two `GateOutcome`s
+(`witness_panel` + `shadow_arbiter`, same diff) into the B.4l ledger. It **never
+changes the gate** (return ignored; runs after the decision; best-effort, never
+raises — adversarially verified) and is inert until both the flag is set and a
+panel actually splits. This is the role #3 pointed to: `fugu-ultra`'s 0%
+false-approve + ensemble verification make it a fit for the *expensive tie-breaker
+on contested cases*, not routine critic duty.
+
+Open follow-up (honest): the recorded `diff_sha` is a content hash, not the
+eventual commit sha, so the B.4l revert label producer (commit-sha based) does not
+yet auto-link ground truth — the ledger reads UNCERTIFIED until a linking step
+lands. Measure first; promote only once the denominator exists.
 
 ## Context
 
