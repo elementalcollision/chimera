@@ -1735,6 +1735,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"crawl-reconcile: marked {len(newly)} run(s) reverted: {', '.join(newly)}")
         else:
             print("crawl-reconcile: no new reverts detected")
+        # B.4l: propagate run dispositions to the gate-outcomes ledger so per-gate
+        # FNR (incl. the shadow arbiter, ADR 0187 #5) can be scored by run_id.
+        from .core.gate_calibration import label_gate_outcomes
+
+        labelled = label_gate_outcomes(cfg.state_dir)
+        if labelled["violation"] or labelled["clean"]:
+            print(
+                f"crawl-reconcile: labelled gate outcomes — "
+                f"{labelled['violation']} violation, {labelled['clean']} clean"
+            )
         return 0
 
     if args.command == "gate-calibration":

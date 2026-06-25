@@ -18,12 +18,16 @@ from chimera.core.gate_calibration import (
     VIOLATION,
     DriftResult,
     GateOutcome,
+    append_gate_outcome,
     bonferroni_alpha,
     cell_counts,
     clopper_pearson_upper,
     drift_eprocess,
     drift_status,
     fnr_upper,
+    gate_outcomes_path,
+    label_gate_outcomes,
+    load_gate_outcomes,
     promotion_decision,
     regularized_incomplete_beta,
     stack_slip_bound,
@@ -342,3 +346,79 @@ def test_report_bonferroni_corrects_alpha_across_cells(tmp_path):
     rep = build_report(tmp_path, alpha=0.05)
     assert rep["n_cells"] == 2 and rep["effective_alpha"] == 0.025
     assert "Bonferroni" in render_report(rep)
+
+
+# ── label producer: run_id ↔ crawl disposition → ground_truth (B.4l stage 2) ─
+
+
+def _seed_gate(state_dir, run_id, *, gate="shadow_arbiter", verdict=PASS):
+    append_gate_outcome(
+        gate_outcomes_path(state_dir),
+        GateOutcome(gate=gate, run_id=run_id, diff_sha="d1", model_id="fugu-ultra",
+                    repo_class="self", verdict=verdict, ground_truth=UNKNOWN, ts="t"),
+    )
+
+
+def test_label_gate_outcomes_links_via_run_id(tmp_path):
+    from chimera.core.crawl_ledger import (
+        CrawlOutcome,
+        record_outcome,
+        set_disposition,
+    )
+
+    for rid in ("run-merged", "run-reverted", "run-pending"):
+        record_outcome(tmp_path, CrawlOutcome(run_id=rid, ts="t", slug="s", gate="pass"))
+    set_disposition(tmp_path, "run-merged", "merged")
+    set_disposition(tmp_path, "run-reverted", "reverted")
+    for rid in ("run-merged", "run-reverted", "run-pending"):
+        _seed_gate(tmp_path, rid)
+
+    res = label_gate_outcomes(tmp_path)
+    assert res == {"violation": 1, "clean": 1, "outcomes": 3}
+    by_run = {o.run_id: o for o in load_gate_outcomes(gate_outcomes_path(tmp_path))}
+    assert by_run["run-merged"].ground_truth == CLEAN
+    assert by_run["run-reverted"].ground_truth == VIOLATION
+    assert by_run["run-pending"].ground_truth == UNKNOWN  # no terminal disposition
+
+
+def test_label_gate_outcomes_is_idempotent(tmp_path):
+    from chimera.core.crawl_ledger import (
+        CrawlOutcome,
+        record_outcome,
+        set_disposition,
+    )
+
+    record_outcome(tmp_path, CrawlOutcome(run_id="r", ts="t", slug="s", gate="pass"))
+    set_disposition(tmp_path, "r", "reverted")
+    _seed_gate(tmp_path, "r")
+    assert label_gate_outcomes(tmp_path)["violation"] == 1
+    # second pass: already labelled → nothing new
+    second = label_gate_outcomes(tmp_path)
+    assert second["violation"] == 0 and second["clean"] == 0
+
+
+def test_label_gate_outcomes_skips_run_absent_from_crawl(tmp_path):
+    # A gate outcome whose run_id is not in the crawl ledger stays UNKNOWN.
+    _seed_gate(tmp_path, "orphan-run")
+    res = label_gate_outcomes(tmp_path)
+    assert res["violation"] == 0 and res["clean"] == 0
+    outs = load_gate_outcomes(gate_outcomes_path(tmp_path))
+    assert outs[0].ground_truth == UNKNOWN
+
+
+def test_labelled_outcomes_feed_cell_counts(tmp_path):
+    # The end-to-end point: once labelled, a PASS over a reverted (VIOLATION) run is
+    # a counted miss in the FNR denominator.
+    from chimera.core.crawl_ledger import (
+        CrawlOutcome,
+        record_outcome,
+        set_disposition,
+    )
+
+    record_outcome(tmp_path, CrawlOutcome(run_id="bad", ts="t", slug="s", gate="pass"))
+    set_disposition(tmp_path, "bad", "reverted")
+    _seed_gate(tmp_path, "bad", verdict=PASS)  # arbiter PASSed a change that reverted
+    label_gate_outcomes(tmp_path)
+    outs = load_gate_outcomes(gate_outcomes_path(tmp_path))
+    misses, positives = cell_counts(outs)
+    assert positives == 1 and misses == 1  # a PASS over a VIOLATION == a miss

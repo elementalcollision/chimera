@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 UNCERTIFIED = "uncertified"
@@ -245,6 +245,38 @@ def load_gate_outcomes(path: Path) -> list[GateOutcome]:
             order.append(key)
         latest[key] = obj
     return [GateOutcome.from_dict(latest[k]) for k in order]
+
+
+def label_gate_outcomes(state_dir: Path) -> dict:
+    """Back-fill ``GateOutcome.ground_truth`` from the crawl ledger's per-run
+    disposition — the B.4l stage-2 link from a gate firing to its outcome.
+
+    The join key is ``run_id`` (BOTH ledgers key on it; ``diff_sha`` only gives
+    per-diff sample granularity within a run). A run whose landed work was
+    REVERTED labels its still-UNKNOWN gate outcomes VIOLATION — so a gate that
+    PASSed that change is then a counted miss (false negative); a MERGED run
+    labels them CLEAN. ``pending``/``abandoned`` carry no signal and stay UNKNOWN.
+
+    Append-only (a re-append wins on fold-latest read) and idempotent: an outcome
+    already labelled, or whose run has no terminal disposition, is skipped.
+    Returns ``{"violation": n, "clean": n, "outcomes": total}``.
+    """
+    from .crawl_ledger import read_outcomes  # lazy: one-directional, no cycle
+
+    disposition = {o.run_id: o.disposition for o in read_outcomes(state_dir)}
+    terminal = {"reverted": VIOLATION, "merged": CLEAN}
+    path = gate_outcomes_path(state_dir)
+    outcomes = load_gate_outcomes(path)
+    counts = {"violation": 0, "clean": 0, "outcomes": len(outcomes)}
+    for o in outcomes:
+        if o.ground_truth != UNKNOWN:
+            continue
+        label = terminal.get(disposition.get(o.run_id, ""))
+        if label is None:
+            continue
+        append_gate_outcome(path, replace(o, ground_truth=label))
+        counts["violation" if label == VIOLATION else "clean"] += 1
+    return counts
 
 
 # ── advisory report (observability only — NEVER a gate decision) ─────
