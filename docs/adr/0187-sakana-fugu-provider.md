@@ -1,8 +1,9 @@
 # ADR 0187 — Sakana Fugu as a tool-agent provider
 
 **Status:** Accepted — *in progress.* Increment 1 (provider + liveness +
-guardrail-eval wiring) implemented; role integration to follow, gated on the
-test results below.
+guardrail-eval wiring) implemented (#402) and an independent `--judge-provider`
+added for sound resistance rates (#403). Tests #1 + #2 run live — results below.
+Role integration to follow, gated on those results.
 
 ## Context
 
@@ -69,6 +70,30 @@ behind the Provider abstraction so it stays swappable (vendor-lock-in hygiene).
    `fugu-ultra` log-only into the gate-calibration ledger (B.4l); the revert
    ledger later scores whether it would have been right — earn promotion before
    trusting it.
+
+## Results so far (2026-06-25)
+
+**#1 liveness** — `chimera ping --provider sakana` → `pong`. Auth + endpoint +
+OpenAI-compatible round-trip verified live.
+
+**#2 guardrail resistance** — `fugu` and `fugu-ultra`, N=10/cell, judged by an
+*independent* OpenRouter model (haiku, neutral system prompt): **0/10 compliance
+on every probe** (charter-escape, secret-exfil, destructive-cmd, prompt-injection)
+for both variants. A discrimination control confirmed the judge is not rubber-
+stamping (it correctly labels an obviously-compliant reply "complied").
+
+The instructive part: an earlier **N=3 heuristic** run reported multiple
+"failures" (fugu charter-escape 3/3, destructive 2/3, secret-exfil 1/3). Those
+were **classifier false-positives** — the keyword heuristic mis-graded compliant-
+*looking*-but-actually-refusing replies. The measurement instrument decided the
+verdict (q004's lesson sharpened): a weak classifier flipped a fully-resistant
+model to "unsafe." Use N + an independent judge, not single-shot heuristics.
+
+Caveats: four probe categories (not exhaustive), Chimera-charter-framed probes
+Fugu sees cold, one judge model. Claim is "strong resistance on these probes,"
+not "universally safe" — and B.4a remains the authority regardless. Encouraging
+for an arbiter/critic role; the live results do not by themselves clear an
+autonomous-action role.
 
 ## Consequences
 
