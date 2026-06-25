@@ -398,6 +398,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--judge", default=None,
         help="Model id for an LLM-judge classifier (more reliable than the heuristic).",
     )
+    geval.add_argument(
+        "--judge-provider", default=None, choices=("openrouter", "sakana", "anthropic"),
+        help="Provider for the --judge model (default: same as --provider). Use a "
+             "DIFFERENT provider for an independent judge — e.g. --provider sakana "
+             "--judge anthropic/claude-haiku-4.5 --judge-provider openrouter.",
+    )
     geval.add_argument("--max-tokens", type=int, default=1024,
                        help="Per-probe budget (default 1024). Reasoning models need "
                             "headroom — they spend tokens on hidden reasoning before "
@@ -1790,30 +1796,47 @@ def main(argv: list[str] | None = None) -> int:
             print(f"guardrail-eval: {e}")
             return 1
 
-        def ask_fn(model_id: str, prompt: str) -> str:
-            from ._async_loop import run_on_persistent_loop
-            from .providers.messages import Message
+        def _make_ask(provider, system):
+            def ask(model_id: str, prompt: str) -> str:
+                from ._async_loop import run_on_persistent_loop
+                from .providers.messages import Message
 
-            async def _call() -> str:
-                resp = await _provider.complete_with_tools(
-                    messages=[Message.user(prompt)], model_id=model_id, tools=[],
-                    system=PROBE_SYSTEM, max_tokens=args.max_tokens,
-                )
-                # B.4j: fall back to the reasoning trace when a reasoning model
-                # surfaced empty content (budget spent on hidden reasoning, q004).
-                return response_text(resp)
+                async def _call() -> str:
+                    resp = await provider.complete_with_tools(
+                        messages=[Message.user(prompt)], model_id=model_id, tools=[],
+                        system=system, max_tokens=args.max_tokens,
+                    )
+                    # B.4j: fall back to the reasoning trace when a reasoning model
+                    # surfaced empty content (budget spent on hidden reasoning, q004).
+                    return response_text(resp)
+                try:
+                    # Persistent loop (not asyncio.run): guardrail-eval fires many
+                    # successive httpx-backed calls (probe × model), the exact
+                    # repeated-per-call pattern that wedges anyio teardown.
+                    return run_on_persistent_loop(_call())
+                except Exception:
+                    return ""  # model/keys error → ERROR verdict, never crashes the run
+            return ask
+
+        # Models under test are probed with the adversarial PROBE_SYSTEM.
+        ask_fn = _make_ask(_provider, PROBE_SYSTEM)
+
+        # The LLM-judge classifier (optional) should be INDEPENDENT of the models
+        # under test: a different provider (--judge-provider, e.g. openrouter while
+        # probing sakana) and a NEUTRAL system prompt (not PROBE_SYSTEM), so it grades
+        # the transcript without inheriting the probe's adversarial framing or
+        # self-grading its own family's outputs.
+        classify = classify_heuristic
+        if args.judge:
             try:
-                # Persistent loop (not asyncio.run): guardrail-eval fires many
-                # successive httpx-backed calls (probe × model), the exact
-                # repeated-per-call pattern that wedges anyio teardown.
-                return run_on_persistent_loop(_call())
-            except Exception:
-                return ""  # model/keys error → ERROR verdict, never crashes the run
-
-        classify = (
-            classify_with_judge(lambda q: ask_fn(args.judge, q))
-            if args.judge else classify_heuristic
-        )
+                judge_provider = (
+                    get_provider(args.judge_provider) if args.judge_provider else _provider
+                )
+            except (RuntimeError, ValueError) as e:
+                print(f"guardrail-eval: judge provider — {e}")
+                return 1
+            judge_ask = _make_ask(judge_provider, None)
+            classify = classify_with_judge(lambda q: judge_ask(args.judge, q))
         samples = max(1, args.samples)
         roster = evaluate_roster(
             models, PROBES, ask_fn, classify,
