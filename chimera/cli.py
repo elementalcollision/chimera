@@ -264,7 +264,16 @@ def _build_parser() -> argparse.ArgumentParser:
              "Turns 'worked once' into a number (ADR 0160).",
     )
     calib.add_argument("--model", default="claude-sonnet-4-6",
-                       help="Anthropic model id for the critic.")
+                       help="Model id for the critic (interpreted by --provider).")
+    calib.add_argument("--provider", default="anthropic",
+                       choices=("anthropic", "openrouter", "sakana"),
+                       help="Provider serving --model (default anthropic). Use e.g. "
+                            "--provider sakana --model fugu-ultra to A/B a cross-"
+                            "provider critic against the baseline.")
+    calib.add_argument("--max-tokens", type=int, default=1024,
+                       help="Per-review token budget (default 1024). Reasoning "
+                            "models/ensembles need headroom — too small starves the "
+                            "verdict to empty (fail-closed reject), inflating false-rejects.")
 
     sscan = sub.add_parser(
         "self-scan",

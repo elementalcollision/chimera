@@ -320,6 +320,25 @@ async def test_sakana_posts_to_sakana_endpoint(monkeypatch):
     await provider.aclose()
 
 
+def test_sakana_default_timeout_is_generous(monkeypatch):
+    # Fugu-ultra is a slow ensemble; the default must exceed a normal LLM timeout.
+    monkeypatch.setenv("SAKANA_API_KEY", "k")
+    monkeypatch.delenv("SAKANA_TIMEOUT", raising=False)
+    assert SakanaProvider()._timeout == 180.0
+
+
+def test_sakana_timeout_env_override(monkeypatch):
+    monkeypatch.setenv("SAKANA_API_KEY", "k")
+    monkeypatch.setenv("SAKANA_TIMEOUT", "300")
+    assert SakanaProvider()._timeout == 300.0
+
+
+def test_sakana_explicit_timeout_wins(monkeypatch):
+    monkeypatch.setenv("SAKANA_API_KEY", "k")
+    monkeypatch.setenv("SAKANA_TIMEOUT", "300")
+    assert SakanaProvider(timeout=45.0)._timeout == 45.0
+
+
 def test_get_provider_factory(monkeypatch):
     monkeypatch.setenv("SAKANA_API_KEY", "k")
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
