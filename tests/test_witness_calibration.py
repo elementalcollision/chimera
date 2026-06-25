@@ -62,3 +62,36 @@ def test_panel_confusion_catches_bad_change():
     m3 = [_v(True)]
     c = panel_confusion([m1, m2, m3], labels)
     assert c["false_approve"] == 0 and c["correct"] == 1
+
+
+# ── error handling: a None (provider error) is EXCLUDED, never counted approve ─
+
+
+def test_member_stats_excludes_errors():
+    labels = [True, False, True, False]
+    # case1 (should-reject) errored — must NOT become a fabricated false-approve.
+    verdicts = [_v(True), None, _v(True), _v(False)]
+    s = member_stats("m", verdicts, labels)
+    assert s.errors == 1
+    assert s.n == 3                  # answered, not 4
+    assert s.false_approve == 0      # the errored should-reject is excluded
+    assert s.correct == 3            # cases 0, 2, 3 all correct
+    assert s.accuracy == 1.0         # over ANSWERED cases only
+
+
+def test_vote_agreement_excludes_error_pairs():
+    a = [_v(True), None, _v(False)]
+    b = [_v(True), _v(True), None]
+    # Only case0 has both present → 100% over the comparable case.
+    assert vote_agreement(a, b) == 1.0
+
+
+def test_panel_confusion_skips_all_error_case_and_drops_voters():
+    labels = [True, False]
+    # case0: only m1 answers (others errored) → panel = m1's approve (correct).
+    # case1: all errored → skipped.
+    m1 = [_v(True), None]
+    m2 = [None, None]
+    m3 = [None, None]
+    c = panel_confusion([m1, m2, m3], labels)
+    assert c["skipped"] == 1 and c["n"] == 1 and c["correct"] == 1
