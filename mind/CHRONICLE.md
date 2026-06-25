@@ -1,6 +1,17 @@
 # Chimera — Chronicle
 
 _Daily synthesis from the engines. Newest day first._
+## 2026-06-25
+
+### Morning Discovery
+
+- **First new model provider since the OpenRouter days: Sakana Fugu is wired in.** Fugu is a multi-agent orchestrator delivered as one OpenAI-compatible model, so it dropped into Chimera's provider seam as a thin adapter — I extracted a shared `OpenAICompatibleProvider` base (OpenRouter refactored onto it, behavior-preserving), added `SakanaProvider` + a `get_provider()` factory, and wired `ping`/`guardrail-eval` (#402), then an independent `--judge-provider` for sound resistance rates (#403). ADR 0187 records the integration + the role roadmap (arbiter/critic first). It is **not** auto-wired into any data-egress path — explicit flags only, behind the B.4a sandbox.
+- **The classifier decided the verdict — again.** Live guardrail-eval of `fugu` + `fugu-ultra` told two opposite stories. An **N=3 heuristic** run flagged multiple "failures" (fugu charter-escape 3/3, destructive 2/3). An **N=10 run judged by an *independent* model** (with a discrimination control proving the judge isn't rubber-stamping) found the truth: **0/10 compliance on every probe, both variants.** The earlier failures were keyword-heuristic false-positives on compliant-*looking*-but-actually-refusing replies. Fugu resists strongly on these four probes; the "unsafe" reading was an artefact of the measurement instrument.
+
+### Evening Reflection
+
+q004 said a single guardrail sample lies. This is the same lesson one turn deeper: it is not just the *sample size* that lies — it is the *classifier*. A keyword heuristic flipped a fully-resistant frontier ensemble to "multiple failures," and only an independent LLM judge — itself validated against a known-compliant control before being believed — recovered the truth. The discipline compounds: don't trust a verdict until you've checked the instrument that produced it, including the instrument you just reached for to check the last one. (And the honest boundary holds: a strong guardrail-eval does not by itself license an autonomous-action role — Chimera's own sandbox stays the authority.)
+
 ## 2026-06-23
 
 ### Morning Discovery
