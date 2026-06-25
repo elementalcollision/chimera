@@ -12,7 +12,7 @@ from __future__ import annotations
 def _cmd_witness_calibrate(args) -> int:
     from .._async_loop import run_on_persistent_loop
     from ..core.critic_calibration import default_cases
-    from ..core.witness import WitnessVerdict, witness_code_change
+    from ..core.witness import witness_code_change
     from ..core.witness_calibration import (
         member_stats,
         panel_confusion,
@@ -46,26 +46,33 @@ def _cmd_witness_calibrate(args) -> int:
                 continue
         active.append((label, pname, model))
 
-    async def _vote(pname: str, model: str, case) -> WitnessVerdict:
+    async def _vote(pname: str, model: str, case):
         try:
-            return await witness_code_change(
+            v = await witness_code_change(
                 case.goal or "Review this change for faithfulness.",
                 case.diff, ["module.py"], provs[pname],
                 model_id=model, max_tokens=args.max_tokens,
             )
-        except Exception:  # noqa: BLE001 — a member error counts as approve (panel default)
-            return WitnessVerdict(approved=True, summary=f"{model}: error")
+        except Exception:  # noqa: BLE001
+            return None
+        # witness_code_change fail-opens to APPROVE on a provider error (correct for
+        # the live gate). For a CALIBRATION that's an ERROR, not a verdict — exclude
+        # it so an outage / credit-exhaustion never fabricates an "approve".
+        if "provider error" in (v.summary or ""):
+            return None
+        return v
 
     verdicts: dict[str, list] = {}
     for label, pname, model in active:
         verdicts[label] = [run_on_persistent_loop(_vote(pname, model, c)) for c in cases]
 
     print(f"witness-calibrate: {len(cases)} labelled cases (single-shot)\n")
-    print("Per-member accuracy (false-APPROVE is the dangerous error):")
+    print("Per-member accuracy (false-APPROVE is the dangerous error; errors EXCLUDED):")
     for label, _p, _m in active:
         s = member_stats(label, verdicts[label], labels)
+        tag = f"  [{s.errors} errors excluded]" if s.errors else ""
         print(f"  {label:34s} acc {s.accuracy:.0%}  false-approve {s.false_approve:2d}  "
-              f"false-reject {s.false_reject:2d}")
+              f"false-reject {s.false_reject:2d}  (answered {s.n}/{len(cases)}){tag}")
 
     if cand[0] not in verdicts:
         return 0
@@ -82,8 +89,13 @@ def _cmd_witness_calibrate(args) -> int:
     pc_with = panel_confusion(
         [verdicts[label] for label in base_labels] + [verdicts[cand[0]]], labels,
     )
+    def _skip(pc):
+        return f"  [{pc['skipped']} skipped]" if pc.get("skipped") else ""
+
     print(f"\nPanel WITHOUT candidate: acc {pc_base['accuracy']:.0%}  "
-          f"false-approve {pc_base['false_approve']}  false-reject {pc_base['false_reject']}")
+          f"false-approve {pc_base['false_approve']}  false-reject {pc_base['false_reject']}"
+          f"{_skip(pc_base)}")
     print(f"Panel WITH    candidate: acc {pc_with['accuracy']:.0%}  "
-          f"false-approve {pc_with['false_approve']}  false-reject {pc_with['false_reject']}")
+          f"false-approve {pc_with['false_approve']}  false-reject {pc_with['false_reject']}"
+          f"{_skip(pc_with)}")
     return 0
