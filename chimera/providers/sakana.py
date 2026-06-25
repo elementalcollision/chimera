@@ -39,7 +39,12 @@ class SakanaProvider(OpenAICompatibleProvider):
     default_url = _DEFAULT_URL
     api_key_env = "SAKANA_API_KEY"
 
-    def __init__(self, api_key: str | None = None, *, timeout: float = 60.0) -> None:
+    # Fugu (esp. fugu-ultra) is a multi-agent ensemble — a single call coordinates
+    # several frontier models serially, so latency far exceeds a normal LLM. The
+    # 60s default times out on hard prompts (observed: critic ReadTimeouts → empty
+    # response → fail-closed reject). Default to a generous 180s, overridable via
+    # SAKANA_TIMEOUT, and explicit timeout= still wins.
+    def __init__(self, api_key: str | None = None, *, timeout: float | None = None) -> None:
         key = (
             api_key
             or os.environ.get("SAKANA_API_KEY")
@@ -47,6 +52,11 @@ class SakanaProvider(OpenAICompatibleProvider):
         )
         if not key:
             raise RuntimeError("SAKANA_API_KEY (or FUGU_API_KEY) not set")
+        if timeout is None:
+            try:
+                timeout = float(os.environ.get("SAKANA_TIMEOUT", "180"))
+            except ValueError:
+                timeout = 180.0
         override = os.environ.get("SAKANA_BASE_URL") or os.environ.get("FUGU_BASE_URL")
         base_url = _normalize_base_url(override) if override else None
         super().__init__(key, base_url=base_url, timeout=timeout)
