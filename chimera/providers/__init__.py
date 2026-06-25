@@ -10,7 +10,9 @@ from .messages import (
     ToolResultBlock,
     ToolUseBlock,
 )
+from .openai_compat import OpenAICompatibleProvider
 from .openrouter import OpenRouterProvider
+from .sakana import SakanaProvider
 from .tiers import (
     HAIKU,
     HAIKU_LADDER,
@@ -28,8 +30,28 @@ from .tiers import (
 from .tiers import Provider as ProviderKind
 from .tiers import eligible_rungs, resolve_rung, select_rung
 
+
+def get_provider(name: str) -> Provider:
+    """Return a fresh provider instance by name (raises on unknown / missing key).
+
+    The single seam for selecting a chat provider from a string (CLI flags,
+    config). Each provider reads its own API key from the environment.
+    """
+    key = name.strip().lower()
+    if key == "anthropic":
+        return AnthropicProvider()
+    if key == "openrouter":
+        return OpenRouterProvider()
+    if key == "sakana":
+        return SakanaProvider()
+    raise ValueError(f"unknown provider: {name!r} (expected anthropic/openrouter/sakana)")
+
+
 __all__ = [
     "AnthropicProvider",
+    "OpenAICompatibleProvider",
+    "SakanaProvider",
+    "get_provider",
     "ChatChunk",
     "ChatMessage",
     "ChatResponse",
