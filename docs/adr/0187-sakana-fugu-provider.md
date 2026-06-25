@@ -18,10 +18,17 @@ panel actually splits. This is the role #3 pointed to: `fugu-ultra`'s 0%
 false-approve + ensemble verification make it a fit for the *expensive tie-breaker
 on contested cases*, not routine critic duty.
 
-Open follow-up (honest): the recorded `diff_sha` is a content hash, not the
-eventual commit sha, so the B.4l revert label producer (commit-sha based) does not
-yet auto-link ground truth — the ledger reads UNCERTIFIED until a linking step
-lands. Measure first; promote only once the denominator exists.
+Ground-truth link (now wired): `gate_calibration.label_gate_outcomes` joins gate
+outcomes to the crawl ledger's per-run disposition by **`run_id`** — the key both
+ledgers already share (`diff_sha` only gives per-diff sample granularity within a
+run). `crawl-reconcile` back-fills it right after revert detection: a REVERTED run
+labels its gate outcomes VIOLATION (a gate that PASSed that change is then a
+counted miss), a MERGED run CLEAN; pending/abandoned stay UNKNOWN. So once a soak
+runs with the arbiter on and the daily reconcile fires, the shadow arbiter's
+per-cell FNR becomes scorable via `chimera gate-calibration` — it earns promotion
+on real data, never before. Remaining caveat (honest): the per-run label is coarse
+— all contested diffs in one run share that run's fate — adequate as a first
+denominator, refinable later.
 
 ## Context
 
