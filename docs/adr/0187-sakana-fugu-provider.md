@@ -95,6 +95,29 @@ not "universally safe" — and B.4a remains the authority regardless. Encouragin
 for an arbiter/critic role; the live results do not by themselves clear an
 autonomous-action role.
 
+**#3 critic A/B** — faithfulness adjudication on the 28-case labelled benchmark
+(`critic-calibrate`, single-shot):
+
+| critic | accuracy | false-approve | false-reject |
+|---|---|---|---|
+| `claude-sonnet-4-6` (baseline) | 89% (25/28) | 0/12 | 3/16 |
+| `fugu-ultra` (sakana, 180s+ timeout) | 82% (23/28) | 0/12 | 5/16 |
+
+Both are clean on the dangerous error (**0% false-approve** — no unfaithful change
+waved through). `fugu-ultra` is modestly more conservative: it rejects a few
+genuinely-faithful-but-tricky changes the baseline approves. It is slower +
+pricier (ensemble) and **not a drop-in critic upgrade** — but its 0% false-approve
++ ensemble verification suit the *arbiter* role (a sparingly-invoked tie-breaker
+for contested decisions) rather than routine critic duty.
+
+The thread across #2 + #3 is the real lesson: `fugu-ultra`'s *apparent* failures
+were **instrument artifacts at three successive layers** — N=3 + a keyword
+heuristic (#2), then a 60s request timeout fail-closing to REJECT (#3 first pass,
+which faked 57% / 6-of-7 false-rejects) — and the sound numbers only appeared
+after fixing each. Validate the instrument (sample size, classifier, timeout)
+before judging the model. (The 60s→180s Sakana timeout default came directly from
+this.)
+
 ## Consequences
 
 - One new external dependency (Sakana), isolated behind `Provider`; no new
