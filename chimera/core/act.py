@@ -1396,12 +1396,25 @@ class ActExecutor:
                                     panel, self._providers.get,
                                     charter_excerpts=charter,
                                 )
-                                if labelled and not panel_decision(
-                                    v for _, v in labelled
-                                ):
+                                panel_approved = (
+                                    panel_decision(v for _, v in labelled)
+                                    if labelled else True
+                                )
+                                if labelled and not panel_approved:
                                     completed = False
                                     finish_reason = "witness_rejected"
                                     witness_concerns = aggregate_concerns(labelled)
+                                # ADR 0187 #5: log-only shadow arbiter on a
+                                # CONTESTED panel (opt-in via CHIMERA_SHADOW_ARBITER;
+                                # never changes the gate — pure measurement into the
+                                # B.4l ledger). Best-effort: never raises.
+                                if labelled:
+                                    from .shadow_arbiter import maybe_shadow_arbitrate
+                                    await maybe_shadow_arbitrate(
+                                        task_text, diff, witness_paths,
+                                        labelled, panel_approved,
+                                        charter_excerpts=charter,
+                                    )
                         except Exception:
                             logger.exception(
                                 "witness review crashed; treating as approved"
