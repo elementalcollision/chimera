@@ -381,13 +381,18 @@ def _build_parser() -> argparse.ArgumentParser:
     geval = sub.add_parser(
         "guardrail-eval",
         help="Probe each model's charter / prompt-injection resistance and print a "
-             "per-model resistance matrix (ADR 0186; needs OPENROUTER_API_KEY + incurs "
-             "API cost — pass --models to control which models run).",
+             "per-model resistance matrix (ADR 0186; needs the provider's API key + "
+             "incurs API cost — pass --models to control which models run).",
     )
     geval.add_argument(
         "--models", default=None,
         help="Comma-separated model ids to probe (controls scope + API cost). "
              "Omit to list available roster models without calling.",
+    )
+    geval.add_argument(
+        "--provider", default="openrouter", choices=("openrouter", "sakana"),
+        help="Which provider serves the model ids (default: openrouter). "
+             "Use 'sakana' to probe Fugu — e.g. --provider sakana --models fugu,fugu-ultra.",
     )
     geval.add_argument(
         "--judge", default=None,
@@ -536,11 +541,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ping = sub.add_parser(
         "ping",
-        help="Stream a one-token reply from both providers (verifies API keys).",
+        help="Stream a one-token reply from a provider (verifies API keys). "
+             "'both' = anthropic + openrouter; pass 'sakana' to liveness-check Fugu.",
     )
     ping.add_argument(
         "--provider",
-        choices=("anthropic", "openrouter", "both"),
+        choices=("anthropic", "openrouter", "both", "sakana"),
         default="both",
     )
 
@@ -1273,12 +1279,16 @@ async def _ping_provider(name: str) -> int:
         ChatMessage,
         OpenRouterProvider,
         ProviderKind,
+        SakanaProvider,
     )
 
     try:
         if name == "anthropic":
             provider = AnthropicProvider()
             model = HAIKU.model_id
+        elif name == "sakana":
+            provider = SakanaProvider()
+            model = "fugu"  # cheapest/fastest Fugu variant for a liveness check
         else:
             provider = OpenRouterProvider()
             # First OpenRouter rung in the HAIKU ladder — native (non-Anthropic) model.
@@ -1292,14 +1302,18 @@ async def _ping_provider(name: str) -> int:
 
     text_parts: list[str] = []
     finish: str | None = None
-    async for chunk in provider.stream(
-        [ChatMessage(role="user", content="Say 'pong' and nothing else.")],
-        model_id=model,
-        max_tokens=128,
-    ):
-        text_parts.append(chunk.text)
-        if chunk.finish_reason:
-            finish = chunk.finish_reason
+    try:
+        async for chunk in provider.stream(
+            [ChatMessage(role="user", content="Say 'pong' and nothing else.")],
+            model_id=model,
+            max_tokens=128,
+        ):
+            text_parts.append(chunk.text)
+            if chunk.finish_reason:
+                finish = chunk.finish_reason
+    except Exception as e:  # noqa: BLE001 — liveness check reports, never crashes
+        print(f"  [{name}] FAIL: {str(e).splitlines()[0][:200]}")
+        return 1
     reply = "".join(text_parts).strip()
     print(f"  [{name}] reply={reply!r} finish={finish!r}")
     return 0 if "pong" in reply.lower() else 1
@@ -1766,13 +1780,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         models = [m.strip() for m in args.models.split(",") if m.strip()]
 
+        from .providers import get_provider
+
+        try:
+            _provider = get_provider(args.provider)
+        except (RuntimeError, ValueError) as e:
+            # Missing API key / bad provider name — fail fast with a clear message
+            # rather than emitting an all-ERROR matrix.
+            print(f"guardrail-eval: {e}")
+            return 1
+
         def ask_fn(model_id: str, prompt: str) -> str:
             from ._async_loop import run_on_persistent_loop
             from .providers.messages import Message
-            from .providers.openrouter import OpenRouterProvider
 
             async def _call() -> str:
-                resp = await OpenRouterProvider().complete_with_tools(
+                resp = await _provider.complete_with_tools(
                     messages=[Message.user(prompt)], model_id=model_id, tools=[],
                     system=PROBE_SYSTEM, max_tokens=args.max_tokens,
                 )

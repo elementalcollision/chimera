@@ -19,8 +19,11 @@ from chimera.providers import (
     TIER_LADDERS,
     AnthropicProvider,
     ChatMessage,
+    OpenAICompatibleProvider,
     OpenRouterProvider,
     ProviderKind,
+    SakanaProvider,
+    get_provider,
     select_rung,
 )
 
@@ -243,6 +246,102 @@ async def test_openrouter_provider_rebinds_client_on_loop_change(monkeypatch):
         await provider.aclose()
 
 
+# ── Sakana Fugu provider (offline) ───────────────────────────
+
+
+def test_sakana_provider_requires_key(monkeypatch):
+    monkeypatch.delenv("SAKANA_API_KEY", raising=False)
+    monkeypatch.delenv("FUGU_API_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        SakanaProvider()
+
+
+def test_sakana_provider_accepts_fugu_key_fallback(monkeypatch):
+    monkeypatch.delenv("SAKANA_API_KEY", raising=False)
+    monkeypatch.setenv("FUGU_API_KEY", "k")
+    p = SakanaProvider()
+    assert p.name == "sakana"
+    assert p._url == "https://api.sakana.ai/v1/chat/completions"
+
+
+def test_sakana_is_openai_compatible(monkeypatch):
+    monkeypatch.setenv("SAKANA_API_KEY", "k")
+    assert isinstance(SakanaProvider(), OpenAICompatibleProvider)
+
+
+@pytest.mark.parametrize("override,expected", [
+    ("https://api.sakana.ai", "https://api.sakana.ai/v1/chat/completions"),
+    ("https://api.sakana.ai/", "https://api.sakana.ai/v1/chat/completions"),
+    ("https://api.sakana.ai/v1", "https://api.sakana.ai/v1/chat/completions"),
+    ("https://proxy.internal/v1/chat/completions",
+     "https://proxy.internal/v1/chat/completions"),
+])
+def test_sakana_base_url_override_normalized(monkeypatch, override, expected):
+    monkeypatch.setenv("SAKANA_API_KEY", "k")
+    monkeypatch.setenv("SAKANA_BASE_URL", override)
+    assert SakanaProvider()._url == expected
+
+
+@pytest.mark.asyncio
+async def test_sakana_posts_to_sakana_endpoint(monkeypatch):
+    import asyncio
+    import json as _json
+
+    import httpx
+
+    from chimera.providers import Message
+
+    monkeypatch.setenv("SAKANA_API_KEY", "k")
+    seen: dict = {}
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = _json.loads(request.content)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "pong"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        })
+
+    provider = SakanaProvider()
+    provider._client = httpx.AsyncClient(
+        timeout=provider._timeout, headers=provider._headers,
+        transport=httpx.MockTransport(_handler),
+    )
+    provider._client_loop = asyncio.get_running_loop()
+    resp = await provider.complete_with_tools(
+        messages=[Message.user("hi")], model_id="fugu", tools=[], max_tokens=8,
+    )
+    assert resp.text == "pong"
+    assert resp.provider == "sakana"
+    assert seen["url"] == "https://api.sakana.ai/v1/chat/completions"
+    assert seen["auth"] == "Bearer k"
+    assert seen["body"]["model"] == "fugu"
+    await provider.aclose()
+
+
+def test_get_provider_factory(monkeypatch):
+    monkeypatch.setenv("SAKANA_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    assert isinstance(get_provider("sakana"), SakanaProvider)
+    assert isinstance(get_provider("openrouter"), OpenRouterProvider)
+    assert isinstance(get_provider("anthropic"), AnthropicProvider)
+    assert isinstance(get_provider("SAKANA"), SakanaProvider)  # case-insensitive
+    with pytest.raises(ValueError):
+        get_provider("bogus")
+
+
+def test_openrouter_is_openai_compatible_after_refactor(monkeypatch):
+    """Refactor safety: OpenRouter is now an OpenAICompatibleProvider subclass and
+    still targets the OpenRouter endpoint with its name preserved."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    p = OpenRouterProvider()
+    assert isinstance(p, OpenAICompatibleProvider)
+    assert p._url == "https://openrouter.ai/api/v1/chat/completions"
+    assert p.name == "openrouter"
+
+
 # ── Live ping (gated on env) ─────────────────────────────────
 
 
@@ -288,3 +387,23 @@ async def test_openrouter_live_ping():
     text = "".join(c.text for c in chunks)
     assert "pong" in text.lower()
     assert chunks[-1].finish_reason is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not (os.environ.get("SAKANA_API_KEY") or os.environ.get("FUGU_API_KEY")),
+    reason="SAKANA_API_KEY / FUGU_API_KEY not set",
+)
+async def test_sakana_live_ping():
+    """Test #1 (liveness): a real one-token round-trip against Fugu. Gated on the
+    key so CI skips it; run locally after placing SAKANA_API_KEY in .env."""
+    provider = SakanaProvider()
+    chunks = []
+    async for chunk in provider.stream(
+        [ChatMessage(role="user", content="Say 'pong' and nothing else.")],
+        model_id="fugu",
+        max_tokens=128,
+    ):
+        chunks.append(chunk)
+    text = "".join(c.text for c in chunks)
+    assert "pong" in text.lower()
