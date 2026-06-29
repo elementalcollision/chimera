@@ -107,6 +107,10 @@ def build_review_prompt(
         "BEHAVIOUR CHANGE or a load-bearing removal — NOT to deletions that are "
         "provably unused cleanup. Do not reject a behaviour-neutral maintenance "
         "change merely because it removes lines.",
+        "Your `rationale` MUST reference the SPECIFIC changed line(s) it rests on "
+        "(quote or name them) — evaluation tends to skim where generation reads "
+        "closely (arXiv:2606.28050), so read the whole diff before deciding; a "
+        "verdict that does not engage the actual diff is not acceptable.",
     ]
     return "\n".join(parts)
 

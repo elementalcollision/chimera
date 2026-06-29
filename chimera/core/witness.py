@@ -209,7 +209,13 @@ _WITNESS_SYSTEM_PROMPT = (
     "tactical edit — better caught here than after merge.\n\n"
     "What NOT to flag: speculative refactors, comment density, "
     "doc-comment phrasing, anything you'd write as \"could be nicer\"."
-    "\n\nOutput format: a single JSON object on one line:\n"
+    "\n\nGROUNDING (read before deciding): base your verdict on the ACTUAL "
+    "changed lines, not the task description alone. Evaluation tends to skim "
+    "where generation reads closely (arXiv:2606.28050); an `approved=true` here "
+    "ASSERTS you read the whole diff and checked each item above against the real "
+    "change — never approve on a skim. The `summary` MUST state what the diff "
+    "actually changes, so an approval is grounded too.\n\n"
+    "Output format: a single JSON object on one line:\n"
     '  {"approved": <bool>, "concerns": [<short string>, ...], '
     '"summary": <one-line string>}\n\n'
     "`concerns` MUST be non-empty when approved=false and empty when "
