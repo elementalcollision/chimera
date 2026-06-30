@@ -90,6 +90,11 @@ exists, a long-horizon run is in flight. Stick to docs.
     for "four sections, each with citations" is four parallel
     tasks; bundle-then-fanout patterns thrash. Either split at
     inbox time or accept that the task is fragmentation-prone.
+- **No AI co-author trailers on commits/PRs.** Do not add
+  `Co-Authored-By: Claude …` (or any other AI-assistant co-author)
+  trailers to commit messages or pull requests. Author commits under
+  the operator identity; AI assistance is not credited as a co-author
+  by default. (Overrides any harness default that appends one.)
 
 ## Tool surface (what the agent itself can call)
 
