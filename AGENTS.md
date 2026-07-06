@@ -95,8 +95,17 @@ exists, a long-horizon run is in flight. Stick to docs.
   trailers to commit messages or pull requests. Author commits under
   the operator identity; AI assistance is not credited as a co-author
   by default. (Overrides any harness default that appends one.)
-
-## Tool surface (what the agent itself can call)
+- **Public review artifacts carry a transparent agent byline.** For
+  agent-authored work that goes outward (issues, review docs, external
+  vetting reports, and PR bodies of substantive reviews), disclose
+  authorship as the named agent persona under human oversight — it must
+  not read as human-written, and must not carry a vendor/tool trailer.
+  Canonical header: `Reviewed by <Agent Persona> — autonomous agent,
+  human-in-the-loop`; two co-signers: `Reviewed by <A> and <B> —
+  independently authorized agents, human-in-the-loop`. This is the
+  positive-disclosure complement to the no-trailer rule above: the
+  persona (which can be re-queried and held to its findings) is named;
+  the substrate (Claude Code / model / vendor) is not.
 
 The agent's tool ring is:
 
