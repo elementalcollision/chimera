@@ -1,0 +1,787 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2004 2678" font-family="'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" role="img" aria-labelledby="ttl dsc">
+<title id="ttl">Chimera — System Architecture</title>
+<desc id="dsc">Chimera is a multi-LLM, tools-capable autonomous agent built on a thin Python core. It is invocation-driven: one 9-phase cycle (HOUSEKEEPING→WAKE→ASSESS→PLAN→ACT→WRITE→FLUSH→COMMIT→ROTATE) runs per `chimera run`, with cadence supplied externally by a soak runner or cron. The ACT phase fans out tools in parallel and calls LLMs through cost-cascade tier ladders (Anthropic / OpenRouter / Sakana), cheapest rung first, under three orthogonal spend caps. A verification layer (critic gate, cross-provider witness panel, scope + repo-verify gates) blocks unfaithful or off-charter commits. SQLite is the source of truth for a KFM ontology (entities + transitions), with a derived Kuzu graph and FTS5 wiki for recall. A self-steering feedback tier — autonomous engines, composite drift scoring, and a T0–T5 trust ladder — closes the loop each FLUSH; escalation memory promotes failed tasks a tier on the next attempt. Chimera scans itself, authors charters, and opens trust-gated DRAFT PRs to its own and foreign repos. It federates with peer nodes as an MCP server (stdio + HTTP/SSE bearer auth) under an ALLOW/DEGRADE/REFUSE trust policy, and surfaces everything through a read-only Next.js control-plane. ~90 CHIMERA_* flags live in one CI-enforced registry; mutations are proposals the operator disposes.</desc>
+<style>
+  .h1{font-family:'Newsreader',Georgia,'Times New Roman',serif;font-size:34px;font-weight:600;fill:#141414}
+  .sub{font-size:15px;fill:#6F6C64}
+  .tier{font-size:12.5px;font-weight:700;letter-spacing:1.3px}
+  .tierdesc{font-size:11.5px;fill:#6F6C64;font-style:italic}
+  .bt-s{font-size:12.5px;font-weight:700}
+  .modp{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:8.6px;fill:#8A8578;font-style:italic}
+  .fact{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:7.5px;fill:#4A4640}
+  .sm{font-size:12px;fill:#6F6C64}
+  .smk{font-size:12px;fill:#141414}
+  .mono-s{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:9px;fill:#6F6C64}
+  .mono-i{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:11px;fill:#141414}
+  .lbl{font-size:10px;font-weight:600;fill:#6F6C64}
+  .box{fill:#FFFFFF;stroke-width:1.5;rx:8}
+  .rail{fill:#FBFAF6;stroke:#C3BBA9;stroke-width:1.5}
+  .flow{fill:none;stroke:#4A4640;stroke-width:1.6;marker-end:url(#arw)}
+  .fb{fill:none;stroke:#B0623C;stroke-width:2.4;stroke-dasharray:8 5;marker-end:url(#arwV)}
+</style>
+<defs>
+  <marker id="arw" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#4A4640"/></marker>
+  <marker id="arwV" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#B0623C"/></marker>
+  <marker id="arwM" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#26364A"/></marker>
+</defs>
+<rect x="0" y="0" width="2004" height="2678" fill="#F3F1EC"/>
+<rect x="132" y="284" width="1302" height="156" fill="#26364A" opacity="0.045"/>
+<rect x="132" y="1642" width="1302" height="156" fill="#3F6E66" opacity="0.06"/>
+<text class="h1" x="40" y="56">Chimera — System Architecture</text>
+<text class="sub" x="42" y="84">A multi-LLM, tools-capable autonomous agent · invocation-driven 9-phase cycle · SQLite/KFM source of truth · closed drift·trust·escalation feedback · v4.120</text>
+<line x1="40" y1="102" x2="1424" y2="102" stroke="#C3BBA9" stroke-width="1"/>
+<rect x="40" y="120" width="1384" height="128" rx="9" fill="#26364A"/>
+<text x="60" y="150" font-size="14.5" font-weight="700" fill="#F3F1EC">ONE AGENT, NO ORCHESTRATOR · the loop is its own scheduler — `chimera run` executes exactly one 9-phase cycle; cadence is external (soak runner / cron re-invokes it).</text>
+<text x="60" y="176" font-size="13" fill="#E7E3D8"><tspan font-weight="700">Source of truth</tspan> = SQLite state/chimera.db (KFM entities + transitions + api_calls + mutations + task_escalations; WAL, user_version=4) and mind/*.md narrative. Kuzu graph + FTS5 wiki are DERIVED, rebuildable.</text>
+<text x="60" y="200" font-size="13" fill="#E7E3D8"><tspan font-weight="700">Self-steering</tspan> = FLUSH scores composite drift + trust readiness each cycle; escalation memory promotes a failed task one tier next attempt — a closed feedback loop back into the scheduler.</text>
+<text x="60" y="226" font-size="13" fill="#E7E3D8"><tspan font-weight="700">Chimera proposes, operator disposes</tspan> = every mutation, self-PR and foreign-PR is a trust-gated, fail-closed DRAFT; ARCHIVED→KILLED and PR merges are operator-gated.</text>
+<path class="fb" d="M130,1719.0 C72,1719.0 56,1659.0 56,1579.0 L56,432 C56,352 78,312 130,312"/>
+<text class="lbl" x="46" y="1015.5" fill="#B0623C" transform="rotate(-90 46 1015.5)" text-anchor="middle">⑧ DRIFT · TRUST · ESCALATION → ① SCHEDULER · closed self-steering loop (FLUSH each cycle)</text>
+<text class="tier" x="140" y="300" fill="#26364A">①  AGENT LOOP &amp; 9-PHASE CYCLE</text>
+<text class="tierdesc" x="140" y="316">chimera/core/loop.py — invocation-driven cycle; one beat per `chimera run`; 9 named phases HOUSEKEEPING→…→ROTATE (COMMIT is a stub).</text>
+<rect class="box" x="140" y="326" width="206" height="122" fill="#FFFFFF" stroke="#26364A"/>
+<text class="bt-s" x="151" y="344" fill="#26364A">Loop orchestrator</text>
+<text class="modp" x="151" y="359">chimera/core/loop.py</text>
+<text class="fact" x="151" y="371.5">run_one_cycle: 1 cycle/`chimera run`</text>
+<text class="fact" x="151" y="381.9">no in-process daemon loop</text>
+<text class="fact" x="151" y="392.3">run_on_persistent_loop: thread loop</text>
+<text class="fact" x="151" y="402.7">opus_plan_every_n=4; session ≤12h</text>
+<text class="fact" x="151" y="413.1">CycleReport: phase_log + times_ms</text>
+<rect class="box" x="356" y="326" width="206" height="122" fill="#FFFFFF" stroke="#26364A"/>
+<text class="bt-s" x="367" y="344" fill="#26364A">9 phase methods</text>
+<text class="modp" x="367" y="359">chimera/core/loop.py</text>
+<text class="fact" x="367" y="371.5">HK→WAKE→ASSESS→PLAN→…→COMMIT→ROTATE</text>
+<text class="fact" x="367" y="381.9">phase budget_ms 500/1000/PLAN 240k/2000</text>
+<text class="fact" x="367" y="392.3">ACT wall-budget 240s (wait_for)</text>
+<text class="fact" x="367" y="402.7">COMMIT is a stub (deferred)</text>
+<text class="fact" x="367" y="413.1">ROTATE: age ≥12h or drift KILL</text>
+<rect class="box" x="572" y="326" width="206" height="122" fill="#FFFFFF" stroke="#26364A"/>
+<text class="bt-s" x="583" y="344" fill="#26364A">mind file I/O</text>
+<text class="modp" x="583" y="359">chimera/core/mind.py</text>
+<text class="fact" x="583" y="371.5">HEARTBEAT.md = cycle source of truth</text>
+<text class="fact" x="583" y="381.9">cycle restored from file, not DB</text>
+<text class="fact" x="583" y="392.3">parse_inbox `- [ ]` + src tag</text>
+<text class="fact" x="583" y="402.7">operator rows sort before agent</text>
+<text class="fact" x="583" y="413.1">WRITE flips `- [ ]` → `- [x]`</text>
+<rect class="box" x="788" y="326" width="206" height="122" fill="#FFFFFF" stroke="#26364A"/>
+<text class="bt-s" x="799" y="344" fill="#26364A">Observability + activity</text>
+<text class="bt-s" x="799" y="357" fill="#26364A">log</text>
+<text class="modp" x="799" y="372">chimera/core/observability.py</text>
+<text class="fact" x="799" y="384.5">phase_timer wall-clock; WARN over</text>
+<text class="fact" x="799" y="394.9">→ state/phase_timings.json</text>
+<text class="fact" x="799" y="405.3">_record_phase_activity → memory</text>
+<text class="fact" x="799" y="415.7">activity idempotent per (cyc,phase)</text>
+<rect class="box" x="1004" y="326" width="206" height="122" fill="#FFFFFF" stroke="#26364A"/>
+<text class="bt-s" x="1015" y="344" fill="#26364A">Health rollup</text>
+<text class="modp" x="1015" y="359">chimera/core/health.py</text>
+<text class="fact" x="1015" y="371.5">worst-of over 4 dimensions</text>
+<text class="fact" x="1015" y="381.9">dims: cost · drift · queue · escal</text>
+<text class="fact" x="1015" y="392.3">cost/min &lt;.10 grn ≤.50 amb &gt;red</text>
+<text class="fact" x="1015" y="402.7">queue stale &gt;1 day → amber</text>
+<text class="fact" x="1015" y="413.1">rank unk&lt;grn&lt;amb&lt;red</text>
+<rect class="box" x="1220" y="326" width="206" height="122" fill="#FFFFFF" stroke="#26364A"/>
+<text class="bt-s" x="1231" y="344" fill="#26364A">Doctor / boot checks</text>
+<text class="modp" x="1231" y="359">chimera/core/doctor.py</text>
+<text class="fact" x="1231" y="371.5">run_checks → ok/warn/error</text>
+<text class="fact" x="1231" y="381.9">assert_no_errors raises on error</text>
+<text class="fact" x="1231" y="392.3">orphan-WAL 1MiB; --fix checkpoints</text>
+<text class="fact" x="1231" y="402.7">branch-drift → run exits 2 (0141)</text>
+<text class="fact" x="1231" y="413.1">checks uv/kuzu/caps/trust/worktrees</text>
+<line class="flow" x1="783" y1="450" x2="783" y2="486"/>
+<text class="lbl" x="795" y="471">cycle selects &amp; shapes INBOX tasks</text>
+<text class="tier" x="140" y="494" fill="#3E5A6B">②  TASK SHAPING · SPLIT · ENTROPY SUB-TASKING</text>
+<text class="tierdesc" x="140" y="510">core/task_splitter.py + escalation.py — reshape bundled INBOX tasks: heuristic+model splitter, research/complexity tier floor, entropy fan-out.</text>
+<rect class="box" x="140" y="520" width="206" height="122" fill="#FFFFFF" stroke="#3E5A6B"/>
+<text class="bt-s" x="151" y="538" fill="#3E5A6B">Heuristic + model splitter</text>
+<text class="bt-s" x="151" y="551" fill="#3E5A6B">(chimera split)</text>
+<text class="modp" x="151" y="566">chimera/core/task_splitter.py</text>
+<text class="fact" x="151" y="578.5">pure regex heuristic; no model/DB</text>
+<text class="fact" x="151" y="588.9">confidence ≥ 0.5 ⇒ splittable</text>
+<text class="fact" x="151" y="599.3">+0.5: numbered / multi-section / spawn≥3</text>
+<text class="fact" x="151" y="609.7">split_task sonnet ~$0.003, ≤6</text>
+<rect class="box" x="356" y="520" width="206" height="122" fill="#FFFFFF" stroke="#3E5A6B"/>
+<text class="bt-s" x="367" y="538" fill="#3E5A6B">Auto-loop split proposal</text>
+<text class="bt-s" x="367" y="551" fill="#3E5A6B">(ADR 0084)</text>
+<text class="modp" x="367" y="566">chimera/core/task_split_proposal.py</text>
+<text class="fact" x="367" y="578.5">CHIMERA_TASK_SPLITTER_ENABLED (off)</text>
+<text class="fact" x="367" y="588.9">gate: conf≥0.5 AND ≥3 prior failures</text>
+<text class="fact" x="367" y="599.3">signature Jaccard overlap ≥ 0.5</text>
+<text class="fact" x="367" y="609.7">enqueues task_split mutation (gated)</text>
+<rect class="box" x="572" y="520" width="206" height="122" fill="#FFFFFF" stroke="#3E5A6B"/>
+<text class="bt-s" x="583" y="538" fill="#3E5A6B">Strategy: tier floor &amp; PLAN</text>
+<text class="bt-s" x="583" y="551" fill="#3E5A6B">planner</text>
+<text class="modp" x="583" y="566">chimera/core/escalation.py</text>
+<text class="fact" x="583" y="578.5">research keywords floor → sonnet</text>
+<text class="fact" x="583" y="588.9">floor overrides default + memory</text>
+<text class="fact" x="583" y="599.3">COMPLEXITY_ROUTING default-ON (0185)</text>
+<text class="fact" x="583" y="609.7">Planner: Opus, cycle % every_n==0</text>
+<rect class="box" x="788" y="520" width="206" height="122" fill="#FFFFFF" stroke="#3E5A6B"/>
+<text class="bt-s" x="799" y="538" fill="#3E5A6B">Entropy-governed sub-</text>
+<text class="bt-s" x="799" y="551" fill="#3E5A6B">tasking (ADR 0170-0172)</text>
+<text class="modp" x="799" y="566">chimera/core/entropy_signals.py</text>
+<text class="fact" x="799" y="578.5">fixation / stagnation diagnostics</text>
+<text class="fact" x="799" y="588.9">fanout_split caps width (def 8)</text>
+<text class="fact" x="799" y="599.3">is_subcritical: μ·p_continue &lt; 1</text>
+<text class="fact" x="799" y="609.7">boltzmann_select: max-entropy top-k</text>
+<rect class="box" x="1004" y="520" width="206" height="122" fill="#FFFFFF" stroke="#3E5A6B"/>
+<text class="bt-s" x="1015" y="538" fill="#3E5A6B">Backlog specs (CRAWL</text>
+<text class="bt-s" x="1015" y="551" fill="#3E5A6B">picker)</text>
+<text class="modp" x="1015" y="566">chimera/core/backlog.py</text>
+<text class="fact" x="1015" y="578.5">parse_spec never raises → invalid</text>
+<text class="fact" x="1015" y="588.9">select_next oldest-first, skip claimed</text>
+<text class="fact" x="1015" y="599.3">task_env → TASK_* for soak</text>
+<text class="fact" x="1015" y="609.7">foreign spec: repo + verify_cmd (0186)</text>
+<rect class="box" x="1220" y="520" width="206" height="122" fill="#FFFFFF" stroke="#3E5A6B"/>
+<text class="bt-s" x="1231" y="538" fill="#3E5A6B">Issue backlog (WALK) + CLI</text>
+<text class="modp" x="1231" y="553">chimera/core/issue_backlog.py</text>
+<text class="fact" x="1231" y="565.5">gh issues → backlog/issue-*.md</text>
+<text class="fact" x="1231" y="575.9">spec_block: fenced yaml in issue</text>
+<text class="fact" x="1231" y="586.3">idempotent-add; never overwrites</text>
+<text class="fact" x="1231" y="596.7">stale pre-filter, fail-open on gh err</text>
+<text class="fact" x="1231" y="607.1">CLI backlog list|next|from-issues</text>
+<line class="flow" x1="783" y1="644" x2="783" y2="680"/>
+<text class="lbl" x="795" y="665">sub-tasks → ACT tool dispatch</text>
+<text class="tier" x="140" y="688" fill="#C58F2E">③  ACT · PARALLEL TOOL DISPATCH &amp; GUARDS</text>
+<text class="tierdesc" x="140" y="704">core/act.py (+act_guards.py) — multi-round tool loop: fan out a round&#x27;s tool_uses concurrently, then ~20 completion guards flip completed=False.</text>
+<rect class="box" x="140" y="714" width="206" height="122" fill="#FFFFFF" stroke="#C58F2E"/>
+<text class="bt-s" x="151" y="732" fill="#C58F2E">ACT executor &amp; round loop</text>
+<text class="modp" x="151" y="747">chimera/core/act.py</text>
+<text class="fact" x="151" y="759.5">max_rounds 12; dynamic cap 32</text>
+<text class="fact" x="151" y="769.9">max_tokens haiku4k/sonnet8k/opus16k</text>
+<text class="fact" x="151" y="780.3">cross-cycle: promote on prior fail</text>
+<text class="fact" x="151" y="790.7">rung walks eligible_rungs, cheap-first</text>
+<text class="fact" x="151" y="801.1">3 cost caps checked each round</text>
+<rect class="box" x="356" y="714" width="206" height="122" fill="#FFFFFF" stroke="#C58F2E"/>
+<text class="bt-s" x="367" y="732" fill="#C58F2E">Parallel tool dispatch</text>
+<text class="modp" x="367" y="747">chimera/core/act.py</text>
+<text class="fact" x="367" y="759.5">asyncio.gather over tool_uses</text>
+<text class="fact" x="367" y="769.9">history appended pre-dispatch (loop chk)</text>
+<text class="fact" x="367" y="780.3">schema-hint fed back on ValueError</text>
+<text class="fact" x="367" y="790.7">continuation head800/tail800 &lt;2KB</text>
+<text class="fact" x="367" y="801.1">fan-out budget defers past width</text>
+<rect class="box" x="572" y="714" width="206" height="122" fill="#FFFFFF" stroke="#C58F2E"/>
+<text class="bt-s" x="583" y="732" fill="#C58F2E">ACT completion guards</text>
+<text class="modp" x="583" y="747">chimera/core/act_guards.py</text>
+<text class="fact" x="583" y="759.5">~20 gates flip completed=False</text>
+<text class="fact" x="583" y="769.9">py_compile + AST import-shadow gates</text>
+<text class="fact" x="583" y="780.3">test_claim re-runs pytest -x</text>
+<text class="fact" x="583" y="790.7">commit gates fire on [agent] only</text>
+<text class="fact" x="583" y="801.1">many soak-scoped (SOAK_RUN_ID)</text>
+<rect class="box" x="788" y="714" width="206" height="122" fill="#FFFFFF" stroke="#C58F2E"/>
+<text class="bt-s" x="799" y="732" fill="#C58F2E">Dispatcher &amp; registry</text>
+<text class="modp" x="799" y="747">chimera/tools/dispatch.py</text>
+<text class="fact" x="799" y="759.5">6-layer deny/allow/env/availability</text>
+<text class="fact" x="799" y="769.9">CHIMERA_GLOBAL_TOOL_DENY comma-list</text>
+<text class="fact" x="799" y="780.3">availability check_fn TTL-cached 30s</text>
+<text class="fact" x="799" y="790.7">result truncated at 32KB</text>
+<text class="fact" x="799" y="801.1">elevated bypasses shell allow-list</text>
+<rect class="box" x="1004" y="714" width="206" height="122" fill="#FFFFFF" stroke="#C58F2E"/>
+<text class="bt-s" x="1015" y="732" fill="#C58F2E">Tool suite (core toolset)</text>
+<text class="modp" x="1015" y="747">chimera/tools/shell.py</text>
+<text class="fact" x="1015" y="759.5">shell: argv-only, no metachars</text>
+<text class="fact" x="1015" y="769.9">code_exec: sandboxed python3</text>
+<text class="fact" x="1015" y="780.3">web_search: Exa / Brave / Tavily</text>
+<text class="fact" x="1015" y="790.7">mind_search: FTS5 over mind/wiki/</text>
+<text class="fact" x="1015" y="801.1">git_commit [agent]; sub_agent depth≤2</text>
+<rect class="box" x="1220" y="714" width="206" height="122" fill="#FFFFFF" stroke="#C58F2E"/>
+<text class="bt-s" x="1231" y="732" fill="#C58F2E">Routing, loop guards &amp;</text>
+<text class="bt-s" x="1231" y="745" fill="#C58F2E">dynamic skills</text>
+<text class="modp" x="1231" y="760">chimera/tools/tool_selection.py</text>
+<text class="fact" x="1231" y="772.5">lexical v0 prefilter; core floor on</text>
+<text class="fact" x="1231" y="782.9">TOOL_PREFILTER default-ON (0184)</text>
+<text class="fact" x="1231" y="793.3">loop warn≥3 abort≥5 identical calls</text>
+<text class="fact" x="1231" y="803.7">ping-pong cycle 2–3, abort at 2</text>
+<line class="flow" x1="783" y1="838" x2="783" y2="874"/>
+<text class="lbl" x="795" y="859">route task_type → tier-ladder rung</text>
+<text class="tier" x="140" y="882" fill="#856A26">④  MODEL INFERENCE · ROUTING · ESCALATION-LEARNING</text>
+<text class="tierdesc" x="140" y="898">providers/* — 4 tier ladders (haiku/sonnet/opus/code), cheapest-rung-first; escalation memory promotes a failed task one tier next attempt.</text>
+<rect class="box" x="140" y="908" width="206" height="122" fill="#FFFFFF" stroke="#856A26"/>
+<text class="bt-s" x="151" y="926" fill="#856A26">Provider clients</text>
+<text class="modp" x="151" y="941">chimera/providers/base.py</text>
+<text class="fact" x="151" y="953.5">Provider ABC: stream + tools</text>
+<text class="fact" x="151" y="963.9">get_provider: anthropic/or/sakana</text>
+<text class="fact" x="151" y="974.3">OpenRouter+Sakana → OpenAICompatible</text>
+<text class="fact" x="151" y="984.7">Anthropic SDK; others httpx completions</text>
+<text class="fact" x="151" y="995.1">Sakana Fugu ensemble (180s)</text>
+<rect class="box" x="356" y="908" width="206" height="122" fill="#FFFFFF" stroke="#856A26"/>
+<text class="bt-s" x="367" y="926" fill="#856A26">Tier ladder &amp; rung select</text>
+<text class="modp" x="367" y="941">chimera/providers/tiers.py</text>
+<text class="fact" x="367" y="953.5">4 ladders haiku/sonnet/opus/code</text>
+<text class="fact" x="367" y="963.9">select_rung walks cheapest-first</text>
+<text class="fact" x="367" y="974.3">OPUS_LADDER[0]=deepseek, opus last</text>
+<text class="fact" x="367" y="984.7">opus $15 vs deepseek $0.44 (~34×)</text>
+<text class="fact" x="367" y="995.1">anneal reheat rotates vendor (0169)</text>
+<rect class="box" x="572" y="908" width="206" height="122" fill="#FFFFFF" stroke="#856A26"/>
+<text class="bt-s" x="583" y="926" fill="#856A26">Escalation-learning loop</text>
+<text class="modp" x="583" y="941">chimera/core/escalation.py</text>
+<text class="fact" x="583" y="953.5">task_escalations: fail auto-promotes</text>
+<text class="fact" x="583" y="963.9">recommended_tier: Jaccard overlap ≥0.5</text>
+<text class="fact" x="583" y="974.3">haiku fail→sonnet→opus</text>
+<text class="fact" x="583" y="984.7">research floor = sonnet (0075)</text>
+<text class="fact" x="583" y="995.1">hot_signatures alarm ≥2 fails (0073)</text>
+<rect class="box" x="788" y="908" width="206" height="122" fill="#FFFFFF" stroke="#856A26"/>
+<text class="bt-s" x="799" y="926" fill="#856A26">Retry / backoff</text>
+<text class="modp" x="799" y="941">chimera/providers/retry.py</text>
+<text class="fact" x="799" y="953.5">retry_call: 3 attempts, exp backoff</text>
+<text class="fact" x="799" y="963.9">base 0.5s, max 30s, jitter</text>
+<text class="fact" x="799" y="974.3">retries 408/425/429/5xx + timeouts</text>
+<text class="fact" x="799" y="984.7">401/403/404/400/422 bubble at once</text>
+<rect class="box" x="1004" y="908" width="206" height="122" fill="#FFFFFF" stroke="#856A26"/>
+<text class="bt-s" x="1015" y="926" fill="#856A26">Budget scales with tier</text>
+<text class="modp" x="1015" y="941">chimera/core/budget.py</text>
+<text class="fact" x="1015" y="953.5">mult haiku1.0 / sonnet1.5 / opus2.0</text>
+<text class="fact" x="1015" y="963.9">rounds haiku12 → sonnet18 → opus24</text>
+<text class="fact" x="1015" y="974.3">shape budget × tier mult</text>
+<text class="fact" x="1015" y="984.7">cap = CHIMERA_TASK_BUDGET_USD</text>
+<text class="fact" x="1015" y="995.1">TaskBudgetExceeded per-task (0079)</text>
+<rect class="box" x="1220" y="908" width="206" height="122" fill="#FFFFFF" stroke="#856A26"/>
+<text class="bt-s" x="1231" y="926" fill="#856A26">Cross-provider witnesses</text>
+<text class="modp" x="1231" y="941">chimera/core/witness_panel.py</text>
+<text class="fact" x="1231" y="953.5">5-member panel rotates per cycle</text>
+<text class="fact" x="1231" y="963.9">anthropic+deepseek+gpt5+qwen+glm</text>
+<text class="fact" x="1231" y="974.3">REQUIRE_CROSS_PROVIDER=1</text>
+<text class="fact" x="1231" y="984.7">witness_tier sonnet (~$0.01–0.05)</text>
+<text class="fact" x="1231" y="995.1">reject → witness_rejected (0106)</text>
+<line class="flow" x1="783" y1="1032" x2="783" y2="1068"/>
+<text class="lbl" x="795" y="1053">every round: pre-call cost gate</text>
+<text class="tier" x="140" y="1076" fill="#B0623C">⑤  COST DISCIPLINE · THREE CAPS</text>
+<text class="tierdesc" x="140" y="1092">core/budget.py — three orthogonal spend guards checked BEFORE every provider call; prospective `estimate` + retrospective `cost` CLI.</text>
+<rect class="box" x="140" y="1102" width="206" height="122" fill="#FFFFFF" stroke="#B0623C"/>
+<text class="bt-s" x="151" y="1120" fill="#B0623C">PER-CYCLE COST CAP (v4.53)</text>
+<text class="modp" x="151" y="1135">chimera/core/budget.py</text>
+<text class="fact" x="151" y="1147.5">default $2.00 CYCLE_COST_CAP_USD</text>
+<text class="fact" x="151" y="1157.9">ADR 0072; value 0 disables</text>
+<text class="fact" x="151" y="1168.3">checked at top of each ACT round</text>
+<text class="fact" x="151" y="1178.7">breach → cost_cap, no promote</text>
+<text class="fact" x="151" y="1189.1">sums cycle tokens × price table</text>
+<rect class="box" x="356" y="1102" width="206" height="122" fill="#FFFFFF" stroke="#B0623C"/>
+<text class="bt-s" x="367" y="1120" fill="#B0623C">ROLLING-60min COST CAP</text>
+<text class="bt-s" x="367" y="1133" fill="#B0623C">(v4.57)</text>
+<text class="modp" x="367" y="1148">chimera/core/budget.py</text>
+<text class="fact" x="367" y="1160.5">default $20 ROLLING_HOUR_CAP_USD</text>
+<text class="fact" x="367" y="1170.9">ADR 0076; value 0 disables</text>
+<text class="fact" x="367" y="1181.3">window ≥ now − 60min</text>
+<text class="fact" x="367" y="1191.7">minutes clamped 1..1440</text>
+<rect class="box" x="572" y="1102" width="206" height="122" fill="#FFFFFF" stroke="#B0623C"/>
+<text class="bt-s" x="583" y="1120" fill="#B0623C">PER-TASK BUDGET CAP (v4.60)</text>
+<text class="modp" x="583" y="1135">chimera/core/budget.py</text>
+<text class="fact" x="583" y="1147.5">default $5.00 TASK_BUDGET_USD</text>
+<text class="fact" x="583" y="1157.9">ADR 0079; 0 or no-sig disables</text>
+<text class="fact" x="583" y="1168.3">sums by task_signature, cross-cycle</text>
+<text class="fact" x="583" y="1178.7">breach → task_budget</text>
+<text class="fact" x="583" y="1189.1">catches stuck re-promoted task</text>
+<rect class="box" x="788" y="1102" width="206" height="122" fill="#FFFFFF" stroke="#B0623C"/>
+<text class="bt-s" x="799" y="1120" fill="#B0623C">COST ESTIMATE + ALARM BAND</text>
+<text class="bt-s" x="799" y="1133" fill="#B0623C">(CLI)</text>
+<text class="modp" x="799" y="1148">chimera/core/cost_estimate.py</text>
+<text class="fact" x="799" y="1160.5">estimate: prospective INBOX (0078)</text>
+<text class="fact" x="799" y="1170.9">cost: retrospective spend (0077)</text>
+<text class="fact" x="799" y="1181.3">band grn&lt;.10 amb≤.50 red&gt;.50 /min</text>
+<text class="fact" x="799" y="1191.7">band uses 15m rate (mirrors TS)</text>
+<rect class="box" x="1004" y="1102" width="206" height="122" fill="#FFFFFF" stroke="#B0623C"/>
+<text class="bt-s" x="1015" y="1120" fill="#B0623C">COST DELTA (A/B soak)</text>
+<text class="modp" x="1015" y="1135">chimera/core/cost_delta.py</text>
+<text class="fact" x="1015" y="1147.5">treatment vs baseline DB cost</text>
+<text class="fact" x="1015" y="1157.9">verdict CHEAPER/COSTLIER/negl</text>
+<text class="fact" x="1015" y="1168.3">_NEGLIGIBLE_PCT = 2.0%</text>
+<text class="fact" x="1015" y="1178.7">recompute tokens×price; excl errs</text>
+<rect class="box" x="1220" y="1102" width="206" height="122" fill="#FFFFFF" stroke="#B0623C"/>
+<text class="bt-s" x="1231" y="1120" fill="#B0623C">BOLTZMANN BUDGET ALLOCATION</text>
+<text class="modp" x="1231" y="1135">chimera/core/allocation.py</text>
+<text class="fact" x="1231" y="1147.5">ADR 0172; default OFF</text>
+<text class="fact" x="1231" y="1157.9">BOLTZMANN_ALLOC / _TEMP</text>
+<text class="fact" x="1231" y="1168.3">temp 0 → deterministic top-k</text>
+<text class="fact" x="1231" y="1178.7">max-entropy spread of int budget</text>
+<text class="fact" x="1231" y="1189.1">hot=explore, cool=concentrate</text>
+<line class="flow" x1="783" y1="1226" x2="783" y2="1262"/>
+<text class="lbl" x="795" y="1247">ACT diff → critic gate + witness panel</text>
+<text class="tier" x="140" y="1270" fill="#8C4A57">⑥  VERIFICATION · CRITIC · WITNESS · GUARDRAILS</text>
+<text class="tierdesc" x="140" y="1286">core/{critic_gate,witness_panel,scope_check,repo_verify,differential} — fail-closed gates block unfaithful or off-charter commits.</text>
+<rect class="box" x="140" y="1296" width="206" height="122" fill="#FFFFFF" stroke="#8C4A57"/>
+<text class="bt-s" x="151" y="1314" fill="#8C4A57">CRITIC GATE (commit-time)</text>
+<text class="modp" x="151" y="1329">chimera/core/critic_gate.py</text>
+<text class="fact" x="151" y="1341.5">blocks commit on unfaithful diff</text>
+<text class="fact" x="151" y="1351.9">verdict bound to sha256(diff --cached)</text>
+<text class="fact" x="151" y="1362.3">reject → escalator must approve</text>
+<text class="fact" x="151" y="1372.7">enforce iff CRITIC_ENFORCE=1</text>
+<text class="fact" x="151" y="1383.1">fail-closed; primary sonnet-4-6 (0162)</text>
+<rect class="box" x="356" y="1296" width="206" height="122" fill="#FFFFFF" stroke="#8C4A57"/>
+<text class="bt-s" x="367" y="1314" fill="#8C4A57">WITNESS PANEL (ACT-time,</text>
+<text class="bt-s" x="367" y="1327" fill="#8C4A57">cross-provider)</text>
+<text class="modp" x="367" y="1342">chimera/core/witness_panel.py</text>
+<text class="fact" x="367" y="1354.5">cross-provider witnesses vote on diff</text>
+<text class="fact" x="367" y="1364.9">Default majority; unanimous opt-in</text>
+<text class="fact" x="367" y="1375.3">any charter/scope dissent → reject</text>
+<text class="fact" x="367" y="1385.7">panel 3, clamp[1,5], pool 5 rotates</text>
+<rect class="box" x="572" y="1296" width="206" height="122" fill="#FFFFFF" stroke="#8C4A57"/>
+<text class="bt-s" x="583" y="1314" fill="#8C4A57">SCOPE GUARDS (fail-closed)</text>
+<text class="modp" x="583" y="1329">chimera/core/scope_check.py</text>
+<text class="fact" x="583" y="1341.5">refuses off design-note allowlist</text>
+<text class="fact" x="583" y="1351.9">detects -a/--amend/pathspec bypass</text>
+<text class="fact" x="583" y="1362.3">scoped ruff --fix off-charter blocked</text>
+<text class="fact" x="583" y="1372.7">Warn-only when ambiguous; ADR 0146</text>
+<text class="fact" x="583" y="1383.1">override ALLOW_OFF_CHARTER_COMMIT=1</text>
+<rect class="box" x="788" y="1296" width="206" height="122" fill="#FFFFFF" stroke="#8C4A57"/>
+<text class="bt-s" x="799" y="1314" fill="#8C4A57">REPO VERIFY + GATE</text>
+<text class="bt-s" x="799" y="1327" fill="#8C4A57">VISIBILITY</text>
+<text class="modp" x="799" y="1342">chimera/core/repo_verify.py</text>
+<text class="fact" x="799" y="1354.5">runs real ruff + pytest on worktree</text>
+<text class="fact" x="799" y="1364.9">requires base RED → change GREEN</text>
+<text class="fact" x="799" y="1375.3">green-on-base → gate-invisible reject</text>
+<text class="fact" x="799" y="1385.7">never raises; fail tail 4000 chars</text>
+<rect class="box" x="1004" y="1296" width="206" height="122" fill="#FFFFFF" stroke="#8C4A57"/>
+<text class="bt-s" x="1015" y="1314" fill="#8C4A57">BEHAVIOUR DIFF +</text>
+<text class="bt-s" x="1015" y="1327" fill="#8C4A57">FAITHFULNESS</text>
+<text class="modp" x="1015" y="1342">chimera/core/differential.py</text>
+<text class="fact" x="1015" y="1354.5">diffs fn output base vs changed</text>
+<text class="fact" x="1015" y="1364.9">stateful_diff traces call-sequences</text>
+<text class="fact" x="1015" y="1375.3">faithfulness via mutation teeth thr=1.0</text>
+<text class="fact" x="1015" y="1385.7">Surviving mutant = unpinned blind spot</text>
+<rect class="box" x="1220" y="1296" width="206" height="122" fill="#FFFFFF" stroke="#8C4A57"/>
+<text class="bt-s" x="1231" y="1314" fill="#8C4A57">ADVERSARIAL PROBES +</text>
+<text class="bt-s" x="1231" y="1327" fill="#8C4A57">CALIBRATION</text>
+<text class="modp" x="1231" y="1342">chimera/core/guardrail_eval.py</text>
+<text class="fact" x="1231" y="1354.5">per-model injection matrix (NRT-Bench)</text>
+<text class="fact" x="1231" y="1364.9">4 probes: charter/exfil/destruct/inject</text>
+<text class="fact" x="1231" y="1375.3">fuzz_check: 100 seeded trials</text>
+<text class="fact" x="1231" y="1385.7">grounding rejects ungrounded citations</text>
+<line class="flow" x1="783" y1="1420" x2="783" y2="1456"/>
+<text class="lbl" x="795" y="1441">approved writes → persist to KFM</text>
+<text class="tier" x="140" y="1464" fill="#5E6C63">⑦  MEMORY · KFM ONTOLOGY · GRAPH · WIKI RECALL</text>
+<text class="tierdesc" x="140" y="1480">memory/* + core/kfm.py — SQLite is the source of truth (KFM entities/transitions/api_calls); Kuzu graph + FTS5 wiki are derived recall.</text>
+<rect class="box" x="140" y="1490" width="206" height="122" fill="#FFFFFF" stroke="#5E6C63"/>
+<text class="bt-s" x="151" y="1508" fill="#5E6C63">SQLite spine</text>
+<text class="modp" x="151" y="1523">chimera/memory/store.py</text>
+<text class="fact" x="151" y="1535.5">entities + entity_transitions = KFM</text>
+<text class="fact" x="151" y="1545.9">agent_activity_log PK(cycle,cell_id)</text>
+<text class="fact" x="151" y="1556.3">api_calls, ladder_outcomes, engine_runs</text>
+<text class="fact" x="151" y="1566.7">mutations · task_escalations · proposer</text>
+<text class="fact" x="151" y="1577.1">WAL; foreign_keys=ON; user_version=4</text>
+<rect class="box" x="356" y="1490" width="206" height="122" fill="#FFFFFF" stroke="#5E6C63"/>
+<text class="bt-s" x="367" y="1508" fill="#5E6C63">KFM ontology (rules)</text>
+<text class="modp" x="367" y="1523">chimera/core/kfm.py</text>
+<text class="fact" x="367" y="1535.5">7 states NEW→…→ARCHIVED→KILLED</text>
+<text class="fact" x="367" y="1545.9">linear; exactly one op per transition</text>
+<text class="fact" x="367" y="1556.3">ops f/m/k; k owns STABLE→DEPRECATED</text>
+<text class="fact" x="367" y="1566.7">pure fn: never raises, no DB (0001)</text>
+<text class="fact" x="367" y="1577.1">unrestricted hatch for boot (0074)</text>
+<rect class="box" x="572" y="1490" width="206" height="122" fill="#FFFFFF" stroke="#5E6C63"/>
+<text class="bt-s" x="583" y="1508" fill="#5E6C63">Lifecycle &amp; mutations</text>
+<text class="modp" x="583" y="1523">chimera/memory/audit.py</text>
+<text class="fact" x="583" y="1535.5">transition_entity: check+commit atomic</text>
+<text class="fact" x="583" y="1545.9">DEPRECATED→ARCHIVED auto @30cyc</text>
+<text class="fact" x="583" y="1556.3">ARCHIVED→KILLED operator-gated (0046)</text>
+<text class="fact" x="583" y="1566.7">mutations: propose / operator-dispose</text>
+<text class="fact" x="583" y="1577.1">proposer degrades low-accept (0090)</text>
+<rect class="box" x="788" y="1490" width="206" height="122" fill="#FFFFFF" stroke="#5E6C63"/>
+<text class="bt-s" x="799" y="1508" fill="#5E6C63">Kuzu graph projection (opt-</text>
+<text class="bt-s" x="799" y="1521" fill="#5E6C63">in)</text>
+<text class="modp" x="799" y="1536">chimera/memory/graph.py</text>
+<text class="fact" x="799" y="1548.5">opt-in CHIMERA_GRAPH_ENABLED=1 (0081)</text>
+<text class="fact" x="799" y="1558.9">derived from SQLite; rebuildable</text>
+<text class="fact" x="799" y="1569.3">6 node + 8 rel tables, Cypher/Kuzu</text>
+<text class="fact" x="799" y="1579.7">ApiCall projection capped at 1000</text>
+<rect class="box" x="1004" y="1490" width="206" height="122" fill="#FFFFFF" stroke="#5E6C63"/>
+<text class="bt-s" x="1015" y="1508" fill="#5E6C63">Wiki recall &amp; hybrid search</text>
+<text class="modp" x="1015" y="1523">chimera/memory/wiki_search.py</text>
+<text class="fact" x="1015" y="1535.5">FTS5 wiki_fts: porter/unicode61 BM25</text>
+<text class="fact" x="1015" y="1545.9">mtime cache, incremental reindex</text>
+<text class="fact" x="1015" y="1556.3">search_wiki: MATCH + snippet(), rank</text>
+<text class="fact" x="1015" y="1566.7">hybrid = BM25 today; vector stub</text>
+<text class="fact" x="1015" y="1577.1">RRF fusion deferred (0134)</text>
+<rect class="box" x="1220" y="1490" width="206" height="122" fill="#FFFFFF" stroke="#5E6C63"/>
+<text class="bt-s" x="1231" y="1508" fill="#5E6C63">Evals (memory recall)</text>
+<text class="modp" x="1231" y="1523">chimera/evals/locomo.py</text>
+<text class="fact" x="1231" y="1535.5">LongMemEval: 500 QA, 5 cats (0135)</text>
+<text class="fact" x="1231" y="1545.9">LoCoMo: 10 convos ~28 sess (0144)</text>
+<text class="fact" x="1231" y="1556.3">hybrid_retrieval BM25+dense RRF (0142)</text>
+<text class="fact" x="1231" y="1566.7">ingest→FTS5 wiki, answer via dialectic</text>
+<text class="fact" x="1231" y="1577.1">results -&gt; mind/evals/*.jsonl</text>
+<line class="flow" x1="783" y1="1614" x2="783" y2="1650"/>
+<text class="lbl" x="795" y="1635">api_calls telemetry → drift / trust assess</text>
+<text class="tier" x="140" y="1658" fill="#3F6E66">⑧  AUTONOMOUS ENGINES · DRIFT · TRUST · ADAPTATION</text>
+<text class="tierdesc" x="140" y="1674">engines/ + drift/ + trust/ — 3 gated engines write chronicles/propose mutations; composite drift + T0–T5 trust close the loop in FLUSH.</text>
+<rect class="box" x="140" y="1684" width="206" height="122" fill="#FFFFFF" stroke="#3F6E66"/>
+<text class="bt-s" x="151" y="1702" fill="#3F6E66">Engine Scheduler + Base</text>
+<text class="modp" x="151" y="1717">chimera/engines/scheduler.py</text>
+<text class="fact" x="151" y="1729.5">1 engine/cycle, ≤1 fire per UTC day</text>
+<text class="fact" x="151" y="1739.9">UTC 08 Disc / 14 Curi / 22 Refl</text>
+<text class="fact" x="151" y="1750.3">global kill: ENGINES_ENABLED=0</text>
+<text class="fact" x="151" y="1760.7">per-engine &lt;NAME&gt;_ENABLED=0</text>
+<text class="fact" x="151" y="1771.1">session mode (0092), last_runs.json</text>
+<rect class="box" x="356" y="1684" width="206" height="122" fill="#FFFFFF" stroke="#3F6E66"/>
+<text class="bt-s" x="367" y="1702" fill="#3F6E66">Discovery / Curiosity /</text>
+<text class="bt-s" x="367" y="1715" fill="#3F6E66">Reflection</text>
+<text class="modp" x="367" y="1730">chimera/engines/reflection.py</text>
+<text class="fact" x="367" y="1742.5">Chronicle writers extend EngineBase</text>
+<text class="fact" x="367" y="1752.9">deriver REFLECTION_DERIVER=1</text>
+<text class="fact" x="367" y="1763.3">skip → engine_runs skipped (0088)</text>
+<text class="fact" x="367" y="1773.7">reasoning tier via select_rung (0127)</text>
+<rect class="box" x="572" y="1684" width="206" height="122" fill="#FFFFFF" stroke="#3F6E66"/>
+<text class="bt-s" x="583" y="1702" fill="#3F6E66">Engine Gates (kill-switch)</text>
+<text class="modp" x="583" y="1717">chimera/core/engine_gates.py</text>
+<text class="fact" x="583" y="1729.5">content-density gate after provider</text>
+<text class="fact" x="583" y="1739.9">Disc: ≥5 api_calls / 5 cycles</text>
+<text class="fact" x="583" y="1750.3">Refl: ≥3 active cycles today</text>
+<text class="fact" x="583" y="1760.7">Curi: needs Discovery ≥2 bullets</text>
+<text class="fact" x="583" y="1771.1">ENGINE_GATES_ENABLED=1 (0089)</text>
+<rect class="box" x="788" y="1684" width="206" height="122" fill="#FFFFFF" stroke="#3F6E66"/>
+<text class="bt-s" x="799" y="1702" fill="#3F6E66">Composite Drift + Policy</text>
+<text class="modp" x="799" y="1717">chimera/drift/behavioral.py</text>
+<text class="fact" x="799" y="1729.5">composite ghost.35+behav.35+sem.30</text>
+<text class="fact" x="799" y="1739.9">lockdown ≥0.30, warn ≥0.15 (0001)</text>
+<text class="fact" x="799" y="1750.3">assess every 10 obs, keep 100</text>
+<text class="fact" x="799" y="1760.7">stagnation win15, kept≤2, bucket≥8</text>
+<text class="fact" x="799" y="1771.1">OBSERVE / NUDGE / DEMOTE_PLAN / KILL</text>
+<rect class="box" x="1004" y="1684" width="206" height="122" fill="#FFFFFF" stroke="#3F6E66"/>
+<text class="bt-s" x="1015" y="1702" fill="#3F6E66">Trust Ladder T0-T5</text>
+<text class="modp" x="1015" y="1717">chimera/trust/manager.py</text>
+<text class="fact" x="1015" y="1729.5">T0 LOCKED … T5 AUTONOMOUS (IntEnum)</text>
+<text class="fact" x="1015" y="1739.9">readiness .4stab+.3act+.3hyg (+.3 gate)</text>
+<text class="fact" x="1015" y="1750.3">promote ≥0.70 AND dwell ≥3600s</text>
+<text class="fact" x="1015" y="1760.7">finish_reason demotes 0–2, floor T1</text>
+<text class="fact" x="1015" y="1771.1">lockdown()→T0; gate-earned (0162/3)</text>
+<rect class="box" x="1220" y="1684" width="206" height="122" fill="#FFFFFF" stroke="#3F6E66"/>
+<text class="bt-s" x="1231" y="1702" fill="#3F6E66">Adaptation + Drift Journal</text>
+<text class="modp" x="1231" y="1717">chimera/core/adaptation.py</text>
+<text class="fact" x="1231" y="1729.5">fragmentation → skill_proposal (0028)</text>
+<text class="fact" x="1231" y="1739.9">recur ≥2, Jaccard ≥0.5 → propose</text>
+<text class="fact" x="1231" y="1750.3">drift_log.jsonl per-cycle (0037)</text>
+<text class="fact" x="1231" y="1760.7">dashboard sparkline reads last N</text>
+<text class="fact" x="1231" y="1771.1">Chimera proposes, operator disposes</text>
+<line class="flow" x1="783" y1="1808" x2="783" y2="1844"/>
+<text class="lbl" x="795" y="1829">trust ≥ T4 → propose DRAFT PRs</text>
+<text class="tier" x="140" y="1852" fill="#4B4A7A">⑨  SELF-IMPROVEMENT · SELF-PR &amp; FOREIGN-PR PIPELINE</text>
+<text class="tierdesc" x="140" y="1868">core/self_pr.py + proposals/ — Chimera scans itself, authors charters, opens trust-gated DRAFT PRs to its own and foreign repos.</text>
+<rect class="box" x="140" y="1878" width="206" height="122" fill="#FFFFFF" stroke="#4B4A7A"/>
+<text class="bt-s" x="151" y="1896" fill="#4B4A7A">SELF-SCAN &amp; ORIGINATION</text>
+<text class="modp" x="151" y="1911">chimera/core/self_scan.py</text>
+<text class="fact" x="151" y="1923.5">PROPOSAL-ONLY: ranked triples, no launch</text>
+<text class="fact" x="151" y="1933.9">ruff (w0.9) + mutant survivors (w1.0)</text>
+<text class="fact" x="151" y="1944.3">multi-file scope penalty -0.2</text>
+<text class="fact" x="151" y="1954.7">risk_flag=&quot;&quot;: behaviour-neutral only</text>
+<text class="fact" x="151" y="1965.1">precision log accept/decided (0161)</text>
+<rect class="box" x="356" y="1878" width="206" height="122" fill="#FFFFFF" stroke="#4B4A7A"/>
+<text class="bt-s" x="367" y="1896" fill="#4B4A7A">SELF-PR PIPELINE (own repo)</text>
+<text class="modp" x="367" y="1911">chimera/core/self_pr.py</text>
+<text class="fact" x="367" y="1923.5">opt-in CHIMERA_SELF_PR=1 (off)</text>
+<text class="fact" x="367" y="1933.9">trust gate ≥ T4 ADAPTIVE (MIN_TIER)</text>
+<text class="fact" x="367" y="1944.3">needs critic-gate allowed=True (0162)</text>
+<text class="fact" x="367" y="1954.7">DRAFT only, never merges (ADR 0163)</text>
+<text class="fact" x="367" y="1965.1">reuses submit_pr.validate()</text>
+<rect class="box" x="572" y="1878" width="206" height="122" fill="#FFFFFF" stroke="#4B4A7A"/>
+<text class="bt-s" x="583" y="1896" fill="#4B4A7A">FOREIGN-PR PIPELINE</text>
+<text class="bt-s" x="583" y="1909" fill="#4B4A7A">(walk_repos)</text>
+<text class="modp" x="583" y="1924">chimera/core/self_pr.py</text>
+<text class="fact" x="583" y="1936.5">separate opt-in CHIMERA_FOREIGN_PR=1</text>
+<text class="fact" x="583" y="1946.9">allowlist + T4 STANDING trust</text>
+<text class="fact" x="583" y="1957.3">first 5 need FOREIGN_PR_APPROVED</text>
+<text class="fact" x="583" y="1967.7">gates verify·no-regress·behav·fuzz</text>
+<rect class="box" x="788" y="1878" width="206" height="122" fill="#FFFFFF" stroke="#4B4A7A"/>
+<text class="bt-s" x="799" y="1896" fill="#4B4A7A">CHARTER PROPOSALS</text>
+<text class="modp" x="799" y="1911">chimera/proposals/charter.py</text>
+<text class="fact" x="799" y="1923.5">writes own buildable spec (0153)</text>
+<text class="fact" x="799" y="1933.9">teeth-validate vs throwaway ≥0.8</text>
+<text class="fact" x="799" y="1944.3">1 revision (A3) fed surviving mutants</text>
+<text class="fact" x="799" y="1954.7">materialize: test+design, strip impl</text>
+<text class="fact" x="799" y="1965.1">cap 3/plan; dedup by fingerprint</text>
+<rect class="box" x="1004" y="1878" width="206" height="122" fill="#FFFFFF" stroke="#4B4A7A"/>
+<text class="bt-s" x="1015" y="1896" fill="#4B4A7A">MUTATION TEETH &amp; PROPOSER</text>
+<text class="bt-s" x="1015" y="1909" fill="#4B4A7A">SCORING</text>
+<text class="modp" x="1015" y="1924">chimera/core/mutation_teeth.py</text>
+<text class="fact" x="1015" y="1936.5">teeth = killed/applied; ≥0.8 pass</text>
+<text class="fact" x="1015" y="1946.9">AST mutants, cap 20, restore file</text>
+<text class="fact" x="1015" y="1957.3">proposer rate acc/dec, thr 0.5 win 10</text>
+<text class="fact" x="1015" y="1967.7">degraded proposer blocks mutation</text>
+<rect class="box" x="1220" y="1878" width="206" height="122" fill="#FFFFFF" stroke="#4B4A7A"/>
+<text class="bt-s" x="1231" y="1896" fill="#4B4A7A">LEDGERS &amp; REMEDIATION</text>
+<text class="modp" x="1231" y="1911">chimera/core/crawl_ledger.py</text>
+<text class="fact" x="1231" y="1923.5">outcomes.jsonl → RUN graduation (0182)</text>
+<text class="fact" x="1231" y="1933.9">gate_pass · merge · revert · cost/landed</text>
+<text class="fact" x="1231" y="1944.3">foreign governance.jsonl: review+count</text>
+<text class="fact" x="1231" y="1954.7">soak act-tools.jsonl (SOAK_RUN_ID)</text>
+<text class="fact" x="1231" y="1965.1">3-strikes auto-skip (0097)</text>
+<line class="flow" x1="783" y1="2002" x2="783" y2="2038"/>
+<text class="lbl" x="795" y="2023">recurring fragmentation → assemble skills</text>
+<text class="tier" x="140" y="2046" fill="#6E6A3A">⑩  SKILL ASSEMBLY · POSITIONING · PROMPTS</text>
+<text class="tierdesc" x="140" y="2062">skills/ + positioning/ + prompts/ — assemble/validate dynamic skills via a tier ladder + witnesses; positioning guards runtime; build the prompt.</text>
+<rect class="box" x="140" y="2072" width="206" height="122" fill="#FFFFFF" stroke="#6E6A3A"/>
+<text class="bt-s" x="151" y="2090" fill="#6E6A3A">SPEC → ASSEMBLE</text>
+<text class="modp" x="151" y="2105">chimera/skills/assembly.py</text>
+<text class="fact" x="151" y="2117.5">SkillSpec: name / desc / brief</text>
+<text class="fact" x="151" y="2127.9">name ^[a-z][a-z0-9_]{1,31}$</text>
+<text class="fact" x="151" y="2138.3">assemble_skill tier default &#x27;sonnet&#x27;</text>
+<text class="fact" x="151" y="2148.7">parses 3 fences schema/py/samples</text>
+<text class="fact" x="151" y="2159.1">async def handle(args,ctx)→str</text>
+<rect class="box" x="356" y="2072" width="206" height="122" fill="#FFFFFF" stroke="#6E6A3A"/>
+<text class="bt-s" x="367" y="2090" fill="#6E6A3A">VALIDATE (sandbox)</text>
+<text class="modp" x="367" y="2105">chimera/skills/validation.py</text>
+<text class="fact" x="367" y="2117.5">runs samples in python -I subproc</text>
+<text class="fact" x="367" y="2127.9">timeout_s=5.0 per sample</text>
+<text class="fact" x="367" y="2138.3">pass_threshold=0.6, score=passed/total</text>
+<text class="fact" x="367" y="2148.7">static_lint denies subprocess/net/eval</text>
+<text class="fact" x="367" y="2159.1">ValidationResult ok/score/passed</text>
+<rect class="box" x="572" y="2072" width="206" height="122" fill="#FFFFFF" stroke="#6E6A3A"/>
+<text class="bt-s" x="583" y="2090" fill="#6E6A3A">LADDER · CRITIQUE ·</text>
+<text class="bt-s" x="583" y="2103" fill="#6E6A3A">WITNESSES</text>
+<text class="modp" x="583" y="2118">chimera/skills/ladder.py</text>
+<text class="fact" x="583" y="2130.5">tiers sonnet→opus; stop 1st valid</text>
+<text class="fact" x="583" y="2140.9">on fail: cross_critique witnesses</text>
+<text class="fact" x="583" y="2151.3">witnesses opus/gpt-codex/gemini</text>
+<text class="fact" x="583" y="2161.7">cross_critique fans out gather</text>
+<rect class="box" x="788" y="2072" width="206" height="122" fill="#FFFFFF" stroke="#6E6A3A"/>
+<text class="bt-s" x="799" y="2090" fill="#6E6A3A">ACTIVATE · JOURNAL</text>
+<text class="modp" x="799" y="2105">chimera/skills/activator.py</text>
+<text class="fact" x="799" y="2117.5">writes tools/dynamic/&lt;name&gt;.py</text>
+<text class="fact" x="799" y="2127.9">importlib load + module.register</text>
+<text class="fact" x="799" y="2138.3">MAX_DYNAMIC_SKILLS=20 hard cap</text>
+<text class="fact" x="799" y="2148.7">refuses unless validation.ok</text>
+<text class="fact" x="799" y="2159.1">→ state/skill_assembly_log.jsonl</text>
+<rect class="box" x="1004" y="2072" width="206" height="122" fill="#FFFFFF" stroke="#6E6A3A"/>
+<text class="bt-s" x="1015" y="2090" fill="#6E6A3A">POSITIONING</text>
+<text class="bt-s" x="1015" y="2103" fill="#6E6A3A">(circuit/drain/sensor)</text>
+<text class="modp" x="1015" y="2118">chimera/positioning/circuit.py</text>
+<text class="fact" x="1015" y="2130.5">breaker thr3, cooldown30s, probes3</text>
+<text class="fact" x="1015" y="2140.9">CLOSED/OPEN/HALF_OPEN fast-fail</text>
+<text class="fact" x="1015" y="2151.3">drain SIGTERM/SIGINT → Event</text>
+<text class="fact" x="1015" y="2161.7">under_pressure mem≥.90 disk≥.95</text>
+<rect class="box" x="1220" y="2072" width="206" height="122" fill="#FFFFFF" stroke="#6E6A3A"/>
+<text class="bt-s" x="1231" y="2090" fill="#6E6A3A">PROMPTS</text>
+<text class="bt-s" x="1231" y="2103" fill="#6E6A3A">(voice/history/hardware)</text>
+<text class="modp" x="1231" y="2118">chimera/prompts/__init__.py</text>
+<text class="fact" x="1231" y="2130.5">prompt = voice+hardware+history</text>
+<text class="fact" x="1231" y="2140.9">single CHIMERA_VOICE</text>
+<text class="fact" x="1231" y="2151.3">FOREIGN_REPO swaps voice</text>
+<text class="fact" x="1231" y="2161.7">history last 3 cyc, tail 5 calls</text>
+<line class="flow" x1="783" y1="2196" x2="783" y2="2232"/>
+<text class="lbl" x="795" y="2217">expose tools to federated peers</text>
+<text class="tier" x="140" y="2240" fill="#35657A">⑪  A2A · FEDERATION · MCP SERVER · TRUST POLICY</text>
+<text class="tierdesc" x="140" y="2256">a2a/ + server/ — Chimera as MCP server (stdio + HTTP/SSE bearer); FS peer registry; ALLOW/DEGRADE/REFUSE trust gate; dialectic/emergence.</text>
+<rect class="box" x="140" y="2266" width="206" height="122" fill="#FFFFFF" stroke="#35657A"/>
+<text class="bt-s" x="151" y="2284" fill="#35657A">MCP Server Surface (stdio)</text>
+<text class="modp" x="151" y="2299">chimera/server/mcp_server.py</text>
+<text class="fact" x="151" y="2311.5">default-deny PEER_EXPOSED_TOOLS</text>
+<text class="fact" x="151" y="2321.9">always: identity · kfm-state · ask</text>
+<text class="fact" x="151" y="2332.3">stdio subprocess transport (0005)</text>
+<text class="fact" x="151" y="2342.7">call_tool → DispatchContext T1/T2</text>
+<text class="fact" x="151" y="2353.1">REFUSE → error; ALLOW → T2</text>
+<rect class="box" x="356" y="2266" width="206" height="122" fill="#FFFFFF" stroke="#35657A"/>
+<text class="bt-s" x="367" y="2284" fill="#35657A">HTTP/SSE Transport + Bearer</text>
+<text class="bt-s" x="367" y="2297" fill="#35657A">Auth</text>
+<text class="modp" x="367" y="2312">chimera/server/http_server.py</text>
+<text class="fact" x="367" y="2324.5">Starlette ASGI wraps MCP (0011)</text>
+<text class="fact" x="367" y="2334.9">timing-safe compare_digest (0175)</text>
+<text class="fact" x="367" y="2345.3">non-loopback needs token+TLS (0178)</text>
+<text class="fact" x="367" y="2355.7">PEER_TOKENS map → current_peer</text>
+<rect class="box" x="572" y="2266" width="206" height="122" fill="#FFFFFF" stroke="#35657A"/>
+<text class="bt-s" x="583" y="2284" fill="#35657A">Peer Registry + Remote Sync</text>
+<text class="modp" x="583" y="2299">chimera/a2a/registry.py</text>
+<text class="fact" x="583" y="2311.5">FS registry JSON, ~/.chimera/peers</text>
+<text class="fact" x="583" y="2321.9">register on serve, forget on exit</text>
+<text class="fact" x="583" y="2332.3">sweep_stale prunes dead pids</text>
+<text class="fact" x="583" y="2342.7">sync_remote_peers GET /healthz (0021)</text>
+<text class="fact" x="583" y="2353.1">remote entries expire after 24h</text>
+<rect class="box" x="788" y="2266" width="206" height="122" fill="#FFFFFF" stroke="#35657A"/>
+<text class="bt-s" x="799" y="2284" fill="#35657A">Trust Policy + Dispatch</text>
+<text class="bt-s" x="799" y="2297" fill="#35657A">Gate</text>
+<text class="modp" x="799" y="2312">chimera/a2a/trust_policy.py</text>
+<text class="fact" x="799" y="2324.5">ALLOW / DEGRADE / REFUSE (0009)</text>
+<text class="fact" x="799" y="2334.9">drift ≥0.30 or terminal → REFUSE</text>
+<text class="fact" x="799" y="2345.3">tier&lt;T2 → DEGRADE; T0 → REFUSE</text>
+<text class="fact" x="799" y="2355.7">PeerStateCache TTL 30s / peer</text>
+<rect class="box" x="1004" y="2266" width="206" height="122" fill="#FFFFFF" stroke="#35657A"/>
+<text class="bt-s" x="1015" y="2284" fill="#35657A">Peer Selection + Model</text>
+<text class="bt-s" x="1015" y="2297" fill="#35657A">Peers</text>
+<text class="modp" x="1015" y="2312">chimera/a2a/peer_selection.py</text>
+<text class="fact" x="1015" y="2324.5">power-of-two-choices (0167)</text>
+<text class="fact" x="1015" y="2334.9">CHIMERA_PEER_SELECTION (off)</text>
+<text class="fact" x="1015" y="2345.3">model-&lt;vendor&gt; peers consult (0174)</text>
+<text class="fact" x="1015" y="2355.7">CHIMERA_MODEL_PEERS (off)</text>
+<rect class="box" x="1220" y="2266" width="206" height="122" fill="#FFFFFF" stroke="#35657A"/>
+<text class="bt-s" x="1231" y="2284" fill="#35657A">Alignment · Dialectic ·</text>
+<text class="bt-s" x="1231" y="2297" fill="#35657A">Emergence · Beliefs</text>
+<text class="modp" x="1231" y="2312">chimera/a2a/alignment.py</text>
+<text class="fact" x="1231" y="2324.5">5 strat → ALIGNED/DRIFTED/FAILED</text>
+<text class="fact" x="1231" y="2334.9">dialectic builds prompt only (0133)</text>
+<text class="fact" x="1231" y="2345.3">protocol journal diffs schemas (0014)</text>
+<text class="fact" x="1231" y="2355.7">emergence sync /emergence-feed (0022)</text>
+<line class="flow" x1="783" y1="2390" x2="783" y2="2426"/>
+<text class="lbl" x="795" y="2411">all state → surfaced read-only</text>
+<text class="tier" x="140" y="2434" fill="#6F6C64">⑫  OBSERVABILITY SURFACE · RUNTIME · CONFIG/FLAGS</text>
+<text class="tierdesc" x="140" y="2450">control-plane/ (read-only Next.js 15 over SQLite, Review default) + config.py central ~90-flag registry + container bootstrap.</text>
+<rect class="box" x="140" y="2460" width="206" height="122" fill="#FFFFFF" stroke="#6F6C64"/>
+<text class="bt-s" x="151" y="2478" fill="#6F6C64">Control-plane app + presets</text>
+<text class="modp" x="151" y="2493">control-plane/app/page.tsx</text>
+<text class="fact" x="151" y="2505.5">Next.js 15 RSC, force-dynamic</text>
+<text class="fact" x="151" y="2515.9">5 presets review/op/cost/debug/fed</text>
+<text class="fact" x="151" y="2526.3">Review = default front door (0182)</text>
+<text class="fact" x="151" y="2536.7">26 WidgetDef tiles, drag/pin</text>
+<text class="fact" x="151" y="2547.1">layout persisted (localStorage v15)</text>
+<rect class="box" x="356" y="2460" width="206" height="122" fill="#FFFFFF" stroke="#6F6C64"/>
+<text class="bt-s" x="367" y="2478" fill="#6F6C64">SQLite readers + health</text>
+<text class="bt-s" x="367" y="2491" fill="#6F6C64">rollup</text>
+<text class="modp" x="367" y="2506">control-plane/lib/db.ts</text>
+<text class="fact" x="367" y="2518.5">better-sqlite3 RO, query_only=ON</text>
+<text class="fact" x="367" y="2528.9">reads state/chimera.db directly</text>
+<text class="fact" x="367" y="2539.3">computeHealth = worst-of verdict</text>
+<text class="fact" x="367" y="2549.7">hotSignatures threshold=2 (0087)</text>
+<rect class="box" x="572" y="2460" width="206" height="122" fill="#FFFFFF" stroke="#6F6C64"/>
+<text class="bt-s" x="583" y="2478" fill="#6F6C64">Dashboard widgets + viz</text>
+<text class="modp" x="583" y="2493">control-plane/components/widgets/SimpleWidgets.tsx</text>
+<text class="fact" x="583" y="2505.5">SimpleWidgets ~19 tile components</text>
+<text class="fact" x="583" y="2515.9">9 widget .tsx + 5 viz primitives</text>
+<text class="fact" x="583" y="2526.3">Widget.tsx = shared chrome + drag</text>
+<text class="fact" x="583" y="2536.7">Sparkline/Donut/BarRow/TierLadder</text>
+<text class="fact" x="583" y="2547.1">cost_alarm via computeCostRate (0073)</text>
+<rect class="box" x="788" y="2460" width="206" height="122" fill="#FFFFFF" stroke="#6F6C64"/>
+<text class="bt-s" x="799" y="2478" fill="#6F6C64">Soak reporting</text>
+<text class="modp" x="799" y="2493">chimera/soak_report.py</text>
+<text class="fact" x="799" y="2505.5">via `chimera soak report`</text>
+<text class="fact" x="799" y="2515.9">iteration + finish-reason tables</text>
+<text class="fact" x="799" y="2526.3">reads soak_ledger JSONL</text>
+<text class="fact" x="799" y="2536.7">markdown tables, Σ totals</text>
+<text class="fact" x="799" y="2547.1">helpers sparkline.py / boxtable.py</text>
+<rect class="box" x="1004" y="2460" width="206" height="122" fill="#FFFFFF" stroke="#6F6C64"/>
+<text class="bt-s" x="1015" y="2478" fill="#6F6C64">Central flag registry +</text>
+<text class="bt-s" x="1015" y="2491" fill="#6F6C64">config</text>
+<text class="modp" x="1015" y="2506">chimera/config.py</text>
+<text class="fact" x="1015" y="2518.5">~90 flags, one source (0176)</text>
+<text class="fact" x="1015" y="2528.9">validate_env() cross-flag checks</text>
+<text class="fact" x="1015" y="2539.3">CI fails on undeclared flag read</text>
+<text class="fact" x="1015" y="2549.7">pairwise HIGH_IMPACT matrix (CI)</text>
+<rect class="box" x="1220" y="2460" width="206" height="122" fill="#FFFFFF" stroke="#6F6C64"/>
+<text class="bt-s" x="1231" y="2478" fill="#6F6C64">Runtime, logging +</text>
+<text class="bt-s" x="1231" y="2491" fill="#6F6C64">bootstrap</text>
+<text class="modp" x="1231" y="2506">chimera/core/observability.py</text>
+<text class="fact" x="1231" y="2518.5">JSON logs via LOG_JSON=1 (0018)</text>
+<text class="fact" x="1231" y="2528.9">phase_timer WARNs over budget</text>
+<text class="fact" x="1231" y="2539.3">container bootstrap tini (0064)</text>
+<text class="fact" x="1231" y="2549.7">HEALTHCHECK runs `chimera doctor`</text>
+<rect x="1436" y="26" width="546" height="222" rx="9" fill="#FBFAF6" stroke="#C3BBA9" stroke-width="1.5"/>
+<text class="tier" x="1456" y="50" fill="#6F6C64">LEGEND · ARCHITECTURAL TIERS</text>
+<line x1="1456" y1="60" x2="1964" y2="60" stroke="#D9D3C7"/>
+<rect x="1456" y="66" width="12" height="12" rx="3" fill="#26364A"/>
+<text class="sm" x="1476" y="76" font-size="11">① Loop &amp; 9-phase cycle</text>
+<rect x="1456" y="86" width="12" height="12" rx="3" fill="#3E5A6B"/>
+<text class="sm" x="1476" y="96" font-size="11">② Task shaping · split</text>
+<rect x="1456" y="106" width="12" height="12" rx="3" fill="#C58F2E"/>
+<text class="sm" x="1476" y="116" font-size="11">③ ACT · tool dispatch</text>
+<rect x="1456" y="126" width="12" height="12" rx="3" fill="#856A26"/>
+<text class="sm" x="1476" y="136" font-size="11">④ Inference · routing</text>
+<rect x="1456" y="146" width="12" height="12" rx="3" fill="#B0623C"/>
+<text class="sm" x="1476" y="156" font-size="11">⑤ Cost discipline (3 caps)</text>
+<rect x="1456" y="166" width="12" height="12" rx="3" fill="#8C4A57"/>
+<text class="sm" x="1476" y="176" font-size="11">⑥ Verification · gates</text>
+<rect x="1712" y="66" width="12" height="12" rx="3" fill="#5E6C63"/>
+<text class="sm" x="1732" y="76" font-size="11">⑦ Memory · KFM · graph</text>
+<rect x="1712" y="86" width="12" height="12" rx="3" fill="#3F6E66"/>
+<text class="sm" x="1732" y="96" font-size="11">⑧ Engines · drift · trust</text>
+<rect x="1712" y="106" width="12" height="12" rx="3" fill="#4B4A7A"/>
+<text class="sm" x="1732" y="116" font-size="11">⑨ Self-PR · foreign-PR</text>
+<rect x="1712" y="126" width="12" height="12" rx="3" fill="#6E6A3A"/>
+<text class="sm" x="1732" y="136" font-size="11">⑩ Skills · positioning</text>
+<rect x="1712" y="146" width="12" height="12" rx="3" fill="#35657A"/>
+<text class="sm" x="1732" y="156" font-size="11">⑪ A2A · federation</text>
+<rect x="1712" y="166" width="12" height="12" rx="3" fill="#6F6C64"/>
+<text class="sm" x="1732" y="176" font-size="11">⑫ Observability · runtime</text>
+<line x1="1456" y1="194" x2="1484" y2="194" stroke="#4A4640" stroke-width="1.6" marker-end="url(#arw)"/>
+<text class="sm" x="1492" y="198" font-size="11">dominant data / control flow</text>
+<line x1="1712" y1="194" x2="1740" y2="194" stroke="#B0623C" stroke-width="2.4" stroke-dasharray="8 5" marker-end="url(#arwV)"/>
+<text class="sm" x="1748" y="198" font-size="11">closed feedback loop</text>
+<rect x="1436" y="270" width="546" height="176" rx="9" fill="#FBFAF6" stroke="#26364A" stroke-width="1.5"/>
+<text class="tier" x="1456" y="294" fill="#26364A">(a) INVOCATION &amp; CADENCE</text>
+<line x1="1456" y1="304" x2="1964" y2="304" stroke="#D9D3C7"/>
+<text class="sm" x="1456" y="322">• Invocation-driven: one cycle per <tspan class="mono-i">chimera run</tspan> — no daemon</text>
+<text class="sm" x="1456" y="340">• 9 phases; SLEEP-free; COMMIT is a stub (git deferred)</text>
+<text class="mono-s" x="1456" y="358">phase budget_ms 500/500/1000/PLAN 240k/2000</text>
+<text class="sm" x="1456" y="373">• ACT wall ceiling 240s · ADR 0120 600s watchdog</text>
+<text class="sm" x="1456" y="391">• Opus planner every 4 cyc · session ≤12h → ROTATE</text>
+<text class="sm" x="1456" y="409">• Engines ≤1/UTC-day (Disc 08 · Curi 14 · Refl 22)</text>
+<text class="mono-s" x="1456" y="427">cadence external: soak runner / cron re-invokes run</text>
+<rect x="1436" y="462" width="546" height="176" rx="9" fill="#FBFAF6" stroke="#6F6C64" stroke-width="1.5"/>
+<text class="tier" x="1456" y="486" fill="#6F6C64">(b) MODELS &amp; EXTERNAL SERVICES</text>
+<line x1="1456" y1="496" x2="1964" y2="496" stroke="#D9D3C7"/>
+<text class="sm" x="1456" y="514">• <tspan font-weight="700">Anthropic</tspan> Claude tiers · <tspan class="mono-i">ANTHROPIC_API_KEY</tspan></text>
+<text class="sm" x="1456" y="532">• <tspan font-weight="700">OpenRouter</tspan> non-Claude rungs + witnesses</text>
+<text class="sm" x="1456" y="550">• <tspan font-weight="700">Sakana Fugu</tspan> shadow-arbiter ensemble · <tspan class="mono-i">FUGU_API_KEY</tspan></text>
+<text class="mono-s" x="1456" y="568">opus ladder INVERTED: deepseek-v4-pro leads, opus last (~34×)</text>
+<text class="sm" x="1456" y="583">• <tspan font-weight="700">Web</tspan> Exa / Brave / Tavily · <tspan font-weight="700">GitHub</tspan> gh DRAFT PRs</text>
+<text class="sm" x="1456" y="601">• <tspan font-weight="700">Embedders</tspan> (evals) Ollama / OpenAI</text>
+<rect x="1436" y="654" width="546" height="234" rx="9" fill="#FBFAF6" stroke="#B0623C" stroke-width="1.5"/>
+<text class="tier" x="1456" y="678" fill="#B0623C">(c) GOVERNANCE · THREE COST CAPS · GUARDS</text>
+<line x1="1456" y1="688" x2="1964" y2="688" stroke="#D9D3C7"/>
+<text class="mono-s" x="1456" y="706">3 caps BEFORE every call: cycle $2 · hour $20 · task $5</text>
+<text class="sm" x="1456" y="721">• 0 disables a cap; trip = spend not failure → no promote</text>
+<text class="sm" x="1456" y="739">• ~20 ACT completion guards flip completed=False:</text>
+<text class="mono-s" x="1456" y="757">scope-evasion · syntax · import-shadow · test-claim · fix-w/o-test</text>
+<text class="sm" x="1456" y="772">• Critic gate fail-closed · verdict bound to diff --cached</text>
+<text class="sm" x="1456" y="790">• Cross-provider witness panel (3, pool 5) — any dissent → reject</text>
+<text class="sm" x="1456" y="808">• Scope guards fail-closed: off-charter commit refused</text>
+<text class="mono-s" x="1456" y="826">cost recomputed tokens×price (cost_usd never populated)</text>
+<rect x="1436" y="904" width="546" height="196" rx="9" fill="#FBFAF6" stroke="#8C4A57" stroke-width="1.5"/>
+<text class="tier" x="1456" y="928" fill="#8C4A57">(d) SECURITY BASELINE — ADR 0175 / 0178</text>
+<line x1="1456" y1="938" x2="1964" y2="938" stroke="#D9D3C7"/>
+<text class="sm" x="1456" y="956">• Timing-safe peer bearer auth (hmac.compare_digest)</text>
+<text class="mono-s" x="1456" y="974">sanitized_subprocess_env strips *KEY*/*TOKEN*/*SECRET*</text>
+<text class="sm" x="1456" y="989">• Secret-free shell · code_exec · gate subprocesses</text>
+<text class="sm" x="1456" y="1007">• Atomic trust_state.json (mkstemp+fsync+os.replace)</text>
+<text class="sm" x="1456" y="1025">• Non-loopback MCP bind needs token + TLS, else refused</text>
+<text class="sm" x="1456" y="1043">• Dashboard db+mind :ro, query_only=ON · non-root uid</text>
+<text class="sm" x="1456" y="1061">• validate(): secret-path blocklist + high-entropy gate</text>
+<rect x="1436" y="1116" width="546" height="176" rx="9" fill="#FBFAF6" stroke="#3F6E66" stroke-width="1.5"/>
+<text class="tier" x="1456" y="1140" fill="#3F6E66">(e) TRUST T0–T5 · DRIFT · SELF-STEERING</text>
+<line x1="1456" y1="1150" x2="1964" y2="1150" stroke="#D9D3C7"/>
+<text class="mono-s" x="1456" y="1168">T0 LOCKED … T5 AUTONOMOUS (IntEnum)</text>
+<text class="sm" x="1456" y="1183">• readiness .4 stab + .3 act + .3 hyg (+.3 gate)</text>
+<text class="sm" x="1456" y="1201">• promote ≥0.70 &amp; dwell ≥3600s; demote 0–2, floor T1</text>
+<text class="sm" x="1456" y="1219">• T0 → ACT observer mode (all dispatch off)</text>
+<text class="mono-s" x="1456" y="1237">drift = ghost.35 + behav.35 + sem.30; lockdown ≥0.30</text>
+<text class="sm" x="1456" y="1252">• respond OBSERVE / NUDGE / DEMOTE_PLAN / KILL</text>
+<text class="sm" x="1456" y="1270">• escalation: fail→next tier; hot-signature alarm ≥2</text>
+<rect x="1436" y="1308" width="546" height="176" rx="9" fill="#FBFAF6" stroke="#26364A" stroke-width="1.5"/>
+<text class="tier" x="1456" y="1332" fill="#26364A">(f) OPERATOR LOOP · MUTATION GATE · CLI</text>
+<line x1="1456" y1="1342" x2="1964" y2="1342" stroke="#D9D3C7"/>
+<text class="sm" x="1456" y="1360">• Mutations queue: pending → approved → applied</text>
+<text class="sm" x="1456" y="1378">• ARCHIVED→KILLED operator-gated (protects provenance)</text>
+<text class="sm" x="1456" y="1396">• Self-/Foreign-PR: DRAFT only; trust ≥T4; first-5 gated</text>
+<text class="mono-s" x="1456" y="1414">~90 CHIMERA_* flags, one registry, CI pairwise matrix (0176)</text>
+<text class="mono-s" x="1456" y="1429">CLI: run·cost·estimate·escalations·trust·ontology·backlog·soak</text>
+<text class="sm" x="1456" y="1444">• Dashboard: read-only Next.js 15 · Review default (0182)</text>
+<rect x="1436" y="1500" width="546" height="168" rx="9" fill="#FBFAF6" stroke="#5E6C63" stroke-width="1.5"/>
+<text class="tier" x="1456" y="1524" fill="#5E6C63">(g) SCENARIOS · DRILLS · SOAK</text>
+<line x1="1456" y1="1534" x2="1964" y2="1534" stroke="#D9D3C7"/>
+<text class="mono-s" x="1456" y="1552">chimera/scenarios/* — end-to-end drills</text>
+<text class="sm" x="1456" y="1567">• federation_drill · two_chimera · multi_host</text>
+<text class="sm" x="1456" y="1585">• cost_runaway_drill — trips the 3 caps on purpose</text>
+<text class="sm" x="1456" y="1603">• drift_scenario — forces drift → demote / lockdown</text>
+<text class="sm" x="1456" y="1621">• graph_stress — Kuzu projection load</text>
+<text class="sm" x="1456" y="1639">• research_scenario — full research task</text>
+<text class="mono-s" x="1456" y="1657">scripts/real_task_soak.sh — long-run soak (SOAK_RUN_ID)</text>
+<rect x="1436" y="1684" width="546" height="150" rx="9" fill="#FBFAF6" stroke="#6F6C64" stroke-width="1.5"/>
+<text class="tier" x="1456" y="1708" fill="#6F6C64">(h) TESTS · CI GATES</text>
+<line x1="1456" y1="1718" x2="1964" y2="1718" stroke="#D9D3C7"/>
+<text class="mono-s" x="1456" y="1736">pytest tests/ · asyncio_mode=auto · -m slow drills</text>
+<text class="sm" x="1456" y="1751">• ruff line-length 100 · target py312</text>
+<text class="sm" x="1456" y="1769">• flag registry: undeclared read fails CI (0176)</text>
+<text class="sm" x="1456" y="1787">• pairwise HIGH_IMPACT flag matrix in CI</text>
+<text class="sm" x="1456" y="1805">• mutation-teeth + guardrail-eval as self-tests</text>
+<rect x="1436" y="1850" width="546" height="168" rx="9" fill="#F7ECE6" stroke="#B0623C" stroke-width="1.8"/>
+<text class="tier" x="1456" y="1874" fill="#B0623C">★ KEY FEEDBACK LOOPS</text>
+<line x1="1456" y1="1884" x2="1964" y2="1884" stroke="#D9D3C7"/>
+<text class="mono-s" x="1456" y="1902">ACT fail → task_escalations → next cycle one tier up</text>
+<text class="mono-s" x="1456" y="1917">FLUSH: observe → drift assess → demote plan / lockdown</text>
+<text class="mono-s" x="1456" y="1932">readiness ≥0.70 → auto-promote T0…T5 (earned trust)</text>
+<text class="mono-s" x="1456" y="1947">≥3 sig failures → task-split; fragmentation → skill_proposal</text>
+<text class="mono-s" x="1456" y="1962">crawl merge_rate / revert_rate → RUN auto-merge graduation</text>
+<rect x="1436" y="2034" width="546" height="150" rx="9" fill="#FBF6EC" stroke="#856A26" stroke-width="1.8"/>
+<text class="tier" x="1456" y="2058" fill="#856A26">★ SOURCE OF TRUTH</text>
+<line x1="1456" y1="2068" x2="1964" y2="2068" stroke="#D9D3C7"/>
+<text class="mono-s" x="1456" y="2086">SQLite state/chimera.db = KFM entities + transitions</text>
+<text class="mono-s" x="1456" y="2101">   + api_calls · mutations · task_escalations (WAL, v4)</text>
+<text class="sm" x="1456" y="2116">mind/*.md: HEARTBEAT (cycle) · INBOX · CHRONICLE</text>
+<text class="sm" x="1456" y="2134">Kuzu graph + FTS5 wiki = DERIVED, rebuildable (~95% skip)</text>
+<text class="sm" x="1456" y="2152">cycle counter restored from HEARTBEAT.md, not the DB</text>
+<line x1="140" y1="2582" x2="1424" y2="2582" stroke="#D9D3C7"/>
+<text class="mono-s" x="140" y="2600">Repo: elementalcollision/chimera · entrypoint <tspan class="mono-i">chimera = chimera.cli:main</tspan> · one 9-phase cycle per <tspan class="mono-i">chimera run</tspan> (live loop in chimera/core/loop.py) · 439 files · 188 ADRs.</text>
+<text class="mono-s" x="140" y="2618" fill="#8A8578">Grounded in a 12-agent CodeGraph map of the repo. Boxes name the primary module + real symbols; facts cite thresholds, env flags (CHIMERA_*) and ADR numbers. Derived recall (Kuzu / FTS5) is rebuildable; SQLite + mind/ are canonical.</text>
+</svg>
